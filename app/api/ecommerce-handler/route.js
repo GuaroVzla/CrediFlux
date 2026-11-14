@@ -142,15 +142,22 @@ export async function POST(request) {
       receiptUrl = `/uploads/${cleanFileName}`;
 
       // Regla de Asignación Automática de IA con validación cruzada de patrones
-      // Autenticación dinámica: el token de Hugging Face se toma de los ajustes del Admin
+      // Autenticación dinámica: cada proveedor usa su propia clave/configuración guardada
       const activeProvider = db.settings.aiProvider || 'openai';
+      const ocrApiKeys = {
+        openai: db.settings?.ocrApiKeys?.openai || db.settings?.aiApiKey || '',
+        gemini: db.settings?.ocrApiKeys?.gemini || db.settings?.aiApiKey || '',
+        ocrspace: db.settings?.ocrApiKeys?.ocrspace || db.settings?.ocrSpaceApiKey || '',
+      };
       ocrResult = await parseReceiptWithAI({
         imageBuffer: buffer,
         mimeType: file.type || 'image/png',
-        apiKey: db.settings.aiApiKey || process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY,
+        apiKey: (activeProvider === 'openai' || activeProvider === 'gemini')
+          ? (ocrApiKeys[activeProvider] || process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY)
+          : undefined,
         provider: activeProvider,
         registeredPatterns,
-        ocrSpaceApiKey: db.settings.ocrSpaceApiKey || process.env.OCR_SPACE_API_KEY || null
+        ocrSpaceApiKey: ocrApiKeys.ocrspace || process.env.OCR_SPACE_API_KEY || null
       });
     }
 

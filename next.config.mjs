@@ -12,7 +12,11 @@ const nextConfig = {
       { source: '/api/settings', destination: '/api/settings-handler' },
       { source: '/api/products', destination: '/api/products-api' }
     ];
-  }
+  },
+
+  // Tesseract.js usa workers/wasm y rutas de archivos en runtime Node; se excluye del bundling
+  // para que resuelva correctamente worker/core/lang desde node_modules en server/API routes.
+  serverExternalPackages: ['tesseract.js', 'tesseract.js-core']
 };
 
 export default nextConfig;

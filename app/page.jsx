@@ -91,12 +91,22 @@ export default function SistemaRicardoApp() {
   // End-user license renewal form
   const [renewLicenseKey, setRenewLicenseKey] = useState('');
 
-  // End-user monthly capital state (12 months of current year)
+  // End-user monthly capital state (12 months per selectable year)
   const currentYear = new Date().getFullYear();
   const [monthlyCapitalsForm, setMonthlyCapitalsForm] = useState({});
+  const [selectedCapitalYear, setSelectedCapitalYear] = useState(new Date().getFullYear());
+  const [selectedCapitalMonth, setSelectedCapitalMonth] = useState(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
+  const [capitalMonthAmount, setCapitalMonthAmount] = useState('');
+  const [ecomTestCapitalAmount, setEcomTestCapitalAmount] = useState('');
 
-  // Motor IA de Ajustes: proveedor OCR seleccionado y resultado de prueba de conexión
+  // Motor IA de Ajustes: proveedor OCR seleccionado, credenciales por proveedor y resultado de prueba
   const [ocrProvider, setOcrProvider] = useState('openai');
+  const [ocrProviderKeys, setOcrProviderKeys] = useState({
+    openai: '',
+    gemini: '',
+    ocrspace: '',
+    tesseract: ''
+  });
   const [ocrConnectionTest, setOcrConnectionTest] = useState({ status: 'idle', message: '' });
   const [testingConnection, setTestingConnection] = useState(false);
 
@@ -143,8 +153,16 @@ export default function SistemaRicardoApp() {
   const [blacklistSearch, setBlacklistSearch] = useState('');
   const [restoringBlacklistId, setRestoringBlacklistId] = useState(null);
 
-  // DolarAPI rate states
-  const [dolarRates, setDolarRates] = useState({ oficial: null, paralelo: null, loading: false, error: false });
+  // Tasas de cambio: BCV (oficial, dolarapi.com) y promedio P2P de Binance (VES/USDT)
+  const [dolarRates, setDolarRates] = useState({
+    oficial: null,
+    p2pAverage: null,
+    p2pBuy: null,
+    p2pSell: null,
+    p2pUpdatedAt: null,
+    loading: false,
+    error: false
+  });
 
   // Contact support info for expired license
   const SUPPORT_CONTACT_TEXT = "Licencia del sistema caducada, favor comunicarse con el administrador del sistema. Informacion de contacto: telefono: +584126770824 correo: Oswaldoserrano18@gmail.com";
@@ -183,31 +201,58 @@ export default function SistemaRicardoApp() {
     fetchAllData();
   }, []);
 
-  // Fetch DolarAPI rates (ve.dolarapi.com)
-  const fetchDolarRates = async () => {
-    try {
-      setDolarRates(prev => ({ ...prev, loading: true, error: false }));
-      const [resOficial, resParalelo] = await Promise.all([
-        fetch('https://ve.dolarapi.com/v1/dolares/oficial').then(r => r.json()),
-        fetch('https://ve.dolarapi.com/v1/dolares/paralelo').then(r => r.json())
-      ]);
-      setDolarRates({
-        oficial: resOficial?.promedio || null,
-        paralelo: resParalelo?.promedio || null,
-        fechaActualizacion: resParalelo?.fechaActualizacion || resOficial?.fechaActualizacion || null,
-        loading: false,
-        error: false
-      });
-    } catch (err) {
-      console.error('Error fetching USD rates:', err);
-      setDolarRates(prev => ({ ...prev, loading: false, error: true }));
-    }
+  // Tasas de cambio: BCV oficial (dolarapi.com) + promedio ponderado P2P de Binance (VES/USDT)
+  // El endpoint /api/binance-p2p cachea en servidor 3 minutos; forceP2P evita la caché (botón refrescar).
+  const fetchDolarRates = async (options = {}) => {
+    const forceP2P = Boolean(options.forceP2P);
+    setDolarRates(prev => ({ ...prev, loading: true, error: false }));
+
+    const [oficialResult, p2pResult] = await Promise.allSettled([
+      fetch('https://ve.dolarapi.com/v1/dolares/oficial').then(r => r.json()),
+      fetch(`/api/binance-p2p${forceP2P ? '?force=1' : ''}`, { cache: 'no-store' }).then(r => r.json())
+    ]);
+
+    setDolarRates(prev => {
+      const next = { ...prev, loading: false, error: false };
+
+      if (oficialResult.status === 'fulfilled') {
+        const oficial = Number(oficialResult.value?.promedio);
+        if (Number.isFinite(oficial) && oficial > 0) next.oficial = oficial;
+      } else {
+        next.error = true;
+      }
+
+      if (p2pResult.status === 'fulfilled' && p2pResult.value?.success) {
+        const p2p = p2pResult.value;
+        const average = Number(p2p.average);
+        if (Number.isFinite(average) && average > 0) {
+          next.p2pAverage = average;
+          next.p2pBuy = Number(p2p.buy?.price) || null;
+          next.p2pSell = Number(p2p.sell?.price) || null;
+          next.p2pUpdatedAt = p2p.updatedAt || null;
+        }
+      } else {
+        // Se conservan las últimas tasas P2P conocidas ante fallos transitorios de Binance
+        next.error = true;
+      }
+
+      return next;
+    });
   };
 
+  // Actualización automática de tasas cada 5 minutos mientras la sesión esté activa.
+  // El endpoint P2P cachea 3 minutos en servidor, por lo que no se satura la API pública.
+  useEffect(() => {
+    if (!isAuthenticated) return undefined;
+    const interval = setInterval(() => { fetchDolarRates(); }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
+
   // Fetch all modules data from backend
-  const fetchAllData = async () => {
+  const fetchAllData = async (options = {}) => {
     setLoading(true);
-    fetchDolarRates();
+    fetchDolarRates({ forceP2P: Boolean(options.forceP2P) });
     try {
       const savedUser = localStorage.getItem('ricardo_user');
       const userId = savedUser ? JSON.parse(savedUser).id : '';
@@ -254,14 +299,36 @@ export default function SistemaRicardoApp() {
 
       if (resSettings.success) {
         setSettings(resSettings.settings);
-        if (resSettings.settings?.aiProvider && ['openai', 'gemini', 'ocrspace'].includes(resSettings.settings.aiProvider)) {
-          setOcrProvider(resSettings.settings.aiProvider);
+        const allowedUiProviders = ['openai', 'gemini', 'ocrspace', 'tesseract'];
+        const nextProvider = allowedUiProviders.includes(resSettings.settings?.aiProvider)
+          ? resSettings.settings.aiProvider
+          : 'openai';
+        setOcrProvider(nextProvider);
+        if (resSettings.settings?.ocrKeys) {
+          setOcrProviderKeys(prev => ({
+            ...prev,
+            openai: resSettings.settings.ocrKeys.openai || '',
+            gemini: resSettings.settings.ocrKeys.gemini || '',
+            ocrspace: resSettings.settings.ocrKeys.ocrspace || '',
+            tesseract: ''
+          }));
+        } else {
+          // Compatibilidad con respuestas legacy (sin ocrKeys)
+          setOcrProviderKeys(prev => ({
+            ...prev,
+            ocrspace: resSettings.settings?.ocrSpaceApiKey || prev.ocrspace || '',
+            openai: resSettings.settings?.aiProvider === 'openai' ? (resSettings.settings?.aiApiKey || prev.openai || '') : prev.openai,
+            gemini: resSettings.settings?.aiProvider === 'gemini' ? (resSettings.settings?.aiApiKey || prev.gemini || '') : prev.gemini
+          }));
         }
         if (resSettings.users) {
           setAdminUsersList(resSettings.users);
         }
         if (resSettings.receiptPatterns) {
           setReceiptPatterns(resSettings.receiptPatterns);
+        }
+        if (resSettings.settings?.monthlyCapitals) {
+          setMonthlyCapitalsForm(resSettings.settings.monthlyCapitals);
         }
         if (resSettings.currentUserInfo) {
           const updatedUser = {
@@ -991,6 +1058,25 @@ export default function SistemaRicardoApp() {
   }
 
   // --- MAIN AUTHENTICATED FINTECH DASHBOARD ---
+
+  // ---- Sistema tipográfico unificado del módulo de Ajustes ----
+  const settingsCardTheme = themeDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200';
+  const settingsCardCls = `p-5 rounded-2xl border ${settingsCardTheme}`;
+  const settingsSubcardTheme = themeDark ? 'bg-slate-800/40 border-slate-700/60' : 'bg-slate-50 border-slate-200';
+  const settingsTitleCls = 'text-base font-semibold text-white flex items-center gap-2';
+  const settingsCardTitleCls = 'text-sm font-semibold text-white flex items-center gap-2';
+  const settingsDescCls = 'text-xs text-slate-400 leading-relaxed';
+  const settingsLabelCls = 'block text-xs font-medium text-slate-300 mb-1.5';
+  const settingsInputCls = 'w-full h-10 px-3 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50';
+  const settingsTextareaCls = 'w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 resize-none';
+  const settingsPrimaryBtnCls = 'h-10 px-4 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-semibold rounded-lg text-sm transition-colors shadow-sm inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed';
+  const settingsSecondaryBtnCls = 'h-10 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold rounded-lg text-sm transition-colors inline-flex items-center justify-center gap-1.5';
+  const settingsDangerBtnCls = 'h-10 px-4 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 font-semibold rounded-lg text-sm transition-colors inline-flex items-center justify-center gap-1.5';
+  const settingsHelperCls = 'text-[11px] text-slate-500 leading-relaxed';
+  const settingsTableHeadCls = 'text-[11px] font-semibold uppercase tracking-wide text-slate-400';
+  const settingsTableBtnCls = 'h-8 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold transition-colors';
+  const settingsTableDangerBtnCls = 'h-8 px-3 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-lg text-xs font-semibold transition-colors';
+
   return (
     <div className={`min-h-screen ${themeDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'} flex flex-col transition-colors duration-200`}>
       {/* Toast Notification */}
@@ -1042,9 +1128,9 @@ export default function SistemaRicardoApp() {
             </div>
           </div>
 
-          {/* Top Actions: USD Rate (dolarapi.com), Refresh, Theme, User badge, Logout */}
+          {/* Top Actions: Tasas BCV + P2P Binance, Refresh, Theme, User badge, Logout */}
           <div className="flex items-center gap-2.5 sm:gap-3">
-            {/* USD Rates Widget from dolarapi.com */}
+            {/* Widget de tasas: BCV oficial (dolarapi.com) y promedio P2P Binance (VES/USDT) */}
             <div className={`flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-semibold ${themeDark ? 'bg-slate-800/90 border-slate-700/80' : 'bg-slate-100 border-slate-200'
               }`}>
               <div className="flex items-center gap-1.5">
@@ -1052,10 +1138,10 @@ export default function SistemaRicardoApp() {
                 <span className="text-[11px] font-bold text-emerald-400 tracking-wide">USD</span>
               </div>
               <div className="h-3 w-px bg-slate-700/60 hidden sm:block"></div>
-              {dolarRates.loading && !dolarRates.oficial && !dolarRates.paralelo ? (
+              {dolarRates.loading && !dolarRates.oficial && !dolarRates.p2pAverage ? (
                 <span className="text-[11px] text-slate-400 animate-pulse">Cargando...</span>
               ) : (
-                <div className="flex items-center gap-2 sm:gap-3 text-[11px]">
+                <div className="flex items-center gap-2 sm:gap-3 text-[11px] flex-wrap">
                   {dolarRates.oficial && (
                     <div className="flex items-center gap-1" title="Tasa Dólar Oficial BCV (dolarapi.com)">
                       <span className="text-slate-400 text-[10px]">BCV:</span>
@@ -1064,24 +1150,35 @@ export default function SistemaRicardoApp() {
                       </span>
                     </div>
                   )}
-                  {dolarRates.paralelo && (
-                    <div className="flex items-center gap-1" title="Tasa Dólar Paralelo (dolarapi.com)">
-                      <span className="text-slate-400 text-[10px]">Paralelo:</span>
+                  {dolarRates.p2pAverage && (
+                    <div
+                      className="flex items-center gap-1"
+                      title={`Promedio P2P Binance (VES/USDT)${
+                        dolarRates.p2pBuy && dolarRates.p2pSell
+                          ? ` · Compra: ${dolarRates.p2pBuy.toFixed(2)} · Venta: ${dolarRates.p2pSell.toFixed(2)}`
+                          : ''
+                      }${
+                        dolarRates.p2pUpdatedAt
+                          ? ` · Actualizado: ${new Date(dolarRates.p2pUpdatedAt).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' })}`
+                          : ''
+                      }`}
+                    >
+                      <span className="text-slate-400 text-[10px]">P2P:</span>
                       <span className="font-bold text-amber-300 font-mono">
-                        {dolarRates.paralelo.toFixed(2)}
+                        {dolarRates.p2pAverage.toFixed(2)}
                       </span>
                     </div>
                   )}
-                  {!dolarRates.oficial && !dolarRates.paralelo && (
-                    <span className="text-[10px] text-slate-400">dolarapi.com</span>
+                  {!dolarRates.oficial && !dolarRates.p2pAverage && (
+                    <span className="text-[10px] text-slate-400">BCV · Binance P2P</span>
                   )}
                 </div>
               )}
             </div>
 
             <button
-              onClick={fetchAllData}
-              title="Sincronizar datos y tasa USD"
+              onClick={() => fetchAllData({ forceP2P: true })}
+              title="Sincronizar datos y tasas (BCV + P2P Binance)"
               className={`p-2 rounded-xl border ${themeDark ? 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white' : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900'}`}
             >
               <RefreshCw className={`w-4 h-4 ${loading || dolarRates.loading ? 'animate-spin' : ''}`} />
@@ -1125,7 +1222,7 @@ export default function SistemaRicardoApp() {
             { id: 'clients', label: 'Clientes', icon: Users },
             { id: 'products', label: 'Productos', icon: Smartphone },
             { id: 'ecommerce', label: 'E-Commerce & OCR IA', icon: ShoppingBag, badge: 'IA' },
-            { id: 'settings', label: currentUser?.role === 'admin' ? 'Ajustes & Usuarios (Admin)' : 'Mi Cuenta, Empresa & Capital', icon: Lock }
+            { id: 'settings', label: currentUser?.role === 'admin' ? 'Ajustes y Usuarios (Admin)' : 'Mi Cuenta, Empresa y Capital', icon: Lock }
           ].map(tab => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
@@ -3515,115 +3612,317 @@ export default function SistemaRicardoApp() {
         {/* ============================================================== */}
         {/* TAB 7: AJUSTES, LICENCIA, EMPRESA & CAPITAL MENSUAL            */}
         {/* ============================================================== */}
-        {activeTab === 'settings' && (
-          <div className="max-w-4xl mx-auto space-y-8">
+        {activeTab === 'settings' && (() => {
+          const realCurrentMonthKey = new Date().toISOString().slice(0, 7);
+
+          // Años disponibles: año actual, siguientes y cualquier año con capital ya registrado
+          const capitalYearOptions = (() => {
+            const years = new Set([currentYear, selectedCapitalYear]);
+            const baseYear = Math.max(currentYear, 2026);
+            for (let y = baseYear; y <= baseYear + 5; y++) years.add(y);
+            Object.keys(monthlyCapitalsForm || {}).forEach(k => {
+              const y = Number(String(k).slice(0, 4));
+              if (Number.isFinite(y) && y >= 2000) years.add(y);
+            });
+            return Array.from(years).sort((a, b) => a - b);
+          })();
+
+          const selectedMonthNumber = Number(String(selectedCapitalMonth).slice(5, 7)) || (new Date().getMonth() + 1);
+          const selectedMonthMeta = monthLabels.find(m => m.num === selectedMonthNumber) || monthLabels[0];
+          const selectedMonthKey = `${selectedCapitalYear}-${String(selectedMonthMeta.num).padStart(2, '0')}`;
+          const selectedMonthValue = monthlyCapitalsForm?.[selectedMonthKey]?.capital ?? 0;
+
+          const yearMonthKeys = monthLabels.map(m => `${selectedCapitalYear}-${String(m.num).padStart(2, '0')}`);
+          const capitalTotalYear = yearMonthKeys.reduce((sum, key) => {
+            const val = Number(monthlyCapitalsForm?.[key]?.capital);
+            return sum + (Number.isFinite(val) ? val : 0);
+          }, 0);
+          const registeredCapitalMonths = yearMonthKeys
+            .map((key, idx) => ({
+              key,
+              month: monthLabels[idx],
+              year: selectedCapitalYear,
+              capital: Number(monthlyCapitalsForm?.[key]?.capital) || 0
+            }))
+            .filter(m => m.capital > 0);
+
+          const syncCapitalsFromServer = (capitals) => {
+            if (!capitals) return;
+            setMonthlyCapitalsForm(capitals);
+            setCurrentUser(prev => {
+              if (!prev) return prev;
+              const updated = { ...prev, monthlyCapitals: capitals };
+              try { localStorage.setItem('ricardo_user', JSON.stringify(updated)); } catch (e) {}
+              return updated;
+            });
+          };
+
+          const saveCapitalUpdate = async (updatedForm, successMsg) => {
+            try {
+              const res = await fetch('/api/settings', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-user-id': currentUser.id
+                },
+                body: JSON.stringify({ userMonthlyCapitals: updatedForm })
+              });
+              const data = await res.json();
+              if (data.success) {
+                notify(successMsg || 'Capital actualizado exitosamente');
+                syncCapitalsFromServer(data.monthlyCapitals);
+                fetchAllData();
+                return true;
+              } else {
+                notify(data.error || 'Error al guardar capital', 'error');
+                return false;
+              }
+            } catch (err) {
+              notify('Error de red al guardar capital', 'error');
+              return false;
+            }
+          };
+
+          const handleCapitalYearChange = (nextYear) => {
+            const year = Number(nextYear);
+            if (!Number.isFinite(year)) return;
+            setSelectedCapitalYear(year);
+            setSelectedCapitalMonth(`${year}-${String(selectedMonthMeta.num).padStart(2, '0')}`);
+            setCapitalMonthAmount('');
+          };
+
+          const handleAssignCapitalMonth = async (e) => {
+            e.preventDefault();
+            const amount = Number(capitalMonthAmount);
+            if (!Number.isFinite(amount) || amount < 0) {
+              notify('Ingresa un monto válido (0 o mayor)', 'error');
+              return;
+            }
+            const next = {
+              ...monthlyCapitalsForm,
+              [selectedMonthKey]: {
+                monthIndex: selectedMonthMeta.num,
+                monthName: selectedMonthMeta.name,
+                year: selectedCapitalYear,
+                capital: amount
+              }
+            };
+            setMonthlyCapitalsForm(next);
+            const ok = await saveCapitalUpdate(next, `Capital de ${selectedMonthMeta.name} ${selectedCapitalYear} actualizado`);
+            if (ok) setCapitalMonthAmount('');
+          };
+
+          const handleClearAllMonthlyCapitals = async () => {
+            if (!confirm(`¿Vaciar todo el capital asignado del año ${selectedCapitalYear}? Esta acción pondrá los 12 meses de ese año en 0.`)) return;
+            const cleared = {};
+            yearMonthKeys.forEach((key, idx) => {
+              cleared[key] = {
+                monthIndex: monthLabels[idx].num,
+                monthName: monthLabels[idx].name,
+                year: selectedCapitalYear,
+                capital: 0
+              };
+            });
+            const next = { ...monthlyCapitalsForm, ...cleared };
+            setMonthlyCapitalsForm(next);
+            await saveCapitalUpdate(next, `Todo el capital de ${selectedCapitalYear} fue reiniciado a 0`);
+          };
+
+          const handleQuickAddEcomCapital = async () => {
+            const delta = Number(ecomTestCapitalAmount);
+            if (!Number.isFinite(delta) || delta <= 0) {
+              notify('Ingresa un monto mayor a 0 para agregar', 'error');
+              return;
+            }
+            const meta = monthLabels.find(m => m.num === Number(realCurrentMonthKey.slice(5, 7))) || selectedMonthMeta;
+            const currentVal = Number(monthlyCapitalsForm?.[realCurrentMonthKey]?.capital) || 0;
+            const next = {
+              ...monthlyCapitalsForm,
+              [realCurrentMonthKey]: {
+                monthIndex: meta.num,
+                monthName: meta.name,
+                year: Number(realCurrentMonthKey.slice(0, 4)),
+                capital: Number((currentVal + delta).toFixed(2))
+              }
+            };
+            setMonthlyCapitalsForm(next);
+            const ok = await saveCapitalUpdate(next, `Capital de ${meta.name} incrementado (+$${delta.toFixed(2)})`);
+            if (ok) setEcomTestCapitalAmount('');
+          };
+
+          // Reset directo en servidor: no depende del estado local y garantiza que
+          // el capital del administrador quede realmente en 0 en la base de datos.
+          const handleQuickClearEcomCapital = async () => {
+            if (!confirm('¿Vaciar el capital asignado del mes actual para pruebas de ecommerce?')) return;
+            try {
+              const res = await fetch('/api/settings', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-user-id': currentUser.id
+                },
+                body: JSON.stringify({ resetCapital: { monthKeys: [realCurrentMonthKey] } })
+              });
+              const data = await res.json();
+              if (data.success) {
+                syncCapitalsFromServer(data.monthlyCapitals);
+                notify(`Capital de ${new Date().toLocaleString('es-VE', { month: 'long', year: 'numeric' })} vaciado para pruebas`);
+                fetchAllData();
+              } else {
+                notify(data.error || 'Error al vaciar el capital', 'error');
+              }
+            } catch (err) {
+              notify('Error de red al vaciar el capital', 'error');
+            }
+          };
+
+          return (
+          <div className="max-w-6xl mx-auto space-y-5">
             <div>
               <h2 className="text-2xl font-bold text-white tracking-tight">
-                {currentUser?.role === 'admin' ? 'Ajustes Maestros del Administrador' : 'Mi Cuenta, Empresa & Capital Mensual'}
+                {currentUser?.role === 'admin' ? 'Ajustes Maestros del Administrador' : 'Mi Cuenta, Empresa y Capital Mensual'}
               </h2>
-              <p className="text-slate-400 text-xs">
+              <p className="text-slate-400 text-sm leading-relaxed">
                 {currentUser?.role === 'admin'
-                  ? 'Panel exclusivo: Registro de nuevos usuarios, asignación de empresas, supervisión de claves, licencias y proveedor global de IA.'
-                  : `Empresa asignada: ${currentUser?.companyName || 'Sin asignar'} • Gestión mensual de capital para cálculo de utilidades y estado de licencia.`}
+                  ? 'Panel exclusivo del administrador: registro de nuevos usuarios, asignación de empresas, supervisión de claves, licencias y proveedor global de IA.'
+                  : `Empresa asignada: ${currentUser?.companyName || 'Sin asignar'} • Gestión mensual de capital para el cálculo de utilidades y el estado de la licencia.`}
               </p>
             </div>
 
-            {/* SECCIÓN DE USUARIO FINAL: GESTIÓN MENSUAL DE CAPITAL ASIGNADO (12 MESES) */}
+            {/* SECCIÓN DE USUARIO FINAL: GESTIÓN MENSUAL DE CAPITAL ASIGNADO */}
+            <div className={`grid grid-cols-1 gap-5 items-start ${currentUser?.role !== 'admin' ? 'lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]' : ''}`}>
             {currentUser?.role !== 'admin' && (
-              <div className={`p-6 rounded-3xl border ${themeDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200'}`}>
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-                  <div>
-                    <h3 className="font-bold text-base text-white flex items-center gap-2">
-                      <DollarSign className="w-5 h-5 text-emerald-400" />
-                      Gestión Mensual de Capital Asignado ({currentYear})
-                    </h3>
-                    <p className="text-xs text-slate-400">
-                      Define el capital disponible para cada mes de forma independiente. Este monto se utiliza en el cálculo de ganancias y ROI de tu empresa.
-                    </p>
-                  </div>
+              <div className={`p-4 rounded-2xl border lg:row-span-2 ${settingsCardTheme}`}>
+                <div className="mb-3">
+                  <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                    <DollarSign className="w-4 h-4 text-emerald-400 shrink-0" />
+                    Gestión mensual de capital
+                  </h3>
+                  <p className="text-xs text-slate-400 leading-relaxed mt-1">Define el capital de cada mes. El total se actualiza automáticamente.</p>
+                </div>
+                <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 mb-3">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-300/80">Total {selectedCapitalYear}</span>
+                  <span className="text-sm font-bold text-emerald-400 leading-tight tabular-nums">${capitalTotalYear.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
 
-                <form onSubmit={handleSaveMonthlyCapitals} className="space-y-4">
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                    {monthLabels.map(m => {
-                      const monthKey = `${currentYear}-${String(m.num).padStart(2, '0')}`;
-                      const currentVal = monthlyCapitalsForm?.[monthKey]?.capital ?? 5000;
-                      const isCurrentMonth = new Date().getMonth() + 1 === m.num;
-
-                      return (
-                        <div
-                          key={monthKey}
-                          className={`p-3 rounded-2xl border text-xs flex flex-col justify-between ${isCurrentMonth
-                            ? 'bg-emerald-500/10 border-emerald-500/40 ring-1 ring-emerald-500/30'
-                            : 'bg-slate-800/40 border-slate-700/60'
-                            }`}
+                <form onSubmit={handleAssignCapitalMonth} className="rounded-xl border border-slate-800/80 bg-slate-950/20 p-3 mb-3">
+                  <div className="space-y-2.5">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className={settingsLabelCls}>Año</label>
+                        <select
+                          value={selectedCapitalYear}
+                          onChange={(e) => handleCapitalYearChange(e.target.value)}
+                          className={settingsInputCls}
                         >
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="font-bold text-slate-200">{m.name}</span>
-                            {isCurrentMonth && (
-                              <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-400 text-slate-950 uppercase">Actual</span>
-                            )}
-                          </div>
-
-                          <div className="relative mt-1">
-                            <span className="absolute left-2.5 top-2 text-slate-400 font-bold">$</span>
-                            <input
-                              type="number"
-                              step="any"
-                              value={currentVal}
-                              onChange={(e) => {
-                                const val = Number(e.target.value) || 0;
-                                setMonthlyCapitalsForm(prev => ({
-                                  ...prev,
-                                  [monthKey]: {
-                                    monthIndex: m.num,
-                                    monthName: m.name,
-                                    year: currentYear,
-                                    capital: val
-                                  }
-                                }));
-                              }}
-                              className="w-full pl-6 pr-2 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-bold text-xs"
-                            />
-                          </div>
-                          <span className="text-[10px] text-slate-500 mt-1 block">Mes {m.num} de 12</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="flex justify-end pt-2">
+                          {capitalYearOptions.map(year => (
+                            <option key={year} value={year}>{year}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className={settingsLabelCls}>Mes</label>
+                        <select
+                          value={selectedMonthKey}
+                          onChange={(e) => {
+                            setSelectedCapitalMonth(e.target.value);
+                            setCapitalMonthAmount('');
+                          }}
+                          className={settingsInputCls}
+                        >
+                          {monthLabels.map(m => {
+                            const key = `${selectedCapitalYear}-${String(m.num).padStart(2, '0')}`;
+                            return <option key={key} value={key}>{m.name}</option>;
+                          })}
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className={settingsLabelCls}>Capital a asignar (USD)</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-semibold">$</span>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={capitalMonthAmount}
+                          onChange={(e) => setCapitalMonthAmount(e.target.value)}
+                          placeholder={String(selectedMonthValue)}
+                          className="w-full h-10 pl-7 pr-3 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white font-semibold placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                        />
+                      </div>
+                      <p className={`${settingsHelperCls} mt-1`}>Capital actual de {selectedMonthMeta.name} {selectedCapitalYear}: <span className="text-slate-300 font-medium">${Number(selectedMonthValue || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></p>
+                    </div>
                     <button
                       type="submit"
-                      className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-xl text-xs transition-all shadow-md flex items-center gap-1.5"
+                      className={`${settingsPrimaryBtnCls} w-full whitespace-nowrap`}
                     >
                       <Save className="w-4 h-4" />
-                      <span>Guardar Capital de los 12 Meses</span>
+                      <span>Asignar / Actualizar</span>
                     </button>
                   </div>
                 </form>
+
+                <div className="rounded-xl border border-slate-800 overflow-hidden">
+                  <div className="px-3 py-2 bg-slate-800/40 border-b border-slate-800 flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-300">Resumen de meses con capital</span>
+                    <span className="text-[11px] text-slate-500">{registeredCapitalMonths.length} mes(es) de {selectedCapitalYear}</span>
+                  </div>
+                  <div className="max-h-52 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-800/30">
+                      <tr className={settingsTableHeadCls}>
+                        <th className="text-left py-2 px-3">Mes</th>
+                        <th className="text-right py-2 px-3">Capital</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {registeredCapitalMonths.length === 0 ? (
+                        <tr>
+                          <td colSpan="2" className="py-3 px-3 text-center text-slate-500 text-xs">No hay meses con capital registrado en {selectedCapitalYear}.</td>
+                        </tr>
+                      ) : registeredCapitalMonths.map(item => (
+                        <tr key={item.key} className="border-t border-slate-800/70 hover:bg-slate-800/20">
+                          <td className="py-1.5 px-3 text-slate-200">{item.month.name} {item.year}</td>
+                          <td className="py-1.5 px-3 text-right font-semibold text-emerald-400 tabular-nums">${item.capital.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  </div>
+                </div>
+
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={handleClearAllMonthlyCapitals}
+                    className={`${settingsDangerBtnCls} w-full`}
+                  >
+                    Vaciar todo el capital de {selectedCapitalYear}
+                  </button>
+                </div>
               </div>
             )}
 
             {/* BARRA DE CONSUMO DE LICENCIA */}
-            <div className={`p-6 rounded-3xl border ${themeDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200'}`}>
+            <div className={`${settingsCardCls} ${currentUser?.role !== 'admin' ? 'lg:col-start-2 lg:row-start-2' : ''}`}>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
                 <div>
-                  <h4 className="font-bold text-base text-white flex items-center gap-2">
+                  <h4 className={settingsCardTitleCls}>
                     <Key className="w-4 h-4 text-emerald-400" />
                     Estado de Licencia
                   </h4>
-                  <p className="text-xs text-slate-400">
+                  <p className={`${settingsDescCls} mt-1`}>
                     Licencia: <strong className="text-emerald-400 font-mono">{currentUser?.licenseKey || 'MASTER-ADMIN'}</strong> • Empresa: <strong className="text-white">{currentUser?.companyName || 'Sin asignar'}</strong>
                   </p>
                 </div>
                 <div className="text-right">
                   {currentUser?.role === 'admin' ? (
-                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                    <span className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
                       ADMINISTRADOR • ILIMITADO
                     </span>
                   ) : (
-                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${licenseProgress.isExpired
+                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${licenseProgress.isExpired
                       ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
                       : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
                       }`}>
@@ -3636,7 +3935,7 @@ export default function SistemaRicardoApp() {
               {currentUser?.role !== 'admin' && (
                 <div className="space-y-1.5 mt-3">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-400">Vigencia disponible:</span>
+                    <span className="text-slate-400 font-medium">Vigencia disponible:</span>
                     <span className={licenseProgress.isExpired ? 'text-rose-400 font-bold' : 'text-emerald-400 font-bold'}>
                       {licenseProgress.percent}% activo ({licenseProgress.daysLeft} de {licenseProgress.totalDays} días)
                     </span>
@@ -3652,7 +3951,7 @@ export default function SistemaRicardoApp() {
                       style={{ width: `${licenseProgress.percent}%` }}
                     />
                   </div>
-                  <div className="flex justify-between text-[10px] text-slate-500 pt-1">
+                  <div className="flex justify-between text-[11px] text-slate-500 pt-1">
                     <span>Fecha de Asignación: {currentUser?.licenseAssignedAt ? new Date(currentUser.licenseAssignedAt).toLocaleDateString() : 'N/A'}</span>
                     <span>Fecha Límite: {currentUser?.licenseExpiresAt ? new Date(currentUser.licenseExpiresAt).toLocaleDateString() : 'N/A'}</span>
                   </div>
@@ -3660,13 +3959,13 @@ export default function SistemaRicardoApp() {
               )}
 
               {currentUser?.role !== 'admin' && (
-                <div className="mt-4 p-3 rounded-2xl bg-slate-800/50 border border-slate-700/60 text-xs text-slate-300">
+                <div className={`mt-4 p-3 rounded-xl border text-xs text-slate-300 ${settingsSubcardTheme}`}>
                   <div className="flex items-center gap-2 text-emerald-400 font-semibold mb-1">
                     <Phone className="w-3.5 h-3.5" />
                     <span>Contacto Administrador del Sistema:</span>
                   </div>
-                  <p className="text-[11px] text-slate-400">
-                    Teléfono: <strong className="text-white">+58 412-6770824</strong> • Correo: <strong className="text-white">Oswaldoserrano18@gmail.com</strong>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Teléfono: <strong className="text-white font-medium">+58 412-6770824</strong> • Correo: <strong className="text-white font-medium">Oswaldoserrano18@gmail.com</strong>
                   </p>
                 </div>
               )}
@@ -3674,13 +3973,13 @@ export default function SistemaRicardoApp() {
 
             {/* USUARIO FINAL: INGRESAR NUEVA LICENCIA Y CAMBIAR CLAVE */}
             {currentUser?.role !== 'admin' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className={`p-6 rounded-3xl border ${themeDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200'}`}>
-                  <h4 className="font-bold text-sm text-white mb-2 flex items-center gap-2">
+              <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${currentUser?.role !== 'admin' ? 'lg:col-start-2 lg:row-start-1' : ''}`}>
+                <div className={settingsCardCls}>
+                  <h4 className={`${settingsCardTitleCls} mb-2`}>
                     <Key className="w-4 h-4 text-emerald-400" />
                     Activar Nueva Licencia
                   </h4>
-                  <p className="text-xs text-slate-400 mb-4">
+                  <p className={`${settingsDescCls} mb-4`}>
                     Ingresa el código suministrado por el administrador para reactivar o extender tu sistema.
                   </p>
 
@@ -3709,7 +4008,7 @@ export default function SistemaRicardoApp() {
                         notify('Error de red', 'error');
                       }
                     }}
-                    className="space-y-3 text-xs"
+                    className="space-y-3"
                   >
                     <div>
                       <input
@@ -3718,24 +4017,24 @@ export default function SistemaRicardoApp() {
                         placeholder="RIC-XXXX-XXXX-XXXX"
                         value={renewLicenseKey}
                         onChange={(e) => setRenewLicenseKey(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white font-mono text-center font-bold"
+                        className={`${settingsInputCls} font-mono text-center font-semibold tracking-wider`}
                       />
                     </div>
                     <button
                       type="submit"
-                      className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-xl transition-all shadow-md"
+                      className={`${settingsPrimaryBtnCls} w-full`}
                     >
                       Validar & Activar Licencia
                     </button>
                   </form>
                 </div>
 
-                <div className={`p-6 rounded-3xl border ${themeDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200'}`}>
-                  <h4 className="font-bold text-sm text-white mb-2 flex items-center gap-2">
+                <div className={settingsCardCls}>
+                  <h4 className={`${settingsCardTitleCls} mb-2`}>
                     <Lock className="w-4 h-4 text-emerald-400" />
                     Cambiar Mi Clave de Acceso
                   </h4>
-                  <p className="text-xs text-slate-400 mb-4">
+                  <p className={`${settingsDescCls} mb-4`}>
                     Actualiza tu contraseña personal para acceder a tu sesión.
                   </p>
 
@@ -3765,7 +4064,7 @@ export default function SistemaRicardoApp() {
                         notify('Error de red', 'error');
                       }
                     }}
-                    className="space-y-3 text-xs"
+                    className="space-y-3"
                   >
                     <div>
                       <input
@@ -3773,12 +4072,12 @@ export default function SistemaRicardoApp() {
                         required
                         name="newPassword"
                         placeholder="Nueva contraseña (mínimo 4 caracteres)"
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                        className={settingsInputCls}
                       />
                     </div>
                     <button
                       type="submit"
-                      className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl border border-slate-700 transition-all"
+                      className={`${settingsSecondaryBtnCls} w-full`}
                     >
                       Actualizar Mi Contraseña
                     </button>
@@ -3787,20 +4086,71 @@ export default function SistemaRicardoApp() {
               </div>
             )}
 
+            </div>
+
             {/* ========================================================= */}
             {/* VISTA EXCLUSIVA DE ADMINISTRADOR                          */}
             {/* ========================================================= */}
             {currentUser?.role === 'admin' && (
-              <div className="space-y-8">
+              <>
+                {/* HERRAMIENTA DE PRUEBAS (ECOMMERCE) */}
+                <div className={`${settingsCardCls} space-y-4`}>
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <h3 className={settingsTitleCls}>
+                        <DollarSign className="w-5 h-5 text-amber-400" />
+                        Herramienta de Pruebas (Ecommerce)
+                      </h3>
+                      <p className={`${settingsDescCls} mt-1`}>Agregar o vaciar rápidamente el capital asignado del mes actual para simulaciones del módulo de ecommerce.</p>
+                    </div>
+                    <div className="text-right text-xs text-slate-400">
+                      <span>Mes actual: </span>
+                      <strong className="text-white">{new Date().toLocaleString('es-VE', { month: 'long', year: 'numeric' })}</strong>
+                      <div className="text-emerald-400 font-semibold">
+                        Capital actual: ${Number(monthlyCapitalsForm?.[new Date().toISOString().slice(0, 7)]?.capital || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-end">
+                    <div className="flex-1">
+                      <label className={settingsLabelCls}>Monto a agregar ($)</label>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={ecomTestCapitalAmount}
+                        onChange={(e) => setEcomTestCapitalAmount(e.target.value)}
+                        placeholder="Ej: 100"
+                        className={settingsInputCls}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleQuickAddEcomCapital}
+                      className={settingsPrimaryBtnCls}
+                    >
+                      Agregar capital
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleQuickClearEcomCapital}
+                      className={settingsDangerBtnCls}
+                    >
+                      Vaciar capital
+                    </button>
+                  </div>
+                </div>
+
+              <div className="space-y-5">
                 {/* 1. LISTADO DE USUARIOS FINALES + BOTÓN DE REGISTRAR NUEVO USUARIO */}
-                <div className={`p-6 rounded-3xl border ${themeDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200'}`}>
+                <div className={settingsCardCls}>
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
                     <div>
-                      <h3 className="font-bold text-base text-white flex items-center gap-2">
+                      <h3 className={settingsTitleCls}>
                         <Users className="w-5 h-5 text-emerald-400" />
                         Usuarios Finales del Sistema ({adminUsersList.filter(u => u.role !== 'admin').length})
                       </h3>
-                      <p className="text-xs text-slate-400">
+                      <p className={`${settingsDescCls} mt-1`}>
                         Solo tú puedes registrar usuarios, asignar empresas individuales, consultar contraseñas y renovar licencias.
                       </p>
                     </div>
@@ -3810,7 +4160,7 @@ export default function SistemaRicardoApp() {
                         handleAdminGenerateLicense(1);
                         setNewUserModal(true);
                       }}
-                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-950 font-bold text-xs shadow-md flex items-center gap-1.5"
+                      className={settingsPrimaryBtnCls}
                     >
                       <UserPlus className="w-4 h-4" />
                       <span>Registrar Nuevo Usuario</span>
@@ -3819,7 +4169,7 @@ export default function SistemaRicardoApp() {
 
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
-                      <thead className="border-b border-slate-800 text-slate-400 font-semibold uppercase">
+                      <thead className={`border-b border-slate-800 ${settingsTableHeadCls}`}>
                         <tr>
                           <th className="py-3 px-4">Usuario / Nombre</th>
                           <th className="py-3 px-4">Empresa Asignada</th>
@@ -3836,10 +4186,10 @@ export default function SistemaRicardoApp() {
                           return (
                             <tr key={u.id} className="hover:bg-slate-800/30">
                               <td className="py-3.5 px-4">
-                                <div className="font-bold text-white text-sm">{u.name}</div>
-                                <span className="text-slate-400 text-xs">@{u.username}</span>
+                                <div className="text-sm font-semibold text-white">{u.name}</div>
+                                <span className="text-xs text-slate-400">@{u.username}</span>
                                 {u.role === 'admin' && (
-                                  <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300">ADMIN</span>
+                                  <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300">ADMIN</span>
                                 )}
                               </td>
                               <td className="py-3.5 px-4 text-slate-200 font-medium">
@@ -3859,11 +4209,11 @@ export default function SistemaRicardoApp() {
                               </td>
                               <td className="py-3.5 px-4">
                                 {u.role === 'admin' ? (
-                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                                     Activo
                                   </span>
                                 ) : (
-                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${isExpired
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${isExpired
                                     ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
                                     : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                                     }`}>
@@ -3876,14 +4226,14 @@ export default function SistemaRicardoApp() {
                                   {u.role === 'admin' ? (
                                     <button
                                       onClick={() => setEditUserModal({ open: true, user: u, passwordOnly: true })}
-                                      className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold"
+                                      className={settingsTableBtnCls}
                                     >
                                       Editar clave
                                     </button>
                                   ) : (
                                     <button
                                       onClick={() => setEditUserModal({ open: true, user: u })}
-                                      className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold"
+                                      className={settingsTableBtnCls}
                                     >
                                       Editar
                                     </button>
@@ -3896,7 +4246,7 @@ export default function SistemaRicardoApp() {
                                       filter: { period: 'all', day: '', month: '', year: '', until: '' },
                                       processing: false
                                     })}
-                                    className="px-3 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-lg text-xs font-semibold"
+                                    className={settingsTableDangerBtnCls}
                                     title="Vaciar datos (granular y por fecha)"
                                   >
                                     Vaciar
@@ -3913,24 +4263,32 @@ export default function SistemaRicardoApp() {
 
                 {/* 2. CONFIGURACIÓN DEL SISTEMA Y PROVEEDOR DE IA AUTOMÁTICO (SOLO ADMIN) */}
                 {/* Los campos de 'Nombre de la empresa' y 'Capital asignado' fueron removidos como se solicitó */}
-                <div className={`p-6 rounded-3xl border space-y-6 ${themeDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200'}`}>
-                  <h3 className="font-bold text-base text-white flex items-center gap-2">
-                    <Shield className="w-5 h-5 text-emerald-400" />
-                    Parámetros Generales & Asignación Automática de IA
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    El motor de Inteligencia Artificial que configures aquí se aplicará de forma automática y transparente a todos los usuarios del sistema sin que ellos deban configurarlo.
-                  </p>
+                <div className={`${settingsCardCls} space-y-4`}>
+                  <div>
+                    <h3 className={settingsTitleCls}>
+                      <Shield className="w-5 h-5 text-emerald-400" />
+                      Parámetros Generales & Asignación Automática de IA
+                    </h3>
+                    <p className={`${settingsDescCls} mt-1`}>
+                      El motor de Inteligencia Artificial que configures aquí se aplicará de forma automática y transparente a todos los usuarios del sistema sin que ellos deban configurarlo.
+                    </p>
+                  </div>
 
                   <form
                     onSubmit={async (e) => {
                       e.preventDefault();
                       const fd = new FormData(e.currentTarget);
+                      const selectedProvider = String(fd.get('aiProvider') || ocrProvider);
+                      // Se envían todas las credenciales por proveedor para persistencia independiente
                       const payload = {
                         adminPassword: fd.get('adminPassword') || undefined,
-                        aiProvider: fd.get('aiProvider'),
-                        aiApiKey: ocrProvider === 'ocrspace' ? undefined : (fd.get('aiApiKey') || undefined),
-                        ocrSpaceApiKey: ocrProvider === 'ocrspace' ? (fd.get('ocrSpaceApiKey') || undefined) : undefined
+                        aiProvider: selectedProvider,
+                        ocrKeys: {
+                          openai: String(ocrProviderKeys.openai || '').trim(),
+                          gemini: String(ocrProviderKeys.gemini || '').trim(),
+                          ocrspace: String(ocrProviderKeys.ocrspace || '').trim(),
+                          tesseract: ''
+                        }
                       };
 
                       try {
@@ -3953,118 +4311,169 @@ export default function SistemaRicardoApp() {
                         notify('Error de red', 'error');
                       }
                     }}
-                    className="space-y-4 text-xs"
+                    className="space-y-4"
                   >
                     <div>
-                      <label className="block text-slate-300 font-semibold mb-1">Cambiar Clave de Administrador Maestro</label>
+                      <label className={settingsLabelCls}>Cambiar Clave de Administrador Maestro</label>
                       <input
                         type="password"
                         name="adminPassword"
                         placeholder="Dejar en blanco para conservar la actual"
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                        className={settingsInputCls}
                       />
                     </div>
 
-                    {/* OCR IA Config (Asignación centralizada exclusiva del Admin) */}
-                    <div className="p-4 rounded-2xl bg-teal-500/5 border border-teal-500/20 space-y-3">
+                    {/* MOTOR OCR (Asignación centralizada exclusiva del Admin) */}
+                    <div className="p-4 rounded-xl bg-teal-500/5 border border-teal-500/20 space-y-3">
                       <div className="flex items-center gap-2">
                         <Sparkles className="w-4 h-4 text-teal-400" />
-                        <h4 className="font-bold text-teal-400">Motor de Inteligencia Artificial (Asignación Automática Global)</h4>
+                        <h4 className="text-sm font-semibold text-white">MOTOR OCR (Asignación Automática Global con Respaldo)</h4>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-slate-400 mb-1">Proveedor de Visión OCR</label>
-                          <select
-                            name="aiProvider"
-                            value={ocrProvider}
-                            onChange={(e) => {
-                              setOcrProvider(e.target.value);
-                              setOcrConnectionTest({ status: 'idle', message: '' });
-                            }}
-                            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
-                          >
-                            <option value="openai">OpenAI (GPT-4o-mini Vision)</option>
-                            <option value="gemini">Google Gemini (Gemini 1.5 Flash)</option>
-                            <option value="ocrspace">OCR.space (API gratuita)</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-slate-400 mb-1">
-                            API Key
-                            {ocrProvider === 'ocrspace'
-                              ? (settings?.hasOcrSpaceKey ? ' • (Configurada)' : '')
-                              : (settings?.hasAiKey ? ' • (Configurada)' : '')}
-                          </label>
-                          <input
-                            type="password"
-                            name={ocrProvider === 'ocrspace' ? 'ocrSpaceApiKey' : 'aiApiKey'}
-                            placeholder={
-                              ocrProvider === 'ocrspace'
-                                ? (settings?.ocrSpaceKeyMasked || 'Clave gratuita de ocr.space (obténla en ocr.space/ocrapi)')
-                                : ocrProvider === 'gemini'
-                                  ? (settings?.aiApiKeyMasked || 'AIza...')
-                                  : (settings?.aiApiKeyMasked || 'sk-...')
-                            }
-                            autoComplete="off"
-                            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
-                          />
-                        </div>
-                      </div>
+                      {(() => {
+                        const provider = ['openai', 'gemini', 'ocrspace', 'tesseract'].includes(ocrProvider) ? ocrProvider : 'openai';
+                        const providerNeedsEditableKey = provider === 'ocrspace' || provider === 'openai' || provider === 'gemini';
+                        const isInternalNoKeyProvider = provider === 'tesseract';
+                        const internalLicense = settings?.internalOcrLicenses?.[provider];
+                        const internalLicenseLabel = internalLicense?.label
+                          || 'Licencia interna: No requerida (motor local integrado, sin límites de API)';
+                        const currentKey = String(ocrProviderKeys?.[provider] || '');
+                        const hasCurrentKey = Boolean(currentKey);
 
-                      {/* Acción de verificación previa a la persistencia */}
-                      <div className="flex items-center gap-3">
-                        <button
-                          type="button"
-                          disabled={testingConnection}
-                          onClick={async (evt) => {
-                            const form = evt.currentTarget.closest('form');
-                            const apiKeyInput = form?.querySelector('input[name="aiApiKey"], input[name="ocrSpaceApiKey"]');
-                            setTestingConnection(true);
-                            setOcrConnectionTest({ status: 'testing', message: '' });
-                            try {
-                              const res = await fetch('/api/settings', {
-                                method: 'POST',
-                                headers: {
-                                  'Content-Type': 'application/json',
-                                  'x-user-id': currentUser.id
-                                },
-                                body: JSON.stringify({
-                                  testProviderConnection: ocrProvider,
-                                  testApiKey: apiKeyInput?.value?.trim() || ''
-                                })
-                              });
-                              const d = await res.json();
-                              setOcrConnectionTest({
-                                status: d.success ? 'success' : 'error',
-                                message: d.success ? (d.message || 'Conexión exitosa') : (d.error || 'Fallo de conexión')
-                              });
-                            } catch (err) {
-                              setOcrConnectionTest({ status: 'error', message: 'Error de red al probar la conexión' });
-                            } finally {
-                              setTestingConnection(false);
-                            }
-                          }}
-                          className="px-4 py-2 bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition-all whitespace-nowrap"
-                        >
-                          {testingConnection ? 'Probando...' : 'Probar conexión'}
-                        </button>
+                        return (
+                          <>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div>
+                                <label className={settingsLabelCls}>Proveedor OCR activo</label>
+                                <select
+                                  name="aiProvider"
+                                  value={provider}
+                                  onChange={(e) => {
+                                    setOcrProvider(e.target.value);
+                                    setOcrConnectionTest({ status: 'idle', message: '' });
+                                  }}
+                                  className={settingsInputCls}
+                                >
+                                  <option value="ocrspace">OCR.space (API)</option>
+                                  <option value="openai">OpenAI (GPT-4o-mini Vision)</option>
+                                  <option value="gemini">Google Gemini (Gemini 1.5 Flash)</option>
+                                  <option value="tesseract">Tesseract.js (Motor Local Gratuito, sin API)</option>
+                                </select>
+                                <p className={`${settingsHelperCls} mt-1`}>
+                                  Al cambiar de proveedor se autocompleta su propia credencial/configuración guardada. Si un proveedor falla o alcanza su límite, cambia de proveedor y guarda para continuar.
+                                </p>
+                              </div>
 
-                        {ocrConnectionTest.status !== 'idle' && (
-                          <p className={`text-xs font-semibold ${ocrConnectionTest.status === 'success' ? 'text-emerald-400' : ocrConnectionTest.status === 'testing' ? 'text-slate-400' : 'text-rose-400'}`}>
-                            {ocrConnectionTest.status === 'testing' ? 'Validando credenciales contra el proveedor...' : `${ocrConnectionTest.status === 'success' ? '✓ Éxito' : '✗ Error'}: ${ocrConnectionTest.message}`}
-                          </p>
-                        )}
-                      </div>
+                              <div>
+                                {isInternalNoKeyProvider ? (
+                                  <div className="h-full rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                                      <span className="text-xs font-bold text-emerald-300 uppercase tracking-wide">Licencia interna activa</span>
+                                    </div>
+                                    <p className="text-xs text-emerald-100/90 leading-relaxed">{internalLicenseLabel}</p>
+                                    <p className="text-[11px] text-emerald-200/70 mt-1">No requiere API key. Lista para usarse y probarse de inmediato.</p>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <label className={settingsLabelCls}>
+                                      API Key{hasCurrentKey ? ' • (Guardada y cargada)' : ''}
+                                    </label>
+                                    <input
+                                      type="text"
+                                      name="ocrProviderApiKey"
+                                      value={currentKey}
+                                      onChange={(e) => {
+                                        const value = e.target.value;
+                                        setOcrProviderKeys(prev => ({ ...prev, [provider]: value }));
+                                        setOcrConnectionTest({ status: 'idle', message: '' });
+                                      }}
+                                      placeholder={
+                                        provider === 'ocrspace'
+                                          ? 'Clave de OCR.space'
+                                          : provider === 'gemini'
+                                            ? 'AIza...'
+                                            : 'sk-...'
+                                      }
+                                      autoComplete="off"
+                                      className={settingsInputCls}
+                                    />
+                                    <p className={`${settingsHelperCls} mt-1`}>
+                                      Cada proveedor mantiene su credencial guardada de forma independiente. Puedes editarla y guardar los cambios.
+                                    </p>
+                                  </>
+                                )}
+                              </div>
+                            </div>
 
-                      <p className="text-[10px] text-slate-500">
-                        La clave se usa dinámicamente en el escáner OCR de E-commerce. Si el proveedor es OCR.space, el monto, la fecha, la referencia y el banco se estructuran automáticamente con las reglas financieras venezolanas del motor. Dejar en blanco conserva la clave ya configurada.
-                      </p>
+                            {/* Acción de verificación previa a la persistencia */}
+                            <div className="flex flex-wrap items-center gap-3">
+                              <button
+                                type="button"
+                                disabled={testingConnection}
+                                onClick={async () => {
+                                  setTestingConnection(true);
+                                  setOcrConnectionTest({ status: 'testing', message: 'Probando conexión...' });
+                                  const started = performance.now();
+                                  try {
+                                    const res = await fetch('/api/settings', {
+                                      method: 'POST',
+                                      headers: {
+                                        'Content-Type': 'application/json',
+                                        'x-user-id': currentUser.id
+                                      },
+                                      body: JSON.stringify({
+                                        testProviderConnection: provider,
+                                        testApiKey: providerNeedsEditableKey ? String(ocrProviderKeys?.[provider] || '').trim() : ''
+                                      })
+                                    });
+                                    const d = await res.json();
+                                    const clientMs = Math.round(performance.now() - started);
+                                    const responseMs = Number.isFinite(d.responseTimeMs) ? d.responseTimeMs : clientMs;
+                                    const baseMsg = d.success ? (d.message || `Conexión exitosa con ${provider}`) : (d.error || 'Fallo de conexión');
+                                    setOcrConnectionTest({
+                                      status: d.success ? 'success' : 'error',
+                                      message: `${baseMsg} • ${responseMs} ms`
+                                    });
+                                  } catch (err) {
+                                    const clientMs = Math.round(performance.now() - started);
+                                    setOcrConnectionTest({ status: 'error', message: `Error de red al probar la conexión • ${clientMs} ms` });
+                                  } finally {
+                                    setTestingConnection(false);
+                                  }
+                                }}
+                                className={`${settingsSecondaryBtnCls} whitespace-nowrap`}
+                              >
+                                {testingConnection ? 'Probando conexión...' : 'Probar Conexión'}
+                              </button>
+
+                              {isInternalNoKeyProvider && (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-[11px] font-semibold text-emerald-300">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                                  Configuración interna aplicada automáticamente
+                                </span>
+                              )}
+
+                              {ocrConnectionTest.status !== 'idle' && (
+                                <p className={`text-xs font-semibold ${ocrConnectionTest.status === 'success' ? 'text-emerald-400' : ocrConnectionTest.status === 'testing' ? 'text-slate-300' : 'text-rose-400'}`}>
+                                  {ocrConnectionTest.status === 'testing'
+                                    ? 'Probando conexión y validando el proveedor seleccionado...'
+                                    : `${ocrConnectionTest.status === 'success' ? '✓ Éxito' : '✗ Error'}: ${ocrConnectionTest.message}`}
+                                </p>
+                              )}
+                            </div>
+
+                            <p className={settingsHelperCls}>
+                              El proveedor seleccionado se aplica al escáner de comprobantes y devuelve una estructura estandarizada (texto, monto, referencia, fecha y banco). Las credenciales se guardan por proveedor de forma independiente para permitir failover inmediato.
+                            </p>
+                          </>
+                        );
+                      })()}
                     </div>
 
                     <button
                       type="submit"
-                      className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-xl transition-all shadow-md"
+                      className={`${settingsPrimaryBtnCls} w-full`}
                     >
                       Guardar Parámetros de Administrador & IA
                     </button>
@@ -4104,18 +4513,18 @@ export default function SistemaRicardoApp() {
                   };
 
                   return (
-                    <div className={`p-6 rounded-3xl border space-y-5 ${themeDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200'}`}>
+                    <div className={`${settingsCardCls} space-y-4`}>
                       <div>
-                        <h3 className="font-bold text-base text-white flex items-center gap-2">
+                        <h3 className={settingsTitleCls}>
                           <ShieldCheck className="w-5 h-5 text-emerald-400" />
                           Configuración de Niveles de Confianza
                         </h3>
-                        <p className="text-xs text-slate-400">
+                        <p className={`${settingsDescCls} mt-1`}>
                           Define las reglas globales aplicadas automáticamente al módulo de Clientes. Los cambios afectan a todos los usuarios del sistema.
                         </p>
                       </div>
 
-                      <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3 text-[10px] leading-relaxed text-amber-300/90">
+                      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs leading-relaxed text-amber-300/90">
                         Regla fija del sistema: si un cliente tiene cuotas vencidas sin pagar, se clasifica automáticamente como <strong>Riesgosa</strong>, sin importar los umbrales configurados.
                       </div>
 
@@ -4159,45 +4568,45 @@ export default function SistemaRicardoApp() {
                             notify('Error de red al guardar los niveles de confianza', 'error');
                           }
                         }}
-                        className="space-y-4 text-xs"
+                        className="space-y-4"
                       >
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           {levelCards.map(card => {
                             const Icon = card.icon;
                             const level = trustConfig.levels[card.key];
                             return (
-                              <div key={card.key} className={`rounded-2xl border p-4 space-y-3 ${themeDark ? 'bg-slate-800/40 border-slate-700/60' : 'bg-slate-50 border-slate-200'}`}>
+                              <div key={card.key} className={`rounded-xl border p-4 space-y-3 ${settingsSubcardTheme}`}>
                                 <div className="flex items-center gap-2">
                                   <span className={`p-1.5 rounded-lg border ${toneClasses[card.tone]}`}>
                                     <Icon className="w-4 h-4" />
                                   </span>
-                                  <h4 className="font-bold text-sm text-white">{level.label}</h4>
+                                  <h4 className={settingsCardTitleCls}>{level.label}</h4>
                                 </div>
 
                                 <div>
-                                  <label className="block text-slate-400 mb-1">Nombre del nivel</label>
+                                  <label className={settingsLabelCls}>Nombre del nivel</label>
                                   <input
                                     type="text"
                                     name={`${card.key}Label`}
                                     defaultValue={level.label}
                                     maxLength={32}
-                                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                                    className={settingsInputCls}
                                   />
                                 </div>
 
                                 <div>
-                                  <label className="block text-slate-400 mb-1">Regla / descripción</label>
+                                  <label className={settingsLabelCls}>Regla / descripción</label>
                                   <textarea
                                     name={`${card.key}Description`}
                                     defaultValue={level.description}
                                     rows={3}
                                     maxLength={240}
-                                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white resize-none"
+                                    className={settingsTextareaCls}
                                   />
                                 </div>
 
                                 <div>
-                                  <label className="block text-slate-400 mb-1">{card.thresholdLabel}</label>
+                                  <label className={settingsLabelCls}>{card.thresholdLabel}</label>
                                   <div className="relative">
                                     <input
                                       type="number"
@@ -4205,9 +4614,9 @@ export default function SistemaRicardoApp() {
                                       defaultValue={trustConfig.thresholds[card.thresholdName]}
                                       min="0"
                                       max={card.key === 'riesgoso' ? 365 : 120}
-                                      className="w-full px-3 pr-16 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white font-bold"
+                                      className={`${settingsInputCls} pr-14 font-semibold`}
                                     />
-                                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-slate-500">días</span>
+                                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-slate-500">días</span>
                                   </div>
                                 </div>
                               </div>
@@ -4218,7 +4627,7 @@ export default function SistemaRicardoApp() {
                         <div className="flex justify-end pt-1">
                           <button
                             type="submit"
-                            className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-xl text-xs transition-all shadow-md flex items-center gap-1.5"
+                            className={settingsPrimaryBtnCls}
                           >
                             <Save className="w-4 h-4" />
                             <span>Guardar Niveles de Confianza</span>
@@ -4230,14 +4639,14 @@ export default function SistemaRicardoApp() {
                 })()}
 
                 {/* 4. BASE DE DATOS DE PATRONES DE COMPROBANTES PARA VALIDACIÓN CRUZADA OCR */}
-                <div className={`p-6 rounded-3xl border space-y-6 ${themeDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200'}`}>
+                <div className={`${settingsCardCls} space-y-4`}>
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                     <div>
-                      <h3 className="font-bold text-base text-white flex items-center gap-2">
+                      <h3 className={settingsTitleCls}>
                         <Building className="w-5 h-5 text-emerald-400" />
                         Base de Patrones de Comprobantes (Validación Cruzada OCR)
                       </h3>
-                      <p className="text-xs text-slate-400">
+                      <p className={`${settingsDescCls} mt-1`}>
                         Carga capturas modelo y bancos emisores oficiales para comparar y asegurar la identificación exacta del banco y montos en el OCR.
                       </p>
                     </div>
@@ -4245,7 +4654,7 @@ export default function SistemaRicardoApp() {
                     <button
                       type="button"
                       onClick={() => setPatternModal(true)}
-                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-950 font-bold text-xs shadow-md flex items-center gap-1.5"
+                      className={settingsPrimaryBtnCls}
                     >
                       <Plus className="w-4 h-4" />
                       <span>Cargar Nuevo Patrón</span>
@@ -4261,16 +4670,16 @@ export default function SistemaRicardoApp() {
                       receiptPatterns.map(pat => (
                         <div
                           key={pat.id}
-                          className="p-4 rounded-2xl bg-slate-800/40 border border-slate-700/60 flex flex-col justify-between space-y-3"
+                          className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 ${settingsSubcardTheme}`}
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex items-center gap-2.5">
-                              <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center font-bold text-emerald-400 text-xs">
+                              <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center font-semibold text-emerald-400 text-xs">
                                 {pat.bankName.slice(0, 2).toUpperCase()}
                               </div>
                               <div>
-                                <h4 className="font-bold text-white text-sm">{pat.bankName}</h4>
-                                <span className="text-[10px] text-slate-400 block font-mono">
+                                <h4 className="text-sm font-semibold text-white">{pat.bankName}</h4>
+                                <span className="text-[11px] text-slate-400 block font-mono">
                                   Ref: {pat.referenceFormat || '6-12 dígitos'}
                                 </span>
                               </div>
@@ -4296,12 +4705,12 @@ export default function SistemaRicardoApp() {
                             </div>
                           )}
 
-                          <div className="space-y-1 text-[11px] text-slate-400">
+                          <div className="space-y-1 text-xs text-slate-400">
                             {pat.notes && <p className="italic text-slate-300">"{pat.notes}"</p>}
                             {pat.keywords && pat.keywords.length > 0 && (
                               <div className="flex flex-wrap gap-1 pt-1">
                                 {pat.keywords.map((kw, i) => (
-                                  <span key={i} className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px] border border-slate-700">
+                                  <span key={i} className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[11px] border border-slate-700">
                                     {kw}
                                   </span>
                                 ))}
@@ -4314,9 +4723,11 @@ export default function SistemaRicardoApp() {
                   </div>
                 </div>
               </div>
+              </>
             )}
           </div>
-        )}
+              );
+            })()}
       </main>
 
       {/* ============================================================== */}
@@ -4324,11 +4735,11 @@ export default function SistemaRicardoApp() {
       {/* ============================================================== */}
       {newUserModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div>
-                <h3 className="font-bold text-base text-white">Registrar Nuevo Usuario Final</h3>
-                <p className="text-[11px] text-slate-400">Asigna empresa personalizada, clave de acceso y licencia con caducidad.</p>
+                <h3 className="text-base font-semibold text-white">Registrar Nuevo Usuario Final</h3>
+                <p className={`${settingsDescCls} mt-1`}>Asigna empresa personalizada, clave de acceso y licencia con caducidad.</p>
               </div>
               <button
                 onClick={() => setNewUserModal(false)}
@@ -4338,87 +4749,87 @@ export default function SistemaRicardoApp() {
               </button>
             </div>
 
-            <form onSubmit={handleAdminRegisterUser} className="space-y-3 mt-4 text-xs">
+            <form onSubmit={handleAdminRegisterUser} className="space-y-3 mt-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-300 mb-1">Nombre y Apellido *</label>
+                  <label className={settingsLabelCls}>Nombre y Apellido *</label>
                   <input
                     type="text"
                     required
                     placeholder="Ej. Roberto Sánchez"
                     value={newUserForm.name}
                     onChange={(e) => setNewUserForm({ ...newUserForm, name: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                    className={settingsInputCls}
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-300 mb-1">Nombre de la Empresa *</label>
+                  <label className={settingsLabelCls}>Nombre de la Empresa *</label>
                   <input
                     type="text"
                     required
                     placeholder="Ej. Inversiones RS 2026"
                     value={newUserForm.companyName}
                     onChange={(e) => setNewUserForm({ ...newUserForm, companyName: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white font-semibold text-emerald-400"
+                    className={`${settingsInputCls} font-semibold text-emerald-400`}
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-300 mb-1">Usuario de Acceso *</label>
+                  <label className={settingsLabelCls}>Usuario de Acceso *</label>
                   <input
                     type="text"
                     required
                     placeholder="roberto18"
                     value={newUserForm.username}
                     onChange={(e) => setNewUserForm({ ...newUserForm, username: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                    className={settingsInputCls}
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-300 mb-1">Clave de Acceso *</label>
+                  <label className={settingsLabelCls}>Clave de Acceso *</label>
                   <input
                     type="text"
                     required
                     placeholder="Contraseña"
                     value={newUserForm.password}
                     onChange={(e) => setNewUserForm({ ...newUserForm, password: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white font-mono"
+                    className={`${settingsInputCls} font-mono`}
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-300 mb-1">Teléfono</label>
+                  <label className={settingsLabelCls}>Teléfono</label>
                   <input
                     type="text"
                     placeholder="+58 414-1234567"
                     value={newUserForm.phone}
                     onChange={(e) => setNewUserForm({ ...newUserForm, phone: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                    className={settingsInputCls}
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-300 mb-1">Dirección</label>
+                  <label className={settingsLabelCls}>Dirección</label>
                   <input
                     type="text"
                     placeholder="Dirección del cliente..."
                     value={newUserForm.address}
                     onChange={(e) => setNewUserForm({ ...newUserForm, address: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                    className={settingsInputCls}
                   />
                 </div>
               </div>
 
-              <div className="p-3.5 rounded-2xl bg-slate-800/60 border border-emerald-500/30 space-y-2.5">
+              <div className={`p-3.5 rounded-xl border border-emerald-500/30 space-y-2.5 ${settingsSubcardTheme}`}>
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-emerald-400">Generación de Licencia Automática:</span>
+                  <span className="text-xs font-semibold text-emerald-400">Generación de Licencia Automática:</span>
                   <button
                     type="button"
                     onClick={() => handleAdminGenerateLicense(newUserForm.licenseDurationMonths)}
-                    className="text-[11px] text-teal-300 hover:underline flex items-center gap-1"
+                    className="text-[11px] font-medium text-teal-300 hover:underline flex items-center gap-1"
                   >
                     <RefreshCw className="w-3 h-3" /> Generar otra
                   </button>
@@ -4428,18 +4839,18 @@ export default function SistemaRicardoApp() {
                   value={newUserForm.assignedLicenseKey}
                   onChange={(e) => setNewUserForm({ ...newUserForm, assignedLicenseKey: e.target.value })}
                   placeholder="RIC-XXXX-XXXX-XXXX"
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-emerald-400 font-mono font-bold text-center text-sm"
+                  className={`${settingsInputCls} bg-slate-900 text-emerald-400 font-mono font-semibold text-center tracking-wider`}
                 />
 
                 <div className="flex items-center justify-between text-xs text-slate-300">
-                  <span>Asignar Vigencia Inicial:</span>
+                  <span className="font-medium">Asignar Vigencia Inicial:</span>
                   <select
                     value={newUserForm.licenseDurationMonths}
                     onChange={(e) => {
                       const m = parseInt(e.target.value, 10);
                       handleAdminGenerateLicense(m);
                     }}
-                    className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-xl text-white font-semibold"
+                    className="h-10 px-3 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white font-medium focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
                   >
                     <option value={1}>1 Mes</option>
                     <option value={2}>2 Meses</option>
@@ -4454,13 +4865,13 @@ export default function SistemaRicardoApp() {
                 <button
                   type="button"
                   onClick={() => setNewUserModal(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl font-semibold"
+                  className={settingsSecondaryBtnCls}
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-xl"
+                  className={settingsPrimaryBtnCls}
                 >
                   Registrar Usuario
                 </button>
@@ -4475,9 +4886,9 @@ export default function SistemaRicardoApp() {
       {/* ============================================================== */}
       {editUserModal.open && editUserModal.user && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="font-bold text-base text-white">
+              <h3 className="text-base font-semibold text-white">
                 {editUserModal.passwordOnly ? 'Editar Clave del Administrador' : 'Editar Usuario, Empresa y Licencia'}
               </h3>
               <button
@@ -4528,73 +4939,73 @@ export default function SistemaRicardoApp() {
                   notify('Error de red', 'error');
                 }
               }}
-              className="space-y-3 mt-4 text-xs"
+              className="space-y-3 mt-4"
             >
               {editUserModal.passwordOnly ? (
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Nueva Clave de Acceso</label>
+                  <label className={settingsLabelCls}>Nueva Clave de Acceso</label>
                   <input
                     type="text"
                     name="password"
                     defaultValue={editUserModal.user.password}
                     required
                     minLength={4}
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white font-mono"
+                    className={`${settingsInputCls} font-mono`}
                   />
-                  <p className="text-[10px] text-slate-500 mt-1">Mínimo 4 caracteres. Esta clave también se aplica a los Parámetros Generales.</p>
+                  <p className={`${settingsHelperCls} mt-1`}>Mínimo 4 caracteres. Esta clave también se aplica a los Parámetros Generales.</p>
                 </div>
               ) : (
                 <>
               <div>
-                <label className="block text-slate-300 font-semibold mb-1">Nombre y Apellido</label>
+                <label className={settingsLabelCls}>Nombre y Apellido</label>
                 <input
                   type="text"
                   name="name"
                   defaultValue={editUserModal.user.name}
                   required
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                  className={settingsInputCls}
                 />
               </div>
 
               <div>
-                <label className="block text-slate-300 font-semibold mb-1">Nombre de la Empresa</label>
+                <label className={settingsLabelCls}>Nombre de la Empresa</label>
                 <input
                   type="text"
                   name="companyName"
                   defaultValue={editUserModal.user.companyName}
                   required
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-emerald-400 font-bold"
+                  className={`${settingsInputCls} font-semibold text-emerald-400`}
                 />
               </div>
 
               <div>
-                <label className="block text-slate-300 font-semibold mb-1">Clave de Acceso</label>
+                <label className={settingsLabelCls}>Clave de Acceso</label>
                 <input
                   type="text"
                   name="password"
                   defaultValue={editUserModal.user.password}
                   required
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white font-mono"
+                  className={`${settingsInputCls} font-mono`}
                 />
               </div>
 
               <div>
-                <label className="block text-slate-300 font-semibold mb-1">Clave de Licencia</label>
+                <label className={settingsLabelCls}>Clave de Licencia</label>
                 <input
                   type="text"
                   name="licenseKey"
                   defaultValue={editUserModal.user.licenseKey}
                   required
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-emerald-400 font-mono font-bold"
+                  className={`${settingsInputCls} font-mono font-semibold text-emerald-400`}
                 />
               </div>
 
               <div>
-                <label className="block text-slate-300 font-semibold mb-1">Extender Vigencia (Meses a sumar desde hoy)</label>
+                <label className={settingsLabelCls}>Extender Vigencia (Meses a sumar desde hoy)</label>
                 <select
                   name="months"
                   defaultValue={editUserModal.user.licenseDurationMonths || 1}
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                  className={settingsInputCls}
                 >
                   <option value={1}>1 Mes</option>
                   <option value={2}>2 Meses</option>
@@ -4630,7 +5041,7 @@ export default function SistemaRicardoApp() {
                       }
                     }
                   }}
-                  className="px-3 py-2 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20 font-bold"
+                  className={`${settingsDangerBtnCls} px-3`}
                 >
                   Eliminar
                 </button>
@@ -4639,13 +5050,13 @@ export default function SistemaRicardoApp() {
                   <button
                     type="button"
                     onClick={() => setEditUserModal({ open: false, user: null })}
-                    className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold"
+                    className={settingsSecondaryBtnCls}
                   >
                     Cancelar
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold"
+                    className={settingsPrimaryBtnCls}
                   >
                     Guardar
                   </button>
@@ -5744,11 +6155,11 @@ export default function SistemaRicardoApp() {
       {/* ============================================================== */}
       {patternModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div>
-                <h3 className="font-bold text-base text-white">Cargar Patrón de Comprobante Oficial</h3>
-                <p className="text-[11px] text-slate-400">
+                <h3 className="text-base font-semibold text-white">Cargar Patrón de Comprobante Oficial</h3>
+                <p className={`${settingsDescCls} mt-1`}>
                   Registra un modelo de comprobante y banco emisor para validación cruzada precisa del OCR.
                 </p>
               </div>
@@ -5761,9 +6172,9 @@ export default function SistemaRicardoApp() {
               </button>
             </div>
 
-            <form onSubmit={handleSaveReceiptPattern} className="space-y-4 mt-4 text-xs">
+            <form onSubmit={handleSaveReceiptPattern} className="space-y-4 mt-4">
               <div>
-                <label className="block font-semibold text-slate-300 mb-1">
+                <label className={settingsLabelCls}>
                   Banco Emisor Oficial *
                 </label>
                 <input
@@ -5772,17 +6183,17 @@ export default function SistemaRicardoApp() {
                   placeholder="Ej. Banesco, Banco de Venezuela, Mercantil, BBVA Provincial..."
                   value={patternForm.bankName}
                   onChange={(e) => setPatternForm({ ...patternForm, bankName: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white font-semibold"
+                  className={`${settingsInputCls} font-medium`}
                 />
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-300 mb-1">
+                <label className={settingsLabelCls}>
                   Imagen de Comprobante Patrón (Capture Modelo)
                 </label>
                 <div
                   onClick={() => patternFileInputRef.current?.click()}
-                  className="border-2 border-dashed border-slate-700 hover:border-emerald-500 rounded-2xl p-4 text-center cursor-pointer transition-all bg-slate-800/30 hover:bg-slate-800/50"
+                  className="border-2 border-dashed border-slate-700 hover:border-emerald-500 rounded-xl p-4 text-center cursor-pointer transition-colors bg-slate-800/30 hover:bg-slate-800/50"
                 >
                   <input
                     type="file"
@@ -5810,7 +6221,7 @@ export default function SistemaRicardoApp() {
                       <p className="text-xs text-emerald-400 font-semibold truncate">
                         {patternForm.file?.name}
                       </p>
-                      <span className="text-[10px] text-slate-400">Click para sustituir imagen patrón</span>
+                      <span className="text-[11px] text-slate-400">Click para sustituir imagen patrón</span>
                     </div>
                   ) : (
                     <div className="py-3">
@@ -5818,7 +6229,7 @@ export default function SistemaRicardoApp() {
                       <p className="text-xs font-semibold text-slate-300">
                         Subir captura o comprobante de referencia
                       </p>
-                      <p className="text-[10px] text-slate-500 mt-0.5">Muestra oficial del banco</p>
+                      <p className={`${settingsHelperCls} mt-1`}>Muestra oficial del banco</p>
                     </div>
                   )}
                 </div>
@@ -5826,7 +6237,7 @@ export default function SistemaRicardoApp() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-300 mb-1">
+                  <label className={settingsLabelCls}>
                     Formato de Referencia
                   </label>
                   <input
@@ -5834,11 +6245,11 @@ export default function SistemaRicardoApp() {
                     placeholder="Ej. 8 a 12 dígitos"
                     value={patternForm.referenceFormat}
                     onChange={(e) => setPatternForm({ ...patternForm, referenceFormat: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                    className={settingsInputCls}
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-300 mb-1">
+                  <label className={settingsLabelCls}>
                     Palabras Clave (Separadas por coma)
                   </label>
                   <input
@@ -5846,13 +6257,13 @@ export default function SistemaRicardoApp() {
                     placeholder="Ej. banesco, pagomovil, bdv"
                     value={patternForm.keywords}
                     onChange={(e) => setPatternForm({ ...patternForm, keywords: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                    className={settingsInputCls}
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-300 mb-1">
+                <label className={settingsLabelCls}>
                   Notas de Identificación Visual
                 </label>
                 <textarea
@@ -5860,7 +6271,7 @@ export default function SistemaRicardoApp() {
                   placeholder="Ej. Franja verde superior con logotipo en blanco, texto de confirmación 'Transferencia Exitosa'"
                   value={patternForm.notes}
                   onChange={(e) => setPatternForm({ ...patternForm, notes: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                  className={settingsTextareaCls}
                 />
               </div>
 
@@ -5868,14 +6279,14 @@ export default function SistemaRicardoApp() {
                 <button
                   type="button"
                   onClick={() => setPatternModal(false)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
+                  className={`${settingsSecondaryBtnCls} flex-1`}
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={patternForm.processing}
-                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-950 font-bold shadow-md disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  className={`${settingsPrimaryBtnCls} flex-1`}
                 >
                   {patternForm.processing ? (
                     <>
@@ -5900,11 +6311,11 @@ export default function SistemaRicardoApp() {
       {/* ============================================================== */}
       {purgeModal.open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl">
+          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl">
             <div className="flex items-center justify-between pb-4 border-b border-slate-800">
               <div>
-                <h3 className="font-bold text-base text-white">Vaciar datos del sistema</h3>
-                <p className="text-[11px] text-slate-400 mt-0.5">
+                <h3 className="text-base font-semibold text-white">Vaciar datos del sistema</h3>
+                <p className={`${settingsDescCls} mt-1`}>
                   Usuario seleccionado: <span className="text-slate-200 font-semibold">{purgeModal.user?.name || purgeModal.user?.username || '—'}</span>
                 </p>
               </div>
@@ -5918,9 +6329,9 @@ export default function SistemaRicardoApp() {
               </button>
             </div>
 
-            <div className="space-y-4 mt-4 text-xs">
-              <div className="rounded-2xl border border-slate-800 bg-slate-800/30 p-3">
-                <p className="font-semibold text-slate-200 mb-2">Datos a limpiar (granular)</p>
+            <div className="space-y-4 mt-4">
+              <div className={`rounded-xl border p-3 ${settingsSubcardTheme}`}>
+                <p className="text-xs font-semibold text-slate-200 mb-2">Datos a limpiar (granular)</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {[
                     ['payments', 'Historial de financiamientos (pagos)'],
@@ -5929,7 +6340,7 @@ export default function SistemaRicardoApp() {
                     ['products', 'Productos'],
                     ['ecommerce', 'Registro cronológico de transacciones de e-commerce']
                   ].map(([key, label]) => (
-                    <label key={key} className="flex items-start gap-2 text-slate-300">
+                    <label key={key} className="flex items-start gap-2 text-xs text-slate-300">
                       <input
                         type="checkbox"
                         checked={Boolean(purgeModal.targets?.[key])}
@@ -5943,16 +6354,16 @@ export default function SistemaRicardoApp() {
                     </label>
                   ))}
                 </div>
-                <p className="mt-2 text-[10px] text-slate-500">Nota: el almacenamiento actual es compartido; la limpieza se aplica a los registros que coincidan con el filtro seleccionado.</p>
+                <p className={`${settingsHelperCls} mt-2`}>Nota: el almacenamiento actual es compartido; la limpieza se aplica a los registros que coincidan con el filtro seleccionado.</p>
               </div>
 
-              <div className="rounded-2xl border border-slate-800 bg-slate-800/30 p-3">
-                <p className="font-semibold text-slate-200 mb-2">Filtro de borrado por fecha</p>
+              <div className={`rounded-xl border p-3 ${settingsSubcardTheme}`}>
+                <p className="text-xs font-semibold text-slate-200 mb-2">Filtro de borrado por fecha</p>
                 <div className="flex flex-wrap items-center gap-2">
                   <select
                     value={purgeModal.filter?.period || 'all'}
                     onChange={(e) => setPurgeModal(prev => ({ ...prev, filter: { ...prev.filter, period: e.target.value } }))}
-                    className="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white"
+                    className="h-10 px-3 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
                   >
                     <option value="all">Todo (sin filtro)</option>
                     <option value="day">Día</option>
@@ -5961,16 +6372,16 @@ export default function SistemaRicardoApp() {
                     <option value="until">Hasta una fecha en concreto</option>
                   </select>
                   {purgeModal.filter?.period === 'day' && (
-                    <input type="date" value={purgeModal.filter.day || ''} onChange={(e) => setPurgeModal(prev => ({ ...prev, filter: { ...prev.filter, day: e.target.value } }))} className="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white" />
+                    <input type="date" value={purgeModal.filter.day || ''} onChange={(e) => setPurgeModal(prev => ({ ...prev, filter: { ...prev.filter, day: e.target.value } }))} className="h-10 px-3 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/50" />
                   )}
                   {purgeModal.filter?.period === 'month' && (
-                    <input type="month" value={purgeModal.filter.month || ''} onChange={(e) => setPurgeModal(prev => ({ ...prev, filter: { ...prev.filter, month: e.target.value } }))} className="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white" />
+                    <input type="month" value={purgeModal.filter.month || ''} onChange={(e) => setPurgeModal(prev => ({ ...prev, filter: { ...prev.filter, month: e.target.value } }))} className="h-10 px-3 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/50" />
                   )}
                   {purgeModal.filter?.period === 'year' && (
-                    <input type="number" min="2000" max="2100" step="1" value={purgeModal.filter.year || ''} onChange={(e) => setPurgeModal(prev => ({ ...prev, filter: { ...prev.filter, year: e.target.value } }))} className="w-24 px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white" placeholder="Año" />
+                    <input type="number" min="2000" max="2100" step="1" value={purgeModal.filter.year || ''} onChange={(e) => setPurgeModal(prev => ({ ...prev, filter: { ...prev.filter, year: e.target.value } }))} className="h-10 w-24 px-3 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/50" placeholder="Año" />
                   )}
                   {purgeModal.filter?.period === 'until' && (
-                    <input type="date" value={purgeModal.filter.until || ''} onChange={(e) => setPurgeModal(prev => ({ ...prev, filter: { ...prev.filter, until: e.target.value } }))} className="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white" />
+                    <input type="date" value={purgeModal.filter.until || ''} onChange={(e) => setPurgeModal(prev => ({ ...prev, filter: { ...prev.filter, until: e.target.value } }))} className="h-10 px-3 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/50" />
                   )}
                 </div>
               </div>
@@ -5980,7 +6391,7 @@ export default function SistemaRicardoApp() {
                   type="button"
                   onClick={() => setPurgeModal(prev => ({ ...prev, open: false }))}
                   disabled={purgeModal.processing}
-                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold disabled:opacity-50"
+                  className={settingsSecondaryBtnCls}
                 >
                   Cancelar
                 </button>
@@ -6018,7 +6429,7 @@ export default function SistemaRicardoApp() {
                       setPurgeModal(prev => ({ ...prev, processing: false }));
                     }
                   }}
-                  className="px-4 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold disabled:opacity-60"
+                  className="h-10 px-4 bg-rose-500 hover:bg-rose-600 text-white font-semibold rounded-lg text-sm transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-60"
                 >
                   {purgeModal.processing ? 'Vaciando...' : 'Vaciar datos seleccionados'}
                 </button>
