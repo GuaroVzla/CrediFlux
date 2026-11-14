@@ -1,0 +1,66 @@
+# ===================================================
+# SISTEMA RICARDO - .gitignore PROFESIONAL
+# ===================================================
+
+# 1. Dependencias
+node_modules/
+/.pnp
+.pnp.js
+
+# 2. Compilación y Caché de Next.js
+.next/
+.next-run/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# 3. Datos y Persistencia Local (Seguridad y Privacidad)
+/data/*.json
+!/data/*.example.json
+/uploads/
+*.sqlite
+*.db
+
+# 4. Logs y Procesos Temporales de Desarrollo
+*.log
+dev.log
+dev.pid
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 5. Modelos Pesados de OCR / IA (Tesseract / Visión)
+*.traineddata
+
+# 6. Variables de Entorno y Secretos
+.env
+.env*.local
+.env.production
+.env.staging
+
+# 7. Residuos de Pruebas, Código Muerto y Backups
+_disabled_routes/
+neighbor.js
+app/neighbor2.js
+*.bak
+*.tmp
+*.temp
+
+# 8. Entornos de Desarrollo e IDEs
+.vscode/*
+!.vscode/tasks.json
+!.vscode/launch.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# 9. Sistema Operativo
+Thumbs.db
+[Dd]esktop.ini
+.DS_Store
