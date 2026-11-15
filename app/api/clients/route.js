@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
-import { getDb, saveDb, computeLoanStatus, checkWritePermission, normalizeDni, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
+import { computeLoanStatus, checkWritePermission, normalizeDni, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
+import { getAppState, saveAppState } from '../../../lib/server/persistence.js';
 import { getTrustLevelConfig, computeClientTrust } from '../../../lib/trust.js';
 
 export async function GET(request) {
   try {
-    const db = getDb();
+    const db = await getAppState();
+    if (!Array.isArray(db.clients)) db.clients = [];
+    if (!Array.isArray(db.loans)) db.loans = [];
+    if (!Array.isArray(db.blacklist)) db.blacklist = [];
     const user = getRequestUser(request, db);
     const trustConfig = getTrustLevelConfig(db.settings);
 
@@ -84,7 +88,10 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const db = getDb();
+    const db = await getAppState();
+    if (!Array.isArray(db.clients)) db.clients = [];
+    if (!Array.isArray(db.loans)) db.loans = [];
+    if (!Array.isArray(db.blacklist)) db.blacklist = [];
     const perm = checkWritePermission(request, db);
     if (!perm.allowed) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
@@ -139,7 +146,7 @@ export async function POST(request) {
 
       db.clients.unshift(restoredClient);
       db.blacklist.splice(entryIndex, 1);
-      saveDb(db);
+      await saveAppState(db);
 
       return NextResponse.json({
         success: true,
@@ -188,7 +195,7 @@ export async function POST(request) {
         address: address ? address.trim() : '',
         notes: notes ? notes.trim() : ''
       };
-      saveDb(db);
+      await saveAppState(db);
       return NextResponse.json({ success: true, message: 'Cliente actualizado', client: db.clients[idx] });
     } else {
       // Create new. El nivel de confianza es automático y el límite de crédito
@@ -207,7 +214,7 @@ export async function POST(request) {
         createdAt: new Date().toISOString()
       };
       db.clients.unshift(newClient);
-      saveDb(db);
+      await saveAppState(db);
       return NextResponse.json({ success: true, message: 'Cliente registrado', client: newClient });
     }
   } catch (error) {
@@ -218,7 +225,10 @@ export async function POST(request) {
 
 export async function DELETE(request) {
   try {
-    const db = getDb();
+    const db = await getAppState();
+    if (!Array.isArray(db.clients)) db.clients = [];
+    if (!Array.isArray(db.loans)) db.loans = [];
+    if (!Array.isArray(db.blacklist)) db.blacklist = [];
     const perm = checkWritePermission(request, db);
     if (!perm.allowed) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
@@ -252,7 +262,7 @@ export async function DELETE(request) {
     });
 
     db.clients = (db.clients || []).filter(c => c.id !== id);
-    saveDb(db);
+    await saveAppState(db);
 
     return NextResponse.json({ success: true, message: 'Cliente eliminado' });
   } catch (error) {

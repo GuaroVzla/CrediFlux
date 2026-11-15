@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server';
-import { getDb, saveDb, computeLoanStatus, checkWritePermission, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
+import { computeLoanStatus, checkWritePermission, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
+import { getAppState, saveAppState } from '../../../lib/server/persistence.js';
 
 export async function GET(request) {
   try {
-    const db = getDb();
+    const db = await getAppState();
+    if (!Array.isArray(db.payments)) db.payments = [];
+    if (!Array.isArray(db.loans)) db.loans = [];
     const user = getRequestUser(request, db);
     const payments = scopeRecords(db.payments || [], user);
     return NextResponse.json({ success: true, payments });
@@ -15,7 +18,9 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const db = getDb();
+    const db = await getAppState();
+    if (!Array.isArray(db.payments)) db.payments = [];
+    if (!Array.isArray(db.loans)) db.loans = [];
     const perm = checkWritePermission(request, db);
     if (!perm.allowed) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
@@ -104,7 +109,7 @@ export async function POST(request) {
       };
 
       db.payments.unshift(newPayment);
-      saveDb(db);
+      await saveAppState(db);
 
       return NextResponse.json({
         success: true,
@@ -164,7 +169,7 @@ export async function POST(request) {
     };
 
     db.payments.unshift(newPayment);
-    saveDb(db);
+    await saveAppState(db);
 
     return NextResponse.json({
       success: true,
@@ -180,7 +185,9 @@ export async function POST(request) {
 
 export async function DELETE(request) {
   try {
-    const db = getDb();
+    const db = await getAppState();
+    if (!Array.isArray(db.payments)) db.payments = [];
+    if (!Array.isArray(db.loans)) db.loans = [];
     const perm = checkWritePermission(request, db);
     if (!perm.allowed) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
@@ -257,7 +264,7 @@ export async function DELETE(request) {
     }
 
     db.payments.splice(paymentIndex, 1);
-    saveDb(db);
+    await saveAppState(db);
 
     return NextResponse.json({
       success: true,

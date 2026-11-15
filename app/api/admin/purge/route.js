@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getDb, saveDb, checkWritePermission } from '../../../../lib/db.js';
+import { checkWritePermission } from '../../../../lib/db.js';
+import { getAppState, saveAppState } from '../../../../lib/server/persistence.js';
 
 function dateStrOf(value) {
   if (!value) return '';
@@ -19,7 +20,12 @@ function matchesPeriod(dateStr, filter) {
 
 export async function POST(request) {
   try {
-    const db = getDb();
+    const db = await getAppState();
+    if (!Array.isArray(db.loans)) db.loans = [];
+    if (!Array.isArray(db.payments)) db.payments = [];
+    if (!Array.isArray(db.clients)) db.clients = [];
+    if (!Array.isArray(db.products)) db.products = [];
+    if (!Array.isArray(db.ecommerce)) db.ecommerce = [];
     const perm = checkWritePermission(request, db);
     if (!perm.allowed) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
@@ -158,7 +164,7 @@ export async function POST(request) {
       summary.ecommerce = before - (db.ecommerce || []).length;
     }
 
-    saveDb(db);
+    await saveAppState(db);
 
     return NextResponse.json({
       success: true,

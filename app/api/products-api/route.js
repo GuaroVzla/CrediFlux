@@ -1,11 +1,13 @@
-import { NextResponse } from 'next/server';
-import { getDb, saveDb, checkWritePermission, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
+﻿import { NextResponse } from 'next/server';
+import { checkWritePermission, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
+import { getAppState, saveAppState } from '../../../lib/server/persistence.js';
 
 export async function GET(request) {
   try {
-    const db = getDb();
+    const db = await getAppState();
+    if (!Array.isArray(db.products)) db.products = [];
     const user = getRequestUser(request, db);
-    const scoped = scopeRecords(db.products || [], user);
+    const scoped = scopeRecords(db.products, user);
     const enrichedProducts = scoped.map(prod => {
       const cost = Number(prod.costPrice) || 0;
       const sale = Number(prod.salePrice) || 0;
@@ -28,7 +30,8 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const db = getDb();
+    const db = await getAppState();
+    if (!Array.isArray(db.products)) db.products = [];
     const perm = checkWritePermission(request, db);
     if (!perm.allowed) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
@@ -41,8 +44,6 @@ export async function POST(request) {
     if (!name || !String(name).trim()) {
       return NextResponse.json({ success: false, error: 'El nombre del producto es obligatorio' }, { status: 400 });
     }
-
-    if (!Array.isArray(db.products)) db.products = [];
 
     const hasNumber = (value) =>
       value !== undefined && value !== null && value !== '' && Number.isFinite(Number(value));
@@ -81,7 +82,7 @@ export async function POST(request) {
         manualSalePrice: isManual,
         stock: Number.isFinite(Number(stock)) ? Number(stock) : (prev.stock || 0),
       };
-      saveDb(db);
+      await saveAppState(db);
       return NextResponse.json({ success: true, message: 'Producto actualizado', product: db.products[idx] });
     } else {
       const cost = hasNumber(costPrice) ? Number(costPrice) : 0;
@@ -110,7 +111,7 @@ export async function POST(request) {
         createdAt: new Date().toISOString()
       };
       db.products.unshift(newProduct);
-      saveDb(db);
+      await saveAppState(db);
       return NextResponse.json({ success: true, message: 'Producto registrado', product: newProduct });
     }
   } catch (error) {
@@ -121,7 +122,8 @@ export async function POST(request) {
 
 export async function DELETE(request) {
   try {
-    const db = getDb();
+    const db = await getAppState();
+    if (!Array.isArray(db.products)) db.products = [];
     const perm = checkWritePermission(request, db);
     if (!perm.allowed) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
@@ -132,14 +134,14 @@ export async function DELETE(request) {
     const id = searchParams.get('id');
     if (!id) return NextResponse.json({ success: false, error: 'ID requerido' }, { status: 400 });
 
-    const existing = (db.products || []).find(p => p.id === id);
+    const existing = db.products.find(p => p.id === id);
     if (!existing) return NextResponse.json({ success: false, error: 'Producto no encontrado' }, { status: 404 });
     if (!canAccessRecord(user, existing)) {
       return NextResponse.json({ success: false, error: 'No autorizado para eliminar este producto' }, { status: 403 });
     }
 
-    db.products = (db.products || []).filter(p => p.id !== id);
-    saveDb(db);
+    db.products = db.products.filter(p => p.id !== id);
+    await saveAppState(db);
 
     return NextResponse.json({ success: true, message: 'Producto eliminado' });
   } catch (error) {
