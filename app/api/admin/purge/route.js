@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getDb, saveDb, checkWritePermission } from '../../../lib/db.js';
+import { getDb, saveDb, checkWritePermission } from '../../../../lib/db.js';
 
 function dateStrOf(value) {
   if (!value) return '';

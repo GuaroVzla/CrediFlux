@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { checkWritePermission, getDefaultMonthlyCapital, MONTH_NAMES } from '../../lib/db.js';
-import { getTrustLevelConfig, normalizeTrustConfig } from '../../lib/trust.js';
-import { INTERNAL_OCR_CONFIG, createTestReceiptPngBuffer, runTesseractRecognition } from '../../lib/ocrEngine.js';
-import { getAppState, saveAppState, persistenceInfo } from '../../lib/server/persistence.js';
-import { syncAdminStateToNormalized, logAudit, ensureAdminConfigSeed, hasDatabase } from '../../lib/server/admin-config.js';
-import { hashPassword } from '../../lib/server/security.js';
+import { checkWritePermission, getDefaultMonthlyCapital, MONTH_NAMES } from '../../../lib/db.js';
+import { getTrustLevelConfig, normalizeTrustConfig } from '../../../lib/trust.js';
+import { INTERNAL_OCR_CONFIG, createTestReceiptPngBuffer, runTesseractRecognition } from '../../../lib/ocrEngine.js';
+import { getAppState, saveAppState, persistenceInfo } from '../../../lib/server/persistence.js';
+import { syncAdminStateToNormalized, logAudit, ensureAdminConfigSeed, hasDatabase } from '../../../lib/server/admin-config.js';
+import { hashPassword } from '../../../lib/server/security.js';
 
 const ALLOWED_PROVIDERS = ['openai', 'gemini', 'ocrspace', 'tesseract'];
 

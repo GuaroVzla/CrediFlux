@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getDb, saveDb, computeLoanStatus, checkWritePermission, normalizeDni, getRequestUser, scopeRecords, canAccessRecord } from '../../lib/db.js';
-import { getTrustLevelConfig, computeClientTrust } from '../../lib/trust.js';
+import { getDb, saveDb, computeLoanStatus, checkWritePermission, normalizeDni, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
+import { getTrustLevelConfig, computeClientTrust } from '../../../lib/trust.js';
 
 export async function GET(request) {
   try {

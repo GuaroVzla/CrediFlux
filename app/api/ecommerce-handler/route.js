@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import { getDb, saveDb, checkWritePermission, getRequestUser, scopeRecords, canAccessRecord } from '../../lib/db.js';
-import { parseReceiptWithAI } from '../../lib/ocr.js';
+import { getDb, saveDb, checkWritePermission, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
+import { parseReceiptWithAI } from '../../../lib/ocr.js';
 
 export async function GET(request) {
   try {

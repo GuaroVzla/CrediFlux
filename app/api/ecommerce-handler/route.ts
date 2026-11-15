@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import { checkWritePermission, getRequestUser, scopeRecords, canAccessRecord } from '../../lib/db.js';
-import { parseReceiptWithAI } from '../../lib/ocrEngine.js';
-import { getAppState, saveAppState, persistenceInfo } from '../../lib/server/persistence.js';
+import { checkWritePermission, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
+import { parseReceiptWithAI } from '../../../lib/ocrEngine.js';
+import { getAppState, saveAppState, persistenceInfo } from '../../../lib/server/persistence.js';
 
 export async function GET(request: Request) {
   try {

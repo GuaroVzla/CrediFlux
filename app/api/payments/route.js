@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getDb, saveDb, computeLoanStatus, checkWritePermission, getRequestUser, scopeRecords, canAccessRecord } from '../../lib/db.js';
+import { getDb, saveDb, computeLoanStatus, checkWritePermission, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
 
 export async function GET(request) {
   try {

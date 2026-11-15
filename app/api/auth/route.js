@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { generateRandomLicense, isUserLicenseExpired, getDefaultMonthlyCapital } from '../../lib/db.js';
-import { getAppState, saveAppState, persistenceInfo } from '../../lib/server/persistence.js';
-import { hashPassword, verifyPassword, sanitizeUserForClient } from '../../lib/server/security.js';
+import { generateRandomLicense, isUserLicenseExpired, getDefaultMonthlyCapital } from '../../../lib/db.js';
+import { getAppState, saveAppState, persistenceInfo } from '../../../lib/server/persistence.js';
+import { hashPassword, verifyPassword, sanitizeUserForClient } from '../../../lib/server/security.js';
 
 export async function POST(request) {
   try {
