@@ -1,6 +1,6 @@
-# Sistema Ricardo | Plataforma Privada de Financiamiento & E-Commerce
+# CrediFlux | Plataforma SaaS de Financiamiento, E-Commerce & IA
 
-Sistema web profesional, moderno y privado diseñado para la administración integral de préstamos en dinero, financiamiento de equipos (smartphones, computadoras, movilidad, etc.) y control financiero de compras y ventas con procesamiento inteligente de comprobantes mediante OCR e Inteligencia Artificial Multimodal.
+Plataforma SaaS financiera de alta gama, moderna y privada diseñada para la administración integral de préstamos de capital, financiamiento de equipos (smartphones, computación, movilidad), control de cartera de cobranza y registro financiero de compras/ventas con procesamiento inteligente de comprobantes mediante OCR e Inteligencia Artificial Multimodal.
 
 ---
 
@@ -9,18 +9,18 @@ Sistema web profesional, moderno y privado diseñado para la administración int
 - **Framework:** [Next.js](https://nextjs.org/) (App Router, Server-side API Routes y Server Actions)
 - **Frontend / SPA:** [React](https://react.dev/) + [Tailwind CSS](https://tailwindcss.com/)
 - **Iconografía:** [Lucide React](https://lucide.dev/)
-- **Persistencia de Datos:** Motor JSON estructurado transaccional con respaldo atómico local (`data/db.json`).
-- **OCR & Visión por Computadora:** Módulo multimodal con soporte para OpenAI (GPT-4o-mini Vision), Google Gemini 1.5 Flash y **OCR.space (API gratuita, servicio activo)**. Autenticación gestionada desde el panel de Administrador con prueba de conexión previa al guardado.
+- **Persistencia de Datos:** Motor JSON estructurado transaccional con arquitectura multi-tenant y aislamiento por usuario.
+- **OCR & Visión por Computadora:** Módulo multimodal con soporte para OpenAI, Google Gemini y OCR.space con validación cruzada y extracción de tasas BCV / Binance P2P.
 
 ---
 
 ## 🔐 1. Seguridad y Acceso Privado
 
-- **Licencia Privada de Uso:** Acceso protegido mediante clave de licencia (`RICARDO-FINTECH-2026`) o credenciales de administrador.
+- **Licencia Privada de Uso:** Acceso protegido mediante clave de licencia (`CREDIFLUX-FINTECH-2026`) o credenciales de administrador.
 - **Sesión Persistente:** Guardado seguro en `localStorage` del navegador.
-- **Gestión de Acceso:** Cambio de contraseña en caliente y registro de nuevos operadores.
+- **Gestión de Acceso:** Cambio de contraseña en caliente y administración centralizada de operadores.
 - **Credenciales Iniciales:**
-  - **Licencia:** `RICARDO-FINTECH-2026`
+  - **Licencia:** `CREDIFLUX-FINTECH-2026`
   - **Usuario:** `admin`
   - **Contraseña:** `admin123`
 
@@ -81,7 +81,7 @@ Sistema web profesional, moderno y privado diseñado para la administración int
 
 ### Paso 1: Clonar o Situarse en la Carpeta
 ```bash
-cd "e:\antigravity\Sistema Ricardo"
+cd "<ruta-del-proyecto>/CrediFlux"
 ```
 
 ### Paso 2: Instalar Dependencias (si es una nueva instalación)
@@ -108,7 +108,7 @@ npm run start
 ## 📁 Estructura del Proyecto
 
 ```
-Sistema Ricardo/
+CrediFlux/
 ├── app/
 │   ├── api/
 │   │   ├── auth/          # Login, sesión y registro
@@ -127,7 +127,7 @@ Sistema Ricardo/
 ├── public/
 │   └── uploads/           # Directorio de almacenamiento de comprobantes
 ├── data/
-│   └── db.json            # Base de datos persistente (se inicializa automáticamente)
+│   └── crediflux-store.json # Base de datos local (fallback dev; en producción usar PostgreSQL)
 ├── tailwind.config.js     # Configuración visual Fintech
 ├── package.json
 └── README.md

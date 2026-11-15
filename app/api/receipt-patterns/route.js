@@ -1,15 +1,23 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
-import { getDb, saveDb, checkWritePermission } from '../../lib/db.js';
+import { getAppState, saveAppState, persistenceInfo } from '../../../lib/server/persistence.js';
+import { syncAdminStateToNormalized, logAudit, ensureAdminConfigSeed, hasDatabase } from '../../../lib/server/admin-config.js';
+import { saveUpload, deleteUpload } from '../../../lib/storage/uploads.js';
+import { checkWritePermission, getRequestUser } from '../../../lib/db.js';
 
-export async function GET(request) {
+function findUser(db, request) {
+  const userId = request.headers.get('x-user-id');
+  if (!userId) return null;
+  return (db.users || []).find(u => u.id === userId) || null;
+}
+
+export async function GET() {
   try {
-    const db = getDb();
-    const patterns = db.receiptPatterns || [];
+    const db = await getAppState();
+    const patterns = Array.isArray(db.receiptPatterns) ? db.receiptPatterns : [];
     return NextResponse.json({
       success: true,
-      patterns
+      patterns,
+      persistence: persistenceInfo(),
     });
   } catch (error) {
     console.error('Receipt patterns GET error:', error);
@@ -19,23 +27,23 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const db = getDb();
+    const db = await getAppState();
+
+    // Permisos (compatibilidad con lógica existente)
     const perm = checkWritePermission(request, db);
     if (!perm.allowed) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
     }
-
-    const userId = request.headers.get('x-user-id');
-    const currentUser = db.users.find(u => u.id === userId);
+    const currentUser = getRequestUser(request, db) || findUser(db, request);
     if (currentUser?.role !== 'admin') {
       return NextResponse.json({ success: false, error: 'Acceso restringido: Solo el administrador puede gestionar patrones' }, { status: 403 });
     }
 
     const formData = await request.formData();
-    const bankName = (formData.get('bankName') || '').trim();
-    const referenceFormat = (formData.get('referenceFormat') || '').trim();
-    const keywordsRaw = formData.get('keywords') || '';
-    const notes = (formData.get('notes') || '').trim();
+    const bankName = String(formData.get('bankName') || '').trim();
+    const referenceFormat = String(formData.get('referenceFormat') || '').trim();
+    const keywordsRaw = String(formData.get('keywords') || '');
+    const notes = String(formData.get('notes') || '').trim();
     const file = formData.get('patternImage');
 
     if (!bankName) {
@@ -43,27 +51,23 @@ export async function POST(request) {
     }
 
     let imageUrl = '/uploads/sample-voucher.png';
+    let imageKey = null;
+    let imageMime = null;
 
-    if (file && typeof file === 'object' && file.size > 0) {
+    if (file && typeof file === 'object' && typeof file.arrayBuffer === 'function' && file.size > 0) {
       const buffer = Buffer.from(await file.arrayBuffer());
-      const patternsDir = path.join(process.cwd(), 'public', 'uploads', 'patterns');
-      if (!fs.existsSync(patternsDir)) {
-        fs.mkdirSync(patternsDir, { recursive: true });
-      }
-
-      const extension = path.extname(file.name) || '.png';
-      const cleanFileName = `pattern_${Date.now()}_${bankName.toLowerCase().replace(/[^a-z0-9]/g, '_')}${extension}`;
-      const filePath = path.join(patternsDir, cleanFileName);
-
-      fs.writeFileSync(filePath, buffer);
-      imageUrl = `/uploads/patterns/${cleanFileName}`;
+      const ext = (file.name && file.name.includes('.')) ? `.${file.name.split('.').pop().toLowerCase().replace(/[^a-z0-9]/g, '')}` : '.png';
+      const safeBank = bankName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'bank';
+      const filename = `pattern_${Date.now()}_${safeBank}${ext || '.png'}`;
+      const uploaded = await saveUpload(buffer, { filename, folder: 'uploads/patterns', contentType: file.type || undefined });
+      imageUrl = uploaded.url;
+      imageKey = uploaded.key || null;
+      imageMime = file.type || null;
     }
 
-    // Parsear palabras clave para validación cruzada
     const keywords = keywordsRaw
       ? keywordsRaw.split(',').map(k => k.trim()).filter(Boolean)
       : [bankName.toLowerCase()];
-
     if (!keywords.some(k => k.toLowerCase() === bankName.toLowerCase())) {
       keywords.unshift(bankName.toLowerCase());
     }
@@ -73,20 +77,30 @@ export async function POST(request) {
       bankName,
       keywords,
       imageUrl,
+      imageKey,
+      imageMime,
       referenceFormat: referenceFormat || '6 a 12 dígitos',
       notes: notes || 'Patrón oficial de comprobante para validación cruzada OCR',
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
 
-    if (!db.receiptPatterns) db.receiptPatterns = [];
+    if (!Array.isArray(db.receiptPatterns)) db.receiptPatterns = [];
     db.receiptPatterns.unshift(newPattern);
-    saveDb(db);
+
+    await saveAppState(db);
+
+    if (hasDatabase()) {
+      await ensureAdminConfigSeed().catch(() => {});
+      await syncAdminStateToNormalized(db).catch(() => {});
+      await logAudit({ entity: 'ReceiptPattern', entityId: newPattern.id, action: 'CREATE', before: null, after: newPattern, actorLegacyId: currentUser?.id }).catch(() => {});
+    }
 
     return NextResponse.json({
       success: true,
       message: 'Patrón de comprobante registrado exitosamente',
       pattern: newPattern,
-      patterns: db.receiptPatterns
+      patterns: db.receiptPatterns,
+      persistence: persistenceInfo(),
     });
   } catch (error) {
     console.error('Receipt pattern POST error:', error);
@@ -96,14 +110,12 @@ export async function POST(request) {
 
 export async function DELETE(request) {
   try {
-    const db = getDb();
+    const db = await getAppState();
     const perm = checkWritePermission(request, db);
     if (!perm.allowed) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
     }
-
-    const userId = request.headers.get('x-user-id');
-    const currentUser = db.users.find(u => u.id === userId);
+    const currentUser = getRequestUser(request, db) || findUser(db, request);
     if (currentUser?.role !== 'admin') {
       return NextResponse.json({ success: false, error: 'Solo el administrador puede eliminar patrones' }, { status: 403 });
     }
@@ -112,17 +124,27 @@ export async function DELETE(request) {
     const id = searchParams.get('id');
     if (!id) return NextResponse.json({ success: false, error: 'ID de patrón requerido' }, { status: 400 });
 
+    const existing = (db.receiptPatterns || []).find(p => p.id === id) || null;
     db.receiptPatterns = (db.receiptPatterns || []).filter(p => p.id !== id);
-    saveDb(db);
+    await saveAppState(db);
+
+    if (existing) {
+      await deleteUpload({ key: existing.imageKey, url: existing.imageUrl }).catch(() => {});
+    }
+
+    if (hasDatabase()) {
+      await syncAdminStateToNormalized(db).catch(() => {});
+      await logAudit({ entity: 'ReceiptPattern', entityId: id, action: 'DELETE', before: existing, after: null, actorLegacyId: currentUser?.id }).catch(() => {});
+    }
 
     return NextResponse.json({
       success: true,
       message: 'Patrón de comprobante eliminado exitosamente',
-      patterns: db.receiptPatterns
+      patterns: db.receiptPatterns,
+      persistence: persistenceInfo(),
     });
   } catch (error) {
     console.error('Receipt pattern DELETE error:', error);
     return NextResponse.json({ success: false, error: 'Error al eliminar patrón' }, { status: 500 });
   }
 }
-

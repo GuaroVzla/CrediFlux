@@ -1,0 +1,240 @@
+// CrediFlux - Esquema de persistencia centralizada (Admin + configuración)
+// Versionado en Git. Los datos y secretos NO se versionan.
+// Proveedor recomendado en Vercel: PostgreSQL administrado (Neon/Supabase/Vercel Postgres).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+enum LicenseStatus {
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+  REVOKED
+}
+
+enum TrustTier {
+  ALTO
+  MEDIO
+  RIESGOSO
+}
+
+// -----------------------------
+// Núcleo multi-tenant (single-tenant por defecto: id="default")
+// -----------------------------
+
+model Tenant {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users            User[]
+  licenses         License[]
+  settings         AdminSetting?
+  trustLevels      TrustLevelConfig[]
+  receiptPatterns  ReceiptPattern[]
+  auditLogs        SettingAuditLog[]
+}
+
+// -----------------------------
+// Usuarios y licencias (Gestión de usuarios y licencias)
+// -----------------------------
+
+model User {
+  id                   String    @id @default(cuid())
+  tenantId             String
+  tenant               Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  legacyId             String?   // mapeo desde JSON (usr_admin, etc.)
+  username             String
+  name                 String
+  companyName          String?
+  email                String?
+  address              String?
+  phone                String?
+  passwordHash         String?
+  passwordLegacy       String?   // compatibilidad temporal; migrar a hash
+  role                 UserRole  @default(USER)
+  isActive             Boolean   @default(true)
+
+  // Capital mensual (estructura heredada del sistema)
+  monthlyCapitals      Json?
+
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  license              License?
+  auditLogs            SettingAuditLog[] @relation("AuditActor")
+
+  @@unique([tenantId, username])
+  @@unique([tenantId, legacyId])
+  @@index([tenantId, role])
+}
+
+model License {
+  id                 String        @id @default(cuid())
+  tenantId           String
+  tenant             Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId             String?       @unique
+  user               User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  licenseKey         String
+  plan               String        @default("standard")
+  status             LicenseStatus @default(ACTIVE)
+  durationMonths     Int           @default(1)
+  assignedAt         DateTime      @default(now())
+  expiresAt          DateTime?
+  notes              String?
+  issuedByUserId     String?
+
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@unique([tenantId, licenseKey])
+  @@index([tenantId, status, expiresAt])
+}
+
+// -----------------------------
+// Parámetros generales y asignación automática del motor de IA / OCR
+// -----------------------------
+
+model AdminSetting {
+  id                   String   @id @default(cuid())
+  tenantId             String   @unique
+  tenant               Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Generales
+  companyName          String   @default("CrediFlux")
+  currency             String   @default("$")
+  ecommerceCapital     Float    @default(5000)
+  timezone             String   @default("America/Caracas")
+
+  // IA / OCR
+  aiProvider           String   @default("ocrspace") // openai | gemini | ocrspace | tesseract
+  aiAutoAssignEnabled  Boolean  @default(true)
+  aiRoutingRules       Json?    // asignación automática por tipo de tarea
+  ocrConfidenceMin     Float    @default(0.8)
+
+  // Credenciales/config por proveedor (sensibles: idealmente cifradas o referenciadas por env)
+  ocrApiKeys           Json?    // { openai, gemini, ocrspace }
+  providerConfig       Json?    // metadatos no sensibles de proveedores
+
+  // Parámetros extensibles
+  featureFlags         Json?
+  metadata             Json?
+
+  // Compatibilidad / licencia global del sistema
+  systemLicenseKey     String?
+  adminPasswordHash    String?
+  adminPasswordLegacy  String?
+
+  updatedBy            String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+// -----------------------------
+// Niveles de confianza de clientes (Alta, Media, Riesgosa)
+// -----------------------------
+
+model TrustLevelConfig {
+  id          String    @id @default(cuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  tier        TrustTier
+  label       String
+  description String?
+  // Umbrales/criterios configurables por admin
+  criteria    Json?     // ej. { maxDelayDays, minOnTimeRate, ... } o mapeo desde config actual
+  isActive    Boolean   @default(true)
+  sortOrder   Int       @default(0)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([tenantId, tier])
+  @@index([tenantId, isActive, sortOrder])
+}
+
+// -----------------------------
+// Base de datos de patrones de comprobantes bancarios (validación cruzada)
+// -----------------------------
+
+model ReceiptPattern {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  legacyId        String?
+  bankName        String
+  keywords        Json?    // array de palabras clave / aliases
+  referenceFormat String?
+  referenceRegex  String?
+  notes           String?
+
+  // Imagen de referencia (almacenamiento externo en producción)
+  imageKey        String?  // clave en Blob/S3
+  imageUrl        String?
+  imageMime       String?
+
+  isActive        Boolean  @default(true)
+  version         Int      @default(1)
+  createdBy       String?
+  extra           Json?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([tenantId, legacyId])
+  @@index([tenantId, bankName])
+  @@index([tenantId, isActive])
+}
+
+// -----------------------------
+// Auditoría de cambios administrativos
+// -----------------------------
+
+model SettingAuditLog {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  actorId   String?
+  actor     User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  entity    String   // AdminSetting | TrustLevelConfig | ReceiptPattern | User | License
+  entityId  String?
+  action    String   // CREATE | UPDATE | DELETE
+  before    Json?
+  after     Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, entity, createdAt])
+}
+
+// -----------------------------
+// Almacén de estado completo (compatibilidad/persistencia Vercel inmediata)
+// Permite persistir el store JSON completo en Postgres mientras se completa la migración total.
+// -----------------------------
+
+model AppState {
+  id        String   @id @default("main")
+  data      Json
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}

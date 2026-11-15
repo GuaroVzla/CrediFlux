@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { getTrustLevelConfig, computeClientTrust } from '../lib/trust';
 
-export default function SistemaRicardoApp() {
+export default function CrediFluxApp() {
   // Authentication & Session
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
@@ -71,7 +71,6 @@ export default function SistemaRicardoApp() {
     name: '',
     username: '',
     password: '',
-    companyName: '',
     address: '',
     phone: '',
     licenseDurationMonths: 1,
@@ -188,8 +187,8 @@ export default function SistemaRicardoApp() {
 
   // Initialize session from localStorage
   useEffect(() => {
-    const savedUser = localStorage.getItem('ricardo_user');
-    const savedToken = localStorage.getItem('ricardo_token');
+    const savedUser = localStorage.getItem('crediflux_user') || localStorage.getItem('ricardo_user');
+    const savedToken = localStorage.getItem('crediflux_token') || localStorage.getItem('ricardo_token');
     if (savedUser && savedToken) {
       const parsedUser = JSON.parse(savedUser);
       setCurrentUser(parsedUser);
@@ -254,7 +253,7 @@ export default function SistemaRicardoApp() {
     setLoading(true);
     fetchDolarRates({ forceP2P: Boolean(options.forceP2P) });
     try {
-      const savedUser = localStorage.getItem('ricardo_user');
+      const savedUser = localStorage.getItem('crediflux_user') || localStorage.getItem('ricardo_user');
       const userId = savedUser ? JSON.parse(savedUser).id : '';
 
       const headers = { 'x-user-id': userId };
@@ -339,7 +338,7 @@ export default function SistemaRicardoApp() {
           if (updatedUser.monthlyCapitals) {
             setMonthlyCapitalsForm(updatedUser.monthlyCapitals);
           }
-          localStorage.setItem('ricardo_user', JSON.stringify(updatedUser));
+          localStorage.setItem('crediflux_user', JSON.stringify(updatedUser));
         }
       }
     } catch (err) {
@@ -600,8 +599,10 @@ export default function SistemaRicardoApp() {
       });
       const data = await res.json();
       if (data.success) {
-        localStorage.setItem('ricardo_token', data.token);
-        localStorage.setItem('ricardo_user', JSON.stringify(data.user));
+        localStorage.setItem('crediflux_token', data.token);
+        localStorage.setItem('crediflux_user', JSON.stringify(data.user));
+        localStorage.removeItem('ricardo_token');
+        localStorage.removeItem('ricardo_user');
         setCurrentUser(data.user);
         if (data.user.monthlyCapitals) {
           setMonthlyCapitalsForm(data.user.monthlyCapitals);
@@ -617,7 +618,7 @@ export default function SistemaRicardoApp() {
     }
   };
 
-  // Admin registra un nuevo usuario final con empresa y licencia
+  // Admin registra un nuevo usuario final con licencia en CrediFlux
   const handleAdminRegisterUser = async (e) => {
     e.preventDefault();
     try {
@@ -640,7 +641,6 @@ export default function SistemaRicardoApp() {
           name: '',
           username: '',
           password: '',
-          companyName: '',
           address: '',
           phone: '',
           licenseDurationMonths: 1,
@@ -709,6 +709,8 @@ export default function SistemaRicardoApp() {
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('crediflux_token');
+    localStorage.removeItem('crediflux_user');
     localStorage.removeItem('ricardo_token');
     localStorage.removeItem('ricardo_user');
     setIsAuthenticated(false);
@@ -974,18 +976,21 @@ export default function SistemaRicardoApp() {
   // --- RENDER LOGIN SCREEN (ESTRICTAMENTE PRIVADA - SIN REGISTRO PÚBLICO) ---
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950">
-        <div className="w-full max-w-md bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-3xl p-8 shadow-2xl relative overflow-hidden">
-          <div className="absolute -top-24 -right-24 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-[#0b1120] via-[#0f172a] to-[#064e3b]">
+        <div className="w-full max-w-md bg-[#111827]/95 backdrop-blur-xl border border-slate-800 rounded-3xl p-8 shadow-2xl relative overflow-hidden">
+          <div className="absolute -top-24 -right-24 w-48 h-48 bg-emerald-500/15 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none" />
 
           <div className="text-center mb-6">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-400 text-white shadow-lg shadow-emerald-500/20 mb-3">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-cyan-500 text-white shadow-lg shadow-emerald-500/25 mb-3">
               <Shield className="w-8 h-8" />
             </div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">SISTEMA RICARDO</h1>
-            <p className="text-xs uppercase tracking-widest text-emerald-400 font-semibold mt-0.5">
-              Portal Privado de Acceso
+            <h1 className="text-2xl font-black text-white tracking-tight flex items-center justify-center gap-1.5">
+              <span>CREDI</span>
+              <span className="bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">FLUX</span>
+            </h1>
+            <p className="text-[11px] uppercase tracking-widest text-emerald-400 font-bold mt-0.5">
+              Plataforma SaaS Financiera & E-Commerce
             </p>
             <p className="text-slate-400 text-xs mt-1">
               Ingresa tus credenciales autorizadas por el Administrador.
@@ -1060,25 +1065,25 @@ export default function SistemaRicardoApp() {
   // --- MAIN AUTHENTICATED FINTECH DASHBOARD ---
 
   // ---- Sistema tipográfico unificado del módulo de Ajustes ----
-  const settingsCardTheme = themeDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200';
+  const settingsCardTheme = themeDark ? 'bg-[#111827] border-slate-800' : 'bg-white border-slate-200';
   const settingsCardCls = `p-5 rounded-2xl border ${settingsCardTheme}`;
-  const settingsSubcardTheme = themeDark ? 'bg-slate-800/40 border-slate-700/60' : 'bg-slate-50 border-slate-200';
+  const settingsSubcardTheme = themeDark ? 'bg-[#1e293b]/50 border-slate-700/60' : 'bg-slate-50 border-slate-200';
   const settingsTitleCls = 'text-base font-semibold text-white flex items-center gap-2';
   const settingsCardTitleCls = 'text-sm font-semibold text-white flex items-center gap-2';
   const settingsDescCls = 'text-xs text-slate-400 leading-relaxed';
   const settingsLabelCls = 'block text-xs font-medium text-slate-300 mb-1.5';
-  const settingsInputCls = 'w-full h-10 px-3 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50';
-  const settingsTextareaCls = 'w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 resize-none';
-  const settingsPrimaryBtnCls = 'h-10 px-4 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-semibold rounded-lg text-sm transition-colors shadow-sm inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed';
-  const settingsSecondaryBtnCls = 'h-10 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold rounded-lg text-sm transition-colors inline-flex items-center justify-center gap-1.5';
+  const settingsInputCls = 'w-full h-10 px-3 bg-[#0b1120] border border-slate-700 rounded-lg text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50';
+  const settingsTextareaCls = 'w-full px-3 py-2 bg-[#0b1120] border border-slate-700 rounded-lg text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 resize-none';
+  const settingsPrimaryBtnCls = 'h-10 px-4 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-lg text-sm transition-colors shadow-sm inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed';
+  const settingsSecondaryBtnCls = 'h-10 px-4 bg-[#1f2937] hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold rounded-lg text-sm transition-colors inline-flex items-center justify-center gap-1.5';
   const settingsDangerBtnCls = 'h-10 px-4 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 font-semibold rounded-lg text-sm transition-colors inline-flex items-center justify-center gap-1.5';
   const settingsHelperCls = 'text-[11px] text-slate-500 leading-relaxed';
   const settingsTableHeadCls = 'text-[11px] font-semibold uppercase tracking-wide text-slate-400';
-  const settingsTableBtnCls = 'h-8 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold transition-colors';
+  const settingsTableBtnCls = 'h-8 px-3 bg-[#1f2937] hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold transition-colors';
   const settingsTableDangerBtnCls = 'h-8 px-3 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-lg text-xs font-semibold transition-colors';
 
   return (
-    <div className={`min-h-screen ${themeDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'} flex flex-col transition-colors duration-200`}>
+    <div className={`min-h-screen ${themeDark ? 'bg-[#0b1120] text-slate-100' : 'bg-[#f8fafc] text-slate-900'} flex flex-col transition-colors duration-200`}>
       {/* Toast Notification */}
       {notification && (
         <div className={`fixed top-5 right-5 z-[100] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border text-xs font-semibold transition-all max-w-md ${notification.type === 'error'
@@ -1109,17 +1114,19 @@ export default function SistemaRicardoApp() {
       )}
 
       {/* TOPBAR NAVIGATION */}
-      <header className={`border-b sticky top-0 z-30 backdrop-blur-md ${themeDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white/80 border-slate-200'}`}>
+      <header className={`border-b sticky top-0 z-30 backdrop-blur-md ${themeDark ? 'bg-[#0b1120]/90 border-slate-800/80' : 'bg-white/90 border-slate-200'}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-white shadow-md shadow-emerald-500/20">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-cyan-500 flex items-center justify-center text-white shadow-md shadow-emerald-500/25 ring-1 ring-emerald-400/30">
               <Shield className="w-6 h-6" />
             </div>
             <div>
-              <span className="font-bold text-lg tracking-tight bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">
-                {currentUser?.companyName || 'SISTEMA RICARDO'}
-              </span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 leading-none">
+                <span className="font-black text-xl tracking-tight text-white">CREDI</span>
+                <span className="font-black text-xl tracking-tight bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">FLUX</span>
+                <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">PRO</span>
+              </div>
+              <div className="flex items-center gap-2 mt-1">
                 <span className={`w-1.5 h-1.5 rounded-full ${isUserExpired ? 'bg-rose-500' : 'bg-emerald-400'}`}></span>
                 <span className="text-[11px] font-medium text-slate-400 tracking-wide uppercase">
                   {currentUser?.role === 'admin' ? 'Administrador Maestro (Acceso Total)' : isUserExpired ? 'Licencia Caducada' : 'Licencia Activa'}
@@ -1222,7 +1229,7 @@ export default function SistemaRicardoApp() {
             { id: 'clients', label: 'Clientes', icon: Users },
             { id: 'products', label: 'Productos', icon: Smartphone },
             { id: 'ecommerce', label: 'E-Commerce & OCR IA', icon: ShoppingBag, badge: 'IA' },
-            { id: 'settings', label: currentUser?.role === 'admin' ? 'Ajustes y Usuarios (Admin)' : 'Mi Cuenta, Empresa y Capital', icon: Lock }
+            { id: 'settings', label: currentUser?.role === 'admin' ? 'Ajustes Admin (CrediFlux)' : 'Mi Cuenta & Capital', icon: Lock }
           ].map(tab => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
@@ -3610,7 +3617,7 @@ export default function SistemaRicardoApp() {
         })()}
 
         {/* ============================================================== */}
-        {/* TAB 7: AJUSTES, LICENCIA, EMPRESA & CAPITAL MENSUAL            */}
+        {/* TAB 7: AJUSTES, LICENCIAS Y GESTIÓN DE CAPITAL MENSUAL         */}
         {/* ============================================================== */}
         {activeTab === 'settings' && (() => {
           const realCurrentMonthKey = new Date().toISOString().slice(0, 7);
@@ -3652,7 +3659,7 @@ export default function SistemaRicardoApp() {
             setCurrentUser(prev => {
               if (!prev) return prev;
               const updated = { ...prev, monthlyCapitals: capitals };
-              try { localStorage.setItem('ricardo_user', JSON.stringify(updated)); } catch (e) {}
+              try { localStorage.setItem('crediflux_user', JSON.stringify(updated)); } catch (e) {}
               return updated;
             });
           };
@@ -3779,13 +3786,14 @@ export default function SistemaRicardoApp() {
           return (
           <div className="max-w-6xl mx-auto space-y-5">
             <div>
-              <h2 className="text-2xl font-bold text-white tracking-tight">
-                {currentUser?.role === 'admin' ? 'Ajustes Maestros del Administrador' : 'Mi Cuenta, Empresa y Capital Mensual'}
+              <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+                <span>{currentUser?.role === 'admin' ? 'Ajustes de Administrador' : 'Mi Cuenta y Capital Operativo'}</span>
+                <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">CrediFlux Core</span>
               </h2>
               <p className="text-slate-400 text-sm leading-relaxed">
                 {currentUser?.role === 'admin'
-                  ? 'Panel exclusivo del administrador: registro de nuevos usuarios, asignación de empresas, supervisión de claves, licencias y proveedor global de IA.'
-                  : `Empresa asignada: ${currentUser?.companyName || 'Sin asignar'} • Gestión mensual de capital para el cálculo de utilidades y el estado de la licencia.`}
+                  ? 'Panel exclusivo del administrador: registro y gestión de usuarios, supervisión de claves, licencias comerciales y configuración del motor multimodal de IA.'
+                  : 'Plataforma unificada CrediFlux: gestión mensual de capital operativo para el balance de utilidades y estado de tu licencia.'}
               </p>
             </div>
 
@@ -3913,7 +3921,7 @@ export default function SistemaRicardoApp() {
                     Estado de Licencia
                   </h4>
                   <p className={`${settingsDescCls} mt-1`}>
-                    Licencia: <strong className="text-emerald-400 font-mono">{currentUser?.licenseKey || 'MASTER-ADMIN'}</strong> • Empresa: <strong className="text-white">{currentUser?.companyName || 'Sin asignar'}</strong>
+                    Licencia: <strong className="text-emerald-400 font-mono">{currentUser?.licenseKey || 'MASTER-ADMIN'}</strong> • Plataforma: <strong className="text-white">CrediFlux Core</strong>
                   </p>
                 </div>
                 <div className="text-right">
@@ -4148,10 +4156,10 @@ export default function SistemaRicardoApp() {
                     <div>
                       <h3 className={settingsTitleCls}>
                         <Users className="w-5 h-5 text-emerald-400" />
-                        Usuarios Finales del Sistema ({adminUsersList.filter(u => u.role !== 'admin').length})
+                        Usuarios del Sistema ({adminUsersList.filter(u => u.role !== 'admin').length})
                       </h3>
                       <p className={`${settingsDescCls} mt-1`}>
-                        Solo tú puedes registrar usuarios, asignar empresas individuales, consultar contraseñas y renovar licencias.
+                        Supervisión integral de usuarios: gestión de credenciales, licencias comerciales y acceso unificado a CrediFlux.
                       </p>
                     </div>
 
@@ -4172,7 +4180,6 @@ export default function SistemaRicardoApp() {
                       <thead className={`border-b border-slate-800 ${settingsTableHeadCls}`}>
                         <tr>
                           <th className="py-3 px-4">Usuario / Nombre</th>
-                          <th className="py-3 px-4">Empresa Asignada</th>
                           <th className="py-3 px-4">Clave de Acceso</th>
                           <th className="py-3 px-4">Licencia</th>
                           <th className="py-3 px-4">Caducidad</th>
@@ -4191,12 +4198,6 @@ export default function SistemaRicardoApp() {
                                 {u.role === 'admin' && (
                                   <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300">ADMIN</span>
                                 )}
-                              </td>
-                              <td className="py-3.5 px-4 text-slate-200 font-medium">
-                                <div className="flex items-center gap-1.5">
-                                  <Building className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                                  <span>{u.companyName || 'Sin empresa'}</span>
-                                </div>
                               </td>
                               <td className="py-3.5 px-4 font-mono text-emerald-300 font-semibold">
                                 {u.password || '••••••••'}
@@ -4738,8 +4739,8 @@ export default function SistemaRicardoApp() {
           <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div>
-                <h3 className="text-base font-semibold text-white">Registrar Nuevo Usuario Final</h3>
-                <p className={`${settingsDescCls} mt-1`}>Asigna empresa personalizada, clave de acceso y licencia con caducidad.</p>
+                <h3 className="text-base font-semibold text-white">Registrar Nuevo Usuario</h3>
+                <p className={`${settingsDescCls} mt-1`}>Crea un usuario para operar bajo el núcleo unificado de CrediFlux.</p>
               </div>
               <button
                 onClick={() => setNewUserModal(false)}
@@ -4750,29 +4751,16 @@ export default function SistemaRicardoApp() {
             </div>
 
             <form onSubmit={handleAdminRegisterUser} className="space-y-3 mt-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={settingsLabelCls}>Nombre y Apellido *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ej. Roberto Sánchez"
-                    value={newUserForm.name}
-                    onChange={(e) => setNewUserForm({ ...newUserForm, name: e.target.value })}
-                    className={settingsInputCls}
-                  />
-                </div>
-                <div>
-                  <label className={settingsLabelCls}>Nombre de la Empresa *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ej. Inversiones RS 2026"
-                    value={newUserForm.companyName}
-                    onChange={(e) => setNewUserForm({ ...newUserForm, companyName: e.target.value })}
-                    className={`${settingsInputCls} font-semibold text-emerald-400`}
-                  />
-                </div>
+              <div>
+                <label className={settingsLabelCls}>Nombre y Apellido *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej. Roberto Sánchez"
+                  value={newUserForm.name}
+                  onChange={(e) => setNewUserForm({ ...newUserForm, name: e.target.value })}
+                  className={settingsInputCls}
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -4889,7 +4877,7 @@ export default function SistemaRicardoApp() {
           <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <h3 className="text-base font-semibold text-white">
-                {editUserModal.passwordOnly ? 'Editar Clave del Administrador' : 'Editar Usuario, Empresa y Licencia'}
+                {editUserModal.passwordOnly ? 'Editar Clave del Administrador' : 'Editar Usuario y Licencia CrediFlux'}
               </h3>
               <button
                 onClick={() => setEditUserModal({ open: false, user: null })}
@@ -4913,7 +4901,6 @@ export default function SistemaRicardoApp() {
                       targetUserId: editUserModal.user.id,
                       updateUserAction: 'edit',
                       updatedName: fd.get('name'),
-                      updatedCompanyName: fd.get('companyName'),
                       updatedPassword: fd.get('password'),
                       updatedLicenseKey: fd.get('licenseKey'),
                       updatedMonths: fd.get('months')
@@ -4929,7 +4916,7 @@ export default function SistemaRicardoApp() {
                   });
                   const d = await res.json();
                   if (d.success) {
-                    notify(editUserModal.passwordOnly ? 'Clave del Administrador actualizada' : 'Usuario, empresa y licencia actualizados');
+                    notify(editUserModal.passwordOnly ? 'Clave del Administrador actualizada' : 'Usuario y licencia actualizados en CrediFlux');
                     setEditUserModal({ open: false, user: null });
                     fetchAllData();
                   } else {
@@ -4964,17 +4951,6 @@ export default function SistemaRicardoApp() {
                   defaultValue={editUserModal.user.name}
                   required
                   className={settingsInputCls}
-                />
-              </div>
-
-              <div>
-                <label className={settingsLabelCls}>Nombre de la Empresa</label>
-                <input
-                  type="text"
-                  name="companyName"
-                  defaultValue={editUserModal.user.companyName}
-                  required
-                  className={`${settingsInputCls} font-semibold text-emerald-400`}
                 />
               </div>
 

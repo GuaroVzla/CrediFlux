@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import { getDb, saveDb, checkWritePermission, getRequestUser, scopeRecords, canAccessRecord } from '../../lib/db.js';
+import { checkWritePermission, getRequestUser, scopeRecords, canAccessRecord } from '../../lib/db.js';
 import { parseReceiptWithAI } from '../../lib/ocr.js';
+import { getAppState, saveAppState, persistenceInfo } from '../../lib/server/persistence.js';
 
 export async function GET(request) {
   try {
-    const db = getDb();
+    const db = await getAppState();
     const currentUser = getRequestUser(request, db);
     const isAdmin = currentUser?.role === 'admin';
 
@@ -91,7 +92,8 @@ export async function GET(request) {
         remainingCapital,
         totalTransactions: allTransactions.length
       },
-      transactions: allTransactions // always return all in chronological order
+      transactions: allTransactions, // always return all in chronological order
+      persistence: persistenceInfo(),
     });
   } catch (error) {
     console.error('Ecommerce GET error:', error);
@@ -101,7 +103,7 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const db = getDb();
+    const db = await getAppState();
     const perm = checkWritePermission(request, db);
     if (!perm.allowed) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
@@ -207,13 +209,14 @@ export async function POST(request) {
 
     if (!db.ecommerce) db.ecommerce = [];
     db.ecommerce.push(newTransaction); // push to end for chronological order
-    saveDb(db);
+    await saveAppState(db);
 
     return NextResponse.json({
       success: true,
       message: 'Transacción y comprobante procesados exitosamente',
       transaction: newTransaction,
-      ocr: ocrResult
+      ocr: ocrResult,
+      persistence: persistenceInfo(),
     });
   } catch (error) {
     console.error('Ecommerce POST error:', error);
@@ -223,7 +226,7 @@ export async function POST(request) {
 
 export async function DELETE(request) {
   try {
-    const db = getDb();
+    const db = await getAppState();
     const perm = checkWritePermission(request, db);
     if (!perm.allowed) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
@@ -243,9 +246,9 @@ export async function DELETE(request) {
     }
 
     db.ecommerce = (db.ecommerce || []).filter(t => t.id !== id);
-    saveDb(db);
+    await saveAppState(db);
 
-    return NextResponse.json({ success: true, message: 'Transacción eliminada exitosamente' });
+    return NextResponse.json({ success: true, message: 'Transacción eliminada exitosamente', persistence: persistenceInfo() });
   } catch (error) {
     console.error('Ecommerce DELETE error:', error);
     return NextResponse.json({ success: false, error: 'Error al eliminar transacción' }, { status: 500 });

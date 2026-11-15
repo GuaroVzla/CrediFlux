@@ -1,31 +1,41 @@
 {
-  "name": "sistema-ricardo",
+  "name": "crediflux",
   "version": "1.0.0",
-  "description": "",
+  "description": "CrediFlux - Plataforma SaaS Financiera, Préstamos y E-Commerce Inteligente",
   "main": "index.js",
   "scripts": {
     "dev": "next dev --webpack",
     "dev:webpack": "next dev --webpack",
     "dev:turbo": "next dev",
-    "build": "next build",
-    "start": "next start"
+    "build": "prisma generate && next build",
+    "postinstall": "prisma generate",
+    "start": "next start",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "node prisma/seed.mjs",
+    "db:migrate-json": "node scripts/migrate-json-to-postgres.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "@prisma/client": "^6.6.0",
+    "@vercel/blob": "^0.27.3",
     "lucide-react": "^1.70.0",
     "next": "^16.4.6",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "tesseract.js": "^7.0.0"
+    "tesseract.js": "^7.0.0",
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/node": "26.6.6",
     "@types/react": "19.3.0",
     "autoprefixer": "^10.6.2",
     "postcss": "^8.5.32",
+    "prisma": "^6.6.0",
     "tailwindcss": "^3.4.19",
     "typescript": "7.0.2"
   }

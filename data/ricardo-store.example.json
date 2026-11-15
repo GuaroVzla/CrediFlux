@@ -1,6 +1,6 @@
 {
   "settings": {
-    "licenseKey": "RICARDO-FINTECH-2026",
+    "licenseKey": "CREDIFLUX-FINTECH-2026",
     "adminPassword": "admin",
     "currency": "$",
     "aiProvider": "openai",
@@ -11,7 +11,6 @@
       "id": "usr_admin",
       "username": "admin",
       "name": "Administrador del Sistema",
-      "companyName": "Sistema Ricardo Central",
       "role": "admin",
       "password": "admin",
       "createdAt": "2026-01-01T08:00:00.000Z"

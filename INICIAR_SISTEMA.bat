@@ -1,7 +1,7 @@
 @echo off
-title Sistema Ricardo - Servidor Local
+title CrediFlux - Servidor Local
 echo ===================================================
-echo           INICIANDO SISTEMA RICARDO
+echo             INICIANDO CREDIFLUX
 echo ===================================================
 echo.
 cd /d "%~dp0"

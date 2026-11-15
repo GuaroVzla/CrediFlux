@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
-import { getDb, saveDb, generateRandomLicense, LICENSE_EXPIRED_MESSAGE, isUserLicenseExpired, getDefaultMonthlyCapital } from '../../lib/db.js';
+import { generateRandomLicense, isUserLicenseExpired, getDefaultMonthlyCapital } from '../../lib/db.js';
+import { getAppState, saveAppState, persistenceInfo } from '../../lib/server/persistence.js';
+import { hashPassword, verifyPassword, sanitizeUserForClient } from '../../lib/server/security.js';
 
 export async function POST(request) {
   try {
@@ -18,11 +20,13 @@ export async function POST(request) {
       assignedLicenseKey,
       userId
     } = body;
-    const db = getDb();
+    const db = await getAppState();
+    if (!Array.isArray(db.users)) db.users = [];
+    if (!db.settings || typeof db.settings !== 'object') db.settings = {};
 
     // ACTION: LOGIN
     if (action === 'login') {
-      const user = db.users.find(u => u.username?.toLowerCase() === username?.trim().toLowerCase());
+      const user = db.users.find(u => u.username?.toLowerCase() === String(username || '').trim().toLowerCase());
 
       if (!user) {
         return NextResponse.json(
@@ -31,11 +35,28 @@ export async function POST(request) {
         );
       }
 
-      if (user.password !== password) {
+      const stored = user.passwordHash || user.password || user.passwordLegacy || '';
+      const ver = await verifyPassword(password, stored);
+      if (!ver.ok) {
         return NextResponse.json(
           { success: false, error: 'Contraseña incorrecta' },
           { status: 401 }
         );
+      }
+
+      // Migración automática de legado (texto plano) a hash
+      let migrated = false;
+      if (ver.needsMigration || ver.legacy || (user.password && !user.passwordHash)) {
+        user.passwordHash = await hashPassword(String(password || ''));
+        delete user.password;
+        delete user.passwordLegacy;
+        if (user.role === 'admin') {
+          db.settings.adminPasswordHash = user.passwordHash;
+          delete db.settings.adminPassword;
+          delete db.settings.adminPasswordLegacy;
+        }
+        migrated = true;
+        await saveAppState(db);
       }
 
       const isExpired = user.role !== 'admin' && isUserLicenseExpired(user);
@@ -47,12 +68,11 @@ export async function POST(request) {
       return NextResponse.json({
         success: true,
         message: 'Acceso autorizado',
-        token: 'token_ricardo_' + Buffer.from(Date.now().toString()).toString('base64'),
+        token: 'token_crediflux_' + Buffer.from(Date.now().toString()).toString('base64'),
         user: {
           id: user.id,
           username: user.username,
           name: user.name,
-          companyName: user.companyName || 'Mi Empresa',
           role: user.role,
           address: user.address || '',
           phone: user.phone || '',
@@ -65,7 +85,9 @@ export async function POST(request) {
         settings: {
           currency: db.settings.currency,
           ecommerceCapital: userCurrentCapital
-        }
+        },
+        security: { passwordMigrated: migrated },
+        persistence: persistenceInfo(),
       });
     }
 
@@ -88,7 +110,7 @@ export async function POST(request) {
         );
       }
 
-      const existing = db.users.find(u => u.username?.toLowerCase() === username?.trim().toLowerCase());
+      const existing = db.users.find(u => u.username?.toLowerCase() === String(username).trim().toLowerCase());
       if (existing) {
         return NextResponse.json(
           { success: false, error: 'El nombre de usuario ya está registrado' },
@@ -99,17 +121,17 @@ export async function POST(request) {
       // Generar licencia automática aleatoria con fecha de caducidad en meses
       const months = parseInt(licenseDurationMonths, 10) || 1;
       const licenseObj = generateRandomLicense(months);
+      const passwordHash = await hashPassword(String(password).trim());
 
       const newUser = {
         id: 'usr_' + Date.now(),
-        username: username.trim(),
-        name: name.trim(),
-        companyName: companyName ? companyName.trim() : `${name.trim()}'s Business`,
-        address: address ? address.trim() : '',
-        phone: phone ? phone.trim() : '',
+        username: String(username).trim(),
+        name: String(name).trim(),
+        address: address ? String(address).trim() : '',
+        phone: phone ? String(phone).trim() : '',
         role: 'user', // Rol de usuario final
-        password: password.trim(),
-        licenseKey: assignedLicenseKey ? assignedLicenseKey.trim().toUpperCase() : licenseObj.licenseKey,
+        passwordHash,
+        licenseKey: assignedLicenseKey ? String(assignedLicenseKey).trim().toUpperCase() : licenseObj.licenseKey,
         licenseAssignedAt: licenseObj.assignedAt,
         licenseExpiresAt: licenseObj.expiresAt,
         licenseDurationMonths: months,
@@ -118,24 +140,25 @@ export async function POST(request) {
       };
 
       db.users.push(newUser);
-      const saved = saveDb(db);
+      const saved = await saveAppState(db);
       if (!saved) {
         return NextResponse.json({
           success: false,
-          error: 'No se pudo guardar el usuario en la base de datos (data/db.json). Verifica permisos de escritura o exclusiones del antivirus y reintenta.'
+          error: 'No se pudo guardar el usuario en la base de datos. Verifica la configuración de persistencia (DATABASE_URL) o permisos de escritura y reintenta.'
         }, { status: 500 });
       }
 
       return NextResponse.json({
         success: true,
-        message: `Usuario final ${newUser.name} registrado con éxito con empresa asignada: ${newUser.companyName}`,
-        user: newUser
+        message: `Usuario final ${newUser.name} registrado con éxito en CrediFlux.`,
+        user: sanitizeUserForClient(newUser),
+        persistence: persistenceInfo(),
       });
     }
 
     // ACTION: CHANGE PASSWORD (Para el usuario activo o admin)
     if (action === 'change_password') {
-      if (!newPassword || newPassword.length < 4) {
+      if (!newPassword || String(newPassword).length < 4) {
         return NextResponse.json(
           { success: false, error: 'La nueva contraseña debe tener al menos 4 caracteres' },
           { status: 400 }
@@ -149,18 +172,23 @@ export async function POST(request) {
         return NextResponse.json({ success: false, error: 'Usuario no encontrado' }, { status: 404 });
       }
 
-      user.password = newPassword.trim();
+      const newHash = await hashPassword(String(newPassword).trim());
+      user.passwordHash = newHash;
+      delete user.password;
+      delete user.passwordLegacy;
       if (user.role === 'admin') {
-        db.settings.adminPassword = newPassword.trim();
+        db.settings.adminPasswordHash = newHash;
+        delete db.settings.adminPassword;
+        delete db.settings.adminPasswordLegacy;
       }
-      saveDb(db);
+      await saveAppState(db);
 
-      return NextResponse.json({ success: true, message: 'Contraseña actualizada con éxito' });
+      return NextResponse.json({ success: true, message: 'Contraseña actualizada con éxito', persistence: persistenceInfo() });
     }
 
     // ACTION: RENEW / ACTIVATE LICENSE (Usuario final introduce nueva licencia o admin la renueva)
     if (action === 'activate_license') {
-      if (!licenseKey || !licenseKey.trim()) {
+      if (!licenseKey || !String(licenseKey).trim()) {
         return NextResponse.json({ success: false, error: 'La clave de licencia es requerida' }, { status: 400 });
       }
 
@@ -175,12 +203,12 @@ export async function POST(request) {
       const expiresAt = new Date(now);
       expiresAt.setMonth(expiresAt.getMonth() + months);
 
-      user.licenseKey = licenseKey.trim().toUpperCase();
+      user.licenseKey = String(licenseKey).trim().toUpperCase();
       user.licenseAssignedAt = now.toISOString();
       user.licenseExpiresAt = expiresAt.toISOString();
       user.licenseDurationMonths = months;
 
-      saveDb(db);
+      await saveAppState(db);
 
       return NextResponse.json({
         success: true,
@@ -196,7 +224,8 @@ export async function POST(request) {
           licenseAssignedAt: user.licenseAssignedAt,
           monthlyCapitals: user.monthlyCapitals,
           isExpired: false
-        }
+        },
+        persistence: persistenceInfo(),
       });
     }
 

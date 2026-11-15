@@ -24,7 +24,7 @@
     <line x1="70" y1="540" x2="530" y2="540" stroke="#334155"/>
     
     <text x="70" y="580" fill="#94A3B8">Beneficiario:</text>
-    <text x="530" y="580" text-anchor="end" fill="#F8FAFC" font-weight="600">Inversiones Ricardo</text>
+    <text x="530" y="580" text-anchor="end" fill="#F8FAFC" font-weight="600">CrediFlux</text>
     <line x1="70" y1="600" x2="530" y2="600" stroke="#334155"/>
     
     <text x="70" y="640" fill="#94A3B8">Concepto:</text>
@@ -32,6 +32,6 @@
   </g>
   
   <rect x="50" y="680" width="500" height="50" rx="8" fill="#10B981" fill-opacity="0.1"/>
-  <text x="300" y="711" text-anchor="middle" fill="#10B981" font-family="system-ui, sans-serif" font-size="13" font-weight="600">PROCESADO POR SISTEMA RICARDO OCR ENGINE</text>
+  <text x="300" y="711" text-anchor="middle" fill="#10B981" font-family="system-ui, sans-serif" font-size="13" font-weight="600">PROCESADO POR CREDIFLUX OCR ENGINE</text>
 </svg>
 

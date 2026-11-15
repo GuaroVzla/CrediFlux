@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Iniciar Sistema Ricardo (F5)",
+      "name": "Iniciar CrediFlux (F5)",
       "type": "node-terminal",
       "request": "launch",
       "command": "npm run dev",
