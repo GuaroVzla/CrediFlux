@@ -3905,16 +3905,45 @@ export default function CrediFluxApp() {
                 return;
               }
 
+              const payload = { action: 'import_settings', importData: parsed };
+              const body = JSON.stringify(payload);
+              // Vercel/Next serverless functions have request body size limits; warn early on large snapshots (e.g. base64 images).
+              const bodySizeBytes = new Blob([body]).size;
+              const maxRecommendedBytes = 4 * 1024 * 1024; // ~4MB safe threshold for common plans
+              if (bodySizeBytes > maxRecommendedBytes) {
+                const sizeMb = (bodySizeBytes / (1024 * 1024)).toFixed(2);
+                if (!confirm(`El archivo a importar es grande (~${sizeMb} MB) y puede exceder el límite de carga permitido en producción (Vercel). ¿Deseas intentar la importación de todas formas?`)) {
+                  return;
+                }
+              }
+
               const res = await fetch('/api/settings', {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
                   'x-user-id': currentUser.id
                 },
-                body: JSON.stringify({ action: 'import_settings', importData: parsed })
+                body
               });
-              const data = await res.json();
-              if (data.success) {
+
+              let data = null;
+              const contentType = res.headers.get('content-type') || '';
+              if (contentType.includes('application/json')) {
+                data = await res.json().catch(() => null);
+              } else {
+                const text = await res.text().catch(() => '');
+                data = text ? { success: false, error: text.slice(0, 300) } : null;
+              }
+
+              if (!res.ok) {
+                const statusMsg = res.status === 413
+                  ? 'El archivo es demasiado grande para el servidor (límite de payload). Reduce imágenes embebidas en patrones o divide la importación.'
+                  : (data?.error || `Error del servidor (${res.status}) al importar la configuración`);
+                notify(statusMsg, 'error');
+                return;
+              }
+
+              if (data?.success) {
                 if (data.settings) setSettings(data.settings);
                 if (data.imported?.activeOcrProvider || data.settings?.aiProvider) {
                   setOcrProvider(data.imported?.activeOcrProvider || data.settings?.aiProvider);
@@ -3942,19 +3971,30 @@ export default function CrediFluxApp() {
                   }));
                 }
                 if (data.activeAdmin) {
+                  const activeAdmin = data.activeAdmin;
                   setCurrentUser(prev => {
-                    const merged = { ...(prev || {}), ...data.activeAdmin };
-                    try { localStorage.setItem('crediflux_user', JSON.stringify(merged)); } catch (e) {}
+                    const merged = { ...(prev || {}), ...activeAdmin };
+                    try {
+                      localStorage.setItem('crediflux_user', JSON.stringify(merged));
+                      localStorage.setItem('ricardo_user', JSON.stringify(merged));
+                    } catch (e) {}
                     return merged;
                   });
+                  if (activeAdmin.monthlyCapitals) {
+                    setMonthlyCapitalsForm(activeAdmin.monthlyCapitals);
+                  }
+                }
+                if (data.settings?.monthlyCapitals) {
+                  setMonthlyCapitalsForm(data.settings.monthlyCapitals);
                 }
                 notify(data.message || 'Snapshot importado con éxito: entorno 100% operativo');
-                fetchAllData();
+                await fetchAllData();
               } else {
-                notify(data.error || 'No se pudo importar la configuración', 'error');
+                notify(data?.error || 'No se pudo importar la configuración', 'error');
               }
             } catch (err) {
-              notify('Error de red o de lectura al importar configuraciones', 'error');
+              console.error('Error importando ajustes:', err);
+              notify(`Error al importar configuraciones: ${err?.message || 'fallo de red o lectura del archivo'}`, 'error');
             } finally {
               if (importSettingsInputRef.current) importSettingsInputRef.current.value = '';
             }

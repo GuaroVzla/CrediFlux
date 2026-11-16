@@ -702,14 +702,28 @@ export async function POST(request: Request) {
       }
 
       // 4. PERSISTENCIA EN EL ALMACÉN Y SINCRONIZACIÓN CON BASE DE DATOS (POSTGRES / PRISMA)
-      await saveAppState(db);
+      const persisted = await saveAppState(db);
+      if (!persisted) {
+        return NextResponse.json({
+          success: false,
+          error: 'No se pudo persistir la configuración importada. En producción (Vercel) verifica que DATABASE_URL/Postgres esté configurado; el sistema de archivos es efímero y de solo lectura.'
+        }, { status: 500 });
+      }
 
       if (hasDatabase()) {
-        await ensureAdminConfigSeed().catch(() => {});
-        await syncAdminStateToNormalized(db).catch(() => {});
-        if (hasSettings || hasMotorOcr) await logAudit({ entity: 'AdminSetting', entityId: 'main', action: 'IMPORT', before: beforeSettings, after: db.settings, actorLegacyId: currentUser?.id }).catch(() => {});
-        if (hasUsers) await logAudit({ entity: 'User', entityId: 'all', action: 'IMPORT', before: beforeUsers, after: db.users, actorLegacyId: currentUser?.id }).catch(() => {});
-        if (hasPatterns) await logAudit({ entity: 'ReceiptPattern', entityId: 'all', action: 'IMPORT', before: beforePatterns, after: db.receiptPatterns, actorLegacyId: currentUser?.id }).catch(() => {});
+        try {
+          await ensureAdminConfigSeed();
+          await syncAdminStateToNormalized(db);
+          if (hasSettings || hasMotorOcr) await logAudit({ entity: 'AdminSetting', entityId: 'main', action: 'IMPORT', before: beforeSettings, after: db.settings, actorLegacyId: currentUser?.id }).catch(() => {});
+          if (hasUsers) await logAudit({ entity: 'User', entityId: 'all', action: 'IMPORT', before: beforeUsers, after: db.users, actorLegacyId: currentUser?.id }).catch(() => {});
+          if (hasPatterns) await logAudit({ entity: 'ReceiptPattern', entityId: 'all', action: 'IMPORT', before: beforePatterns, after: db.receiptPatterns, actorLegacyId: currentUser?.id }).catch(() => {});
+        } catch (syncError: any) {
+          console.error('Settings import sync error:', syncError);
+          return NextResponse.json({
+            success: false,
+            error: 'La configuración se guardó parcialmente pero falló la sincronización con la base de datos: ' + (syncError?.message || 'error desconocido')
+          }, { status: 500 });
+        }
       }
 
       // 5. RECONCILIACIÓN DEL USUARIO ACTIVO Y SESIÓN
