@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { checkWritePermission, getDefaultMonthlyCapital, MONTH_NAMES } from '../../../lib/db.js';
 import { getTrustLevelConfig, normalizeTrustConfig } from '../../../lib/trust.js';
 import { INTERNAL_OCR_CONFIG, createTestReceiptPngBuffer, runTesseractRecognition } from '../../../lib/ocrEngine.js';
-import { getAppState, saveAppState, persistenceInfo } from '../../../lib/server/persistence.js';
+import { getAppState, saveAppState, saveAppStateWithResult, persistenceInfo, checkPersistenceConnection } from '../../../lib/server/persistence.js';
 import {
   syncAdminStateToNormalized,
   logAudit,
@@ -702,11 +702,30 @@ export async function POST(request: Request) {
       }
 
       // 4. PERSISTENCIA EN EL ALMACÉN Y SINCRONIZACIÓN CON BASE DE DATOS (POSTGRES / PRISMA)
-      const persisted = await saveAppState(db);
-      if (!persisted) {
+      const preflight = await checkPersistenceConnection();
+      if (!preflight.ok && preflight.databaseConfigured) {
         return NextResponse.json({
           success: false,
-          error: 'No se pudo persistir la configuración importada. En producción (Vercel) verifica que DATABASE_URL/Postgres esté configurado; el sistema de archivos es efímero y de solo lectura.'
+          error: `No se pudo validar la conexión de persistencia antes de importar: ${preflight.message}`,
+          persistence: preflight.diagnostics || persistenceInfo(),
+        }, { status: 503 });
+      }
+      if (!preflight.persistent && !preflight.databaseConfigured) {
+        const diag = preflight.diagnostics || persistenceInfo();
+        const reason = diag?.issues?.[0] || preflight.message || 'No hay un almacén duradero disponible.';
+        return NextResponse.json({
+          success: false,
+          error: `No se pudo persistir la configuración importada: ${reason} Configura DATABASE_URL (PostgreSQL) para producción en Vercel y vuelve a intentar la importación.`,
+          persistence: diag,
+        }, { status: 503 });
+      }
+
+      const persisted = await saveAppStateWithResult(db);
+      if (!persisted.ok) {
+        return NextResponse.json({
+          success: false,
+          error: `No se pudo persistir la configuración importada: ${persisted.error || 'error de escritura en el almacén de datos.'}`,
+          persistence: persisted.diagnostics || persistenceInfo(),
         }, { status: 500 });
       }
 
@@ -1037,7 +1056,15 @@ export async function POST(request: Request) {
       }
     }
 
-    await saveAppState(db);
+    const saveResult = await saveAppStateWithResult(db);
+    if (!saveResult.ok) {
+      console.error('[settings] Error al persistir configuración general:', saveResult.error || saveResult);
+      return NextResponse.json({
+        success: false,
+        error: No se pudo guardar la configuración: ,
+        persistence: saveResult.diagnostics || persistenceInfo(),
+      }, { status: 500 });
+    }
     if (hasDatabase()) {
       await ensureAdminConfigSeed().catch(() => {});
       await syncAdminStateToNormalized(db).catch(() => {});
