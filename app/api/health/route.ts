@@ -1,0 +1,19 @@
+import { NextResponse } from 'next/server';
+import { isSupabaseConfigured } from '@/lib/supabase/env';
+import { persistenceInfo } from '@/lib/server/supabase-store';
+
+export const dynamic = 'force-dynamic';
+
+/**
+ * Diagnóstico público sin secretos: permite verificar que el deploy está vivo
+ * y si las variables de Supabase llegaron al runtime de Vercel.
+ */
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    service: 'crediflux',
+    timestamp: new Date().toISOString(),
+    supabaseConfigured: isSupabaseConfigured(),
+    persistence: persistenceInfo(),
+  });
+}

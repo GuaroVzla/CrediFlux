@@ -1,12 +1,20 @@
-import { type NextRequest } from 'next/server';
-import { updateSession } from '@/lib/supabase/middleware';
+import { NextResponse, type NextRequest } from 'next/server';
 
 /**
  * Proxy de Next.js 16 (antes `middleware`): refresca la sesión de Supabase
  * en cada request y bloquea las rutas /api/* sin sesión válida.
+ *
+ * El módulo de sesión se importa dinámicamente y cualquier fallo se degrada a
+ * "continuar la request" para que un problema de Supabase nunca tumbe el sitio.
  */
 export async function proxy(request: NextRequest) {
-  return updateSession(request);
+  try {
+    const { updateSession } = await import('@/lib/supabase/middleware');
+    return await updateSession(request);
+  } catch (error) {
+    console.error('[proxy] Error no controlado, se continúa sin refrescar sesión:', error);
+    return NextResponse.next({ request });
+  }
 }
 
 export const config = {
