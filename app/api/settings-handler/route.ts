@@ -201,7 +201,6 @@ export async function GET(request: Request) {
       success: true,
       isAdmin: false,
       settings: safeSettings,
-      receiptPatterns: db.receiptPatterns || [],
       persistence: persistenceInfo(),
       currentUserInfo: currentUser ? {
         id: currentUser.id,
@@ -227,6 +226,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const {
+      action,
       currency,
       adminPassword,
       aiProvider,
@@ -246,14 +246,138 @@ export async function POST(request: Request) {
       updatedName,
       updatedCompanyName,
       updatedAddress,
-      updatedPhone
+      updatedPhone,
+      importData
     } = body;
 
     const db = await getAppState();
     if (!db.settings) db.settings = {};
     if (!Array.isArray(db.users)) db.users = [];
+    if (!Array.isArray(db.receiptPatterns)) db.receiptPatterns = [];
     const userId = request.headers.get('x-user-id');
     const currentUser: any = db.users.find((u: any) => u.id === userId);
+
+    // EXPORTAR CONFIGURACIONES GLOBALES (Ajustes Admin, solo administrador)
+    if (action === 'export_settings') {
+      if (currentUser?.role !== 'admin') {
+        return NextResponse.json({ success: false, error: 'Acceso restringido: Solo el administrador puede exportar ajustes' }, { status: 403 });
+      }
+      const exportSettings: any = { ...(db.settings || {}) };
+      delete exportSettings.adminPasswordHash;
+      delete exportSettings.adminPassword;
+      delete exportSettings.adminPasswordLegacy;
+      const payload = {
+        version: 1,
+        module: 'ajustes-admin',
+        exportedAt: new Date().toISOString(),
+        data: {
+          settings: exportSettings,
+          receiptPatterns: Array.isArray(db.receiptPatterns) ? db.receiptPatterns : []
+        }
+      };
+      return NextResponse.json({ success: true, export: payload, persistence: persistenceInfo() });
+    }
+
+    // IMPORTAR CONFIGURACIONES GLOBALES (Ajustes Admin, solo administrador)
+    if (action === 'import_settings') {
+      if (currentUser?.role !== 'admin') {
+        return NextResponse.json({ success: false, error: 'Acceso restringido: Solo el administrador puede importar ajustes' }, { status: 403 });
+      }
+      const src = (importData && typeof importData === 'object') ? importData : null;
+      const envelope = (src && src.data && typeof src.data === 'object') ? src : (src ? { data: src } : null);
+      const data = envelope?.data;
+      if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        return NextResponse.json({ success: false, error: 'Archivo de importación inválido: estructura no reconocida' }, { status: 400 });
+      }
+      const hasSettings = Object.prototype.hasOwnProperty.call(data, 'settings');
+      const hasPatterns = Object.prototype.hasOwnProperty.call(data, 'receiptPatterns');
+      if (!hasSettings && !hasPatterns) {
+        return NextResponse.json({ success: false, error: 'Archivo de importación inválido: no contiene configuraciones de Ajustes Admin' }, { status: 400 });
+      }
+      if (hasSettings && (typeof data.settings !== 'object' || data.settings === null || Array.isArray(data.settings))) {
+        return NextResponse.json({ success: false, error: 'Archivo de importación inválido: el bloque settings es incorrecto' }, { status: 400 });
+      }
+      if (hasPatterns && !Array.isArray(data.receiptPatterns)) {
+        return NextResponse.json({ success: false, error: 'Archivo de importación inválido: el bloque receiptPatterns es incorrecto' }, { status: 400 });
+      }
+
+      const beforeSettings = JSON.parse(JSON.stringify(db.settings || {}));
+      const beforePatterns = JSON.parse(JSON.stringify(db.receiptPatterns || []));
+
+      if (hasSettings) {
+        const incoming: any = data.settings || {};
+        const nextSettings: any = { ...(db.settings || {}), ...incoming };
+        // Preservar credenciales de administrador (no forman parte del backup de configuración global)
+        if (beforeSettings.adminPasswordHash) nextSettings.adminPasswordHash = beforeSettings.adminPasswordHash;
+        else delete nextSettings.adminPasswordHash;
+        if (beforeSettings.adminPassword) nextSettings.adminPassword = beforeSettings.adminPassword; else delete nextSettings.adminPassword;
+        if (beforeSettings.adminPasswordLegacy) nextSettings.adminPasswordLegacy = beforeSettings.adminPasswordLegacy; else delete nextSettings.adminPasswordLegacy;
+
+        // Normalizaciones básicas de configuración global
+        if (Object.prototype.hasOwnProperty.call(incoming, 'aiProvider')) {
+          nextSettings.aiProvider = ALLOWED_PROVIDERS.includes(incoming.aiProvider) ? incoming.aiProvider : (db.settings?.aiProvider || 'openai');
+        }
+        if (Object.prototype.hasOwnProperty.call(incoming, 'trustLevelConfig')) {
+          try { nextSettings.trustLevelConfig = normalizeTrustConfig(incoming.trustLevelConfig); } catch { nextSettings.trustLevelConfig = getTrustLevelConfig(db.settings); }
+        }
+        if (Object.prototype.hasOwnProperty.call(incoming, 'ocrApiKeys') && typeof incoming.ocrApiKeys === 'object' && incoming.ocrApiKeys) {
+          nextSettings.ocrApiKeys = {
+            openai: typeof incoming.ocrApiKeys.openai === 'string' ? incoming.ocrApiKeys.openai : (nextSettings.ocrApiKeys?.openai || ''),
+            gemini: typeof incoming.ocrApiKeys.gemini === 'string' ? incoming.ocrApiKeys.gemini : (nextSettings.ocrApiKeys?.gemini || ''),
+            ocrspace: typeof incoming.ocrApiKeys.ocrspace === 'string' ? incoming.ocrApiKeys.ocrspace : (nextSettings.ocrApiKeys?.ocrspace || ''),
+          };
+          nextSettings.ocrSpaceApiKey = nextSettings.ocrApiKeys.ocrspace || '';
+          nextSettings.aiApiKey = nextSettings.ocrApiKeys.openai || nextSettings.ocrApiKeys.gemini || '';
+        }
+        if (Object.prototype.hasOwnProperty.call(incoming, 'ecommerceCapital')) {
+          const n = Number(incoming.ecommerceCapital);
+          nextSettings.ecommerceCapital = Number.isFinite(n) && n >= 0 ? n : (db.settings?.ecommerceCapital ?? 0);
+        }
+        db.settings = nextSettings;
+      }
+
+      if (hasPatterns) {
+        const patterns = data.receiptPatterns;
+        const sanitized = patterns
+          .filter((p: any) => p && typeof p === 'object' && !Array.isArray(p))
+          .map((p: any, i: number) => {
+            const keywords = Array.isArray(p.keywords)
+              ? p.keywords.map((k: any) => String(k).trim()).filter(Boolean)
+              : (p.keywords ? [String(p.keywords)] : []);
+            return {
+              ...p,
+              id: typeof p.id === 'string' && p.id ? p.id : ('pat_imp_' + Date.now() + '_' + i),
+              bankName: String(p.bankName || '').trim(),
+              keywords,
+              imageUrl: typeof p.imageUrl === 'string' ? p.imageUrl : '/uploads/sample-voucher.png',
+              referenceFormat: typeof p.referenceFormat === 'string' ? p.referenceFormat : (p.referenceFormat == null ? '' : String(p.referenceFormat)),
+              notes: typeof p.notes === 'string' ? p.notes : (p.notes == null ? '' : String(p.notes)),
+              createdAt: typeof p.createdAt === 'string' ? p.createdAt : new Date().toISOString(),
+            };
+          });
+        db.receiptPatterns = sanitized;
+      }
+
+      await saveAppState(db);
+      if (hasDatabase()) {
+        await ensureAdminConfigSeed().catch(() => {});
+        await syncAdminStateToNormalized(db).catch(() => {});
+        if (hasSettings) await logAudit({ entity: 'AdminSetting', entityId: 'main', action: 'IMPORT', before: beforeSettings, after: db.settings, actorLegacyId: currentUser?.id }).catch(() => {});
+        if (hasPatterns) await logAudit({ entity: 'ReceiptPattern', entityId: 'all', action: 'IMPORT', before: beforePatterns, after: db.receiptPatterns, actorLegacyId: currentUser?.id }).catch(() => {});
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: 'Configuraciones importadas y aplicadas correctamente',
+        imported: {
+          settings: hasSettings,
+          receiptPatterns: hasPatterns ? (db.receiptPatterns || []).length : 0
+        },
+        settings: { trustLevelConfig: getTrustLevelConfig(db.settings) },
+        receiptPatterns: db.receiptPatterns || [],
+        persistence: persistenceInfo(),
+      });
+    }
 
     // VERIFICACIÓN DE CONEXIÓN CON EL PROVEEDOR OCR/IA (solo admin)
     if (testProvider) {

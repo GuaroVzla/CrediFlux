@@ -9,6 +9,9 @@ export async function GET(request: Request) {
   try {
     const db = await getAppState();
     const currentUser = getRequestUser(request, db);
+    if (!currentUser) {
+      return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+    }
 
     // Obtener capital mensual asignado del usuario correspondiente al mes en curso (YYYY-MM)
     const currentMonthKey = new Date().toISOString().slice(0, 7);
@@ -107,6 +110,10 @@ export async function POST(request: Request) {
     if (!perm.allowed) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
     }
+    const currentUser = perm.user || getRequestUser(request, db);
+    if (!currentUser) {
+      return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+    }
 
     const formData = await request.formData();
 
@@ -187,8 +194,7 @@ export async function POST(request: Request) {
     const finalRef = manualRef || ocrData.referencia || ('REF-' + Date.now().toString().slice(-6));
     const finalDate = manualDate || ocrData.fecha || new Date().toISOString().split('T')[0];
 
-    const currentUser = perm.user || getRequestUser(request, db);
-    const ownerId = currentUser?.id || 'usr_admin';
+    const ownerId = currentUser.id;
     const newTransaction = {
       id: 'ecom_' + Date.now(),
       userId: ownerId,
@@ -237,6 +243,9 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
     }
     const user = perm.user || getRequestUser(request, db);
+    if (!user) {
+      return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+    }
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');

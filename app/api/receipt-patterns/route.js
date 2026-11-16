@@ -10,9 +10,17 @@ function findUser(db, request) {
   return (db.users || []).find(u => u.id === userId) || null;
 }
 
-export async function GET() {
+export async function GET(request) {
   try {
     const db = await getAppState();
+    const perm = checkWritePermission(request, db);
+    if (!perm.allowed) {
+      return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
+    }
+    const currentUser = getRequestUser(request, db) || findUser(db, request);
+    if (currentUser?.role !== 'admin') {
+      return NextResponse.json({ success: false, error: 'Acceso restringido: Solo el administrador puede gestionar patrones' }, { status: 403 });
+    }
     const patterns = Array.isArray(db.receiptPatterns) ? db.receiptPatterns : [];
     return NextResponse.json({
       success: true,

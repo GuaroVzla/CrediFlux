@@ -7,6 +7,9 @@ export async function GET(request) {
     const db = await getAppState();
     if (!Array.isArray(db.products)) db.products = [];
     const user = getRequestUser(request, db);
+    if (!user) {
+      return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+    }
     const scoped = scopeRecords(db.products, user);
     const enrichedProducts = scoped.map(prod => {
       const cost = Number(prod.costPrice) || 0;
@@ -37,6 +40,9 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
     }
     const user = perm.user || getRequestUser(request, db);
+    if (!user) {
+      return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+    }
 
     const body = await request.json();
     const { id, name, category, costPrice, salePrice, stock, profitMarginPercent, manualSalePrice } = body;
@@ -129,6 +135,9 @@ export async function DELETE(request) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
     }
     const user = perm.user || getRequestUser(request, db);
+    if (!user) {
+      return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+    }
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');

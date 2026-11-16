@@ -8,6 +8,9 @@ export async function GET(request) {
     if (!Array.isArray(db.payments)) db.payments = [];
     if (!Array.isArray(db.loans)) db.loans = [];
     const user = getRequestUser(request, db);
+    if (!user) {
+      return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+    }
     const payments = scopeRecords(db.payments || [], user);
     return NextResponse.json({ success: true, payments });
   } catch (error) {
@@ -27,6 +30,9 @@ export async function POST(request) {
     }
 
     const user = perm.user || getRequestUser(request, db);
+    if (!user) {
+      return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+    }
 
     const body = await request.json();
     const {
@@ -193,6 +199,9 @@ export async function DELETE(request) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
     }
     const user = perm.user || getRequestUser(request, db);
+    if (!user) {
+      return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+    }
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');

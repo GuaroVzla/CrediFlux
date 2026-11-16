@@ -10,6 +10,9 @@ export async function GET(request) {
     if (!Array.isArray(db.products)) db.products = [];
     if (!Array.isArray(db.blacklist)) db.blacklist = [];
     const user = getRequestUser(request, db);
+    if (!user) {
+      return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+    }
     const visibleLoans = scopeRecords(db.loans || [], user);
 
     // Map loans with updated computed status & amortization progress
@@ -63,6 +66,9 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
     }
     const user = perm.user || getRequestUser(request, db);
+    if (!user) {
+      return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+    }
 
     const body = await request.json();
     const {
@@ -191,7 +197,6 @@ export async function DELETE(request) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
     }
     const user = perm.user || getRequestUser(request, db);
-    const isAdmin = user?.role === 'admin';
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -215,7 +220,7 @@ export async function DELETE(request) {
     // se archivan para no dejar registros huérfanos ni deudas activas.
     db.loans = (db.loans || []).map(item => {
       if (item.clientId !== loan.clientId) return item;
-      if (!isAdmin && user && item.userId !== loan.userId) return item;
+      if (item.userId !== loan.userId) return item;
 
       const previousStatus = computeLoanStatus(item);
       archivedLoanIds.push(item.id);
@@ -232,12 +237,12 @@ export async function DELETE(request) {
     });
 
     // El cliente sale de la tabla activa de clientes
-    db.clients = (db.clients || []).filter(c => !(c.id === loan.clientId && (isAdmin || c.userId === loan.userId)));
+    db.clients = (db.clients || []).filter(c => !(c.id === loan.clientId && c.userId === loan.userId));
 
     // Persistir en Lista Negra evitando duplicados por cédula dentro del mismo propietario
     let blacklisted = false;
-    if (client && (isAdmin || client.userId === loan.userId)) {
-      const ownerId = client.userId || loan.userId || user?.id || 'usr_admin';
+    if (client && client.userId === loan.userId) {
+      const ownerId = client.userId || loan.userId || user?.id;
       const dniKey = normalizeDni(client.dni);
       const alreadyBlacklisted = (db.blacklist || []).some(entry =>
         (entry.userId === ownerId) && (

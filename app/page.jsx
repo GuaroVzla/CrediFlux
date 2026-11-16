@@ -54,6 +54,7 @@ export default function CrediFluxApp() {
     processing: false
   });
   const patternFileInputRef = useRef(null);
+  const importSettingsInputRef = useRef(null);
 
   // Modals
   const [clientModal, setClientModal] = useState({ open: false, data: null });
@@ -328,6 +329,12 @@ export default function CrediFluxApp() {
         }
         if (resSettings.settings?.monthlyCapitals) {
           setMonthlyCapitalsForm(resSettings.settings.monthlyCapitals);
+          setCurrentUser(prev => {
+            if (!prev) return prev;
+            const updated = { ...prev, monthlyCapitals: resSettings.settings.monthlyCapitals };
+            try { localStorage.setItem('crediflux_user', JSON.stringify(updated)); } catch (e) {}
+            return updated;
+          });
         }
         if (resSettings.currentUserInfo) {
           const updatedUser = {
@@ -3179,8 +3186,15 @@ export default function CrediFluxApp() {
             .filter(t => t.type === 'venta')
             .reduce((sum, t) => sum + (Number(t.amountBs) || 0), 0);
           // GANANCIA NETA: se descuenta el Capital inicial configurado por el usuario en Ajustes
+          // (capital mensual por mes YYYY-MM; para día se usa su mes, para año se usa el capital del mes actual como referencia)
+          const capitalMonthKey = calcPeriod === 'month'
+            ? String(calcDate || '').slice(0, 7)
+            : (calcPeriod === 'day' ? String(calcDate || '').slice(0, 7) : new Date().toISOString().slice(0, 7));
+          const capitalEntry = currentUser?.monthlyCapitals?.[capitalMonthKey];
           const capitalInicial = Number(
-            currentUser?.monthlyCapitals?.[calcDate]?.capital ?? settings?.ecommerceCapital ?? 0
+            capitalEntry && Object.prototype.hasOwnProperty.call(capitalEntry, 'capital')
+              ? capitalEntry.capital
+              : (settings?.ecommerceCapital ?? 0)
           );
           const calcGananciasBs = calcVentasBs - calcComprasBs - capitalInicial;
 
@@ -3783,6 +3797,86 @@ export default function CrediFluxApp() {
             }
           };
 
+          const handleExportAdminSettings = async () => {
+            try {
+              const res = await fetch('/api/settings', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-user-id': currentUser.id
+                },
+                body: JSON.stringify({ action: 'export_settings' })
+              });
+              const data = await res.json();
+              if (!data.success || !data.export) {
+                notify(data.error || 'No se pudo exportar la configuración', 'error');
+                return;
+              }
+              const json = JSON.stringify(data.export, null, 2);
+              const blob = new Blob([json], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `crediflux-ajustes-admin-${stamp}.json`;
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              URL.revokeObjectURL(url);
+              notify('Configuraciones exportadas correctamente');
+            } catch (err) {
+              notify('Error de red al exportar configuraciones', 'error');
+            }
+          };
+
+          const handleImportAdminSettingsFile = async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            try {
+              if (!file.name.toLowerCase().endsWith('.json')) {
+                notify('Selecciona un archivo .json válido', 'error');
+                return;
+              }
+              const text = await file.text();
+              let parsed;
+              try {
+                parsed = JSON.parse(text);
+              } catch {
+                notify('El archivo no contiene un JSON válido', 'error');
+                return;
+              }
+              if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                notify('Estructura de archivo inválida', 'error');
+                return;
+              }
+              if (!confirm('¿Importar y aplicar estas configuraciones globales de Ajustes Admin? Se sobrescribirán las configuraciones actuales del módulo.')) {
+                return;
+              }
+              const res = await fetch('/api/settings', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-user-id': currentUser.id
+                },
+                body: JSON.stringify({ action: 'import_settings', importData: parsed })
+              });
+              const data = await res.json();
+              if (data.success) {
+                if (Array.isArray(data.receiptPatterns)) {
+                  setReceiptPatterns(data.receiptPatterns);
+                }
+                notify(data.message || 'Configuraciones importadas correctamente');
+                fetchAllData();
+              } else {
+                notify(data.error || 'No se pudo importar la configuración', 'error');
+              }
+            } catch (err) {
+              notify('Error de red o de lectura al importar configuraciones', 'error');
+            } finally {
+              if (importSettingsInputRef.current) importSettingsInputRef.current.value = '';
+            }
+          };
+
           return (
           <div className="max-w-6xl mx-auto space-y-5">
             <div>
@@ -4115,7 +4209,7 @@ export default function CrediFluxApp() {
                       <span>Mes actual: </span>
                       <strong className="text-white">{new Date().toLocaleString('es-VE', { month: 'long', year: 'numeric' })}</strong>
                       <div className="text-emerald-400 font-semibold">
-                        Capital actual: ${Number(monthlyCapitalsForm?.[new Date().toISOString().slice(0, 7)]?.capital || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        Capital actual: ${Number(monthlyCapitalsForm?.[new Date().toISOString().slice(0, 7)]?.capital ?? 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </div>
                     </div>
                   </div>
@@ -4147,6 +4241,47 @@ export default function CrediFluxApp() {
                       Vaciar capital
                     </button>
                   </div>
+                </div>
+
+                {/* RESPALDO Y MIGRACIÓN DE CONFIGURACIONES (AJUSTES ADMIN) */}
+                <div className={`${settingsCardCls} space-y-4`}>
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <h3 className={settingsTitleCls}>
+                        <FileText className="w-5 h-5 text-sky-400" />
+                        Respaldo y Migración de Ajustes
+                      </h3>
+                      <p className={`${settingsDescCls} mt-1`}>
+                        Exporta o importa las configuraciones globales de Ajustes Admin (parámetros del sistema, proveedor/llaves OCR e IA, niveles de confianza y patrones de comprobantes) para migrarlas rápidamente entre entornos.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <button
+                      type="button"
+                      onClick={handleExportAdminSettings}
+                      className={settingsSecondaryBtnCls}
+                    >
+                      Exportar Ajustes (.json)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => importSettingsInputRef.current?.click()}
+                      className={settingsPrimaryBtnCls}
+                    >
+                      Importar Ajustes (.json)
+                    </button>
+                    <input
+                      ref={importSettingsInputRef}
+                      type="file"
+                      accept="application/json,.json"
+                      onChange={handleImportAdminSettingsFile}
+                      className="hidden"
+                    />
+                  </div>
+                  <p className={settingsHelperCls}>
+                    La importación valida la estructura del archivo antes de aplicar cambios y sobrescribe las configuraciones globales del módulo. No incluye usuarios, licencias individuales ni registros operativos.
+                  </p>
                 </div>
 
               <div className="space-y-5">

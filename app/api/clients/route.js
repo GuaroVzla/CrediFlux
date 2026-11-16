@@ -10,6 +10,9 @@ export async function GET(request) {
     if (!Array.isArray(db.loans)) db.loans = [];
     if (!Array.isArray(db.blacklist)) db.blacklist = [];
     const user = getRequestUser(request, db);
+    if (!user) {
+      return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+    }
     const trustConfig = getTrustLevelConfig(db.settings);
 
     const visibleClients = scopeRecords(db.clients || [], user);
@@ -97,7 +100,9 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
     }
     const user = perm.user || getRequestUser(request, db);
-    const isAdmin = user?.role === 'admin';
+    if (!user) {
+      return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+    }
 
     const body = await request.json();
     const { id, name, dni, phone, address, notes, action, blacklistId } = body;
@@ -118,9 +123,9 @@ export async function POST(request) {
         return NextResponse.json({ success: false, error: 'No autorizado para reincorporar este registro' }, { status: 403 });
       }
 
-      const ownerId = entry.userId || user?.id || 'usr_admin';
+      const ownerId = entry.userId || user?.id;
       const entryDniKey = normalizeDni(entry.dni);
-      const duplicate = (db.clients || []).find(c => (isAdmin || c.userId === ownerId) && entryDniKey && normalizeDni(c.dni) === entryDniKey);
+      const duplicate = (db.clients || []).find(c => c.userId === ownerId && entryDniKey && normalizeDni(c.dni) === entryDniKey);
       if (duplicate) {
         return NextResponse.json({
           success: false,
@@ -164,7 +169,7 @@ export async function POST(request) {
     if (dniKey) {
       const blocked = (db.blacklist || []).find(entry => {
         if (!entry || normalizeDni(entry.dni) !== dniKey) return false;
-        if (!isAdmin && user && entry.userId !== user.id) return false;
+        if (!user || entry.userId !== user.id) return false;
         // Al editar, permite conservar la cédula del mismo cliente activo
         return !id || entry.clientId !== id;
       });
@@ -234,6 +239,9 @@ export async function DELETE(request) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
     }
     const user = perm.user || getRequestUser(request, db);
+    if (!user) {
+      return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+    }
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -250,7 +258,7 @@ export async function DELETE(request) {
     const archivedAt = new Date().toISOString();
     db.loans = (db.loans || []).map(loan => {
       if (loan.clientId !== id || loan.archived) return loan;
-      if (!canAccessRecord(user, loan) && loan.userId !== client.userId) return loan;
+      if (!canAccessRecord(user, loan)) return loan;
       const previousStatus = computeLoanStatus(loan);
       return {
         ...loan,
