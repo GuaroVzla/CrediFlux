@@ -9,7 +9,7 @@ Plataforma SaaS financiera de alta gama, moderna y privada diseñada para la adm
 - **Framework:** [Next.js](https://nextjs.org/) (App Router, Server-side API Routes y Server Actions)
 - **Frontend / SPA:** [React](https://react.dev/) + [Tailwind CSS](https://tailwindcss.com/)
 - **Iconografía:** [Lucide React](https://lucide.dev/)
-- **Persistencia de Datos:** Motor JSON estructurado transaccional con arquitectura multi-tenant y aislamiento por usuario.
+- **Persistencia de Datos:** Supabase (PostgreSQL) con Row Level Security, Supabase Auth y aislamiento estricto por `auth.uid()`. Ver `docs/MIGRACION_SUPABASE.md`.
 - **OCR & Visión por Computadora:** Módulo multimodal con soporte para OpenAI, Google Gemini y OCR.space con validación cruzada y extracción de tasas BCV / Binance P2P.
 
 ---
@@ -17,7 +17,7 @@ Plataforma SaaS financiera de alta gama, moderna y privada diseñada para la adm
 ## 🔐 1. Seguridad y Acceso Privado
 
 - **Licencia Privada de Uso:** Acceso protegido mediante clave de licencia (`CREDIFLUX-FINTECH-2026`) o credenciales de administrador.
-- **Sesión Persistente:** Guardado seguro en `localStorage` del navegador.
+- **Sesión Persistente:** Cookies httpOnly gestionadas por `@supabase/ssr` y refrescadas en `proxy.ts`.
 - **Gestión de Acceso:** Cambio de contraseña en caliente y administración centralizada de operadores.
 - **Credenciales Iniciales:**
   - **Licencia:** `CREDIFLUX-FINTECH-2026`
@@ -89,6 +89,16 @@ cd "<ruta-del-proyecto>/CrediFlux"
 npm install
 ```
 
+### Paso 2.1: Configurar Supabase
+```bash
+cp .env.example .env.local
+# completa NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY y SUPABASE_SERVICE_ROLE_KEY
+npx supabase link --project-ref <PROJECT_REF>
+npx supabase db push
+# opcional: importar datos existentes
+node --env-file=.env.local scripts/migrate-json-to-supabase.mjs
+```
+
 ### Paso 3: Modo Desarrollo
 Para ejecutar la aplicación con recarga en caliente:
 ```bash
@@ -122,12 +132,19 @@ CrediFlux/
 │   ├── layout.jsx         # Layout principal con tema oscuro/claro
 │   └── page.jsx           # SPA interactiva completa de alta fidelidad
 ├── lib/
-│   ├── db.js              # Capa de datos transaccional y semáforo de deudores
+│   ├── supabase/          # Clientes browser/server/admin, middleware y database.types.ts
+│   ├── server/            # supabase-store.ts, request-auth.ts, seguridad y persistencia legada
+│   ├── services/          # Servicios tipados (tasas BCV/P2P)
+│   ├── db.js              # Reglas de negocio y semáforo de deudores
 │   └── ocr.js             # Motor de visión multimodal (OpenAI / Gemini / OCR.space / Heurístico)
+├── supabase/
+│   ├── schema.sql         # Esquema relacional + RLS + triggers
+│   ├── migrations/        # Migraciones aplicables con Supabase CLI
+│   └── verify_rls.sql     # Consultas de verificación de RLS
+├── scripts/
+│   └── migrate-json-to-supabase.mjs # Importación de datos legados
 ├── public/
-│   └── uploads/           # Directorio de almacenamiento de comprobantes
-├── data/
-│   └── crediflux-store.json # Base de datos local (fallback dev; en producción usar PostgreSQL)
+│   └── uploads/           # Comprobantes en desarrollo (producción: Vercel Blob/Storage)
 ├── tailwind.config.js     # Configuración visual Fintech
 ├── package.json
 └── README.md
