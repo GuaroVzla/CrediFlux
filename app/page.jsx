@@ -4252,7 +4252,7 @@ export default function CrediFluxApp() {
                         Respaldo y Migración de Ajustes
                       </h3>
                       <p className={`${settingsDescCls} mt-1`}>
-                        Exporta o importa las configuraciones globales de Ajustes Admin (parámetros del sistema, proveedor/llaves OCR e IA, niveles de confianza y patrones de comprobantes) para migrarlas rápidamente entre entornos.
+                        Exporta o importa un snapshot completo de Ajustes Admin para migrar el sistema entre entornos: configuraciones globales y motor OCR (proveedor, claves, endpoints/modelos y umbrales), usuarios/operadores (roles, permisos y estados) y la base completa de patrones de comprobantes.
                       </p>
                     </div>
                   </div>
@@ -4280,7 +4280,7 @@ export default function CrediFluxApp() {
                     />
                   </div>
                   <p className={settingsHelperCls}>
-                    La importación valida la estructura del archivo antes de aplicar cambios y sobrescribe las configuraciones globales del módulo. No incluye usuarios, licencias individuales ni registros operativos.
+                    La importación valida la estructura e integridad del archivo antes de aplicar cambios e inyecta configuraciones, usuarios y patrones para dejar el entorno operativo sin configuración manual adicional (no incluye registros operativos).
                   </p>
                 </div>
 

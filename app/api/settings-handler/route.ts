@@ -257,28 +257,29 @@ export async function POST(request: Request) {
     const userId = request.headers.get('x-user-id');
     const currentUser: any = db.users.find((u: any) => u.id === userId);
 
-    // EXPORTAR CONFIGURACIONES GLOBALES (Ajustes Admin, solo administrador)
+    // EXPORTAR SNAPSHOT COMPLETO DE AJUSTES ADMIN (solo administrador)
     if (action === 'export_settings') {
       if (currentUser?.role !== 'admin') {
         return NextResponse.json({ success: false, error: 'Acceso restringido: Solo el administrador puede exportar ajustes' }, { status: 403 });
       }
-      const exportSettings: any = { ...(db.settings || {}) };
-      delete exportSettings.adminPasswordHash;
-      delete exportSettings.adminPassword;
-      delete exportSettings.adminPasswordLegacy;
       const payload = {
-        version: 1,
+        version: 2,
         module: 'ajustes-admin',
+        snapshot: 'full',
         exportedAt: new Date().toISOString(),
         data: {
-          settings: exportSettings,
-          receiptPatterns: Array.isArray(db.receiptPatterns) ? db.receiptPatterns : []
+          // Configuración global completa: motor/proveedor OCR e IA, claves, endpoints/modelos/umbrales y parámetros almacenados
+          settings: JSON.parse(JSON.stringify(db.settings || {})),
+          // Usuarios, operadores, roles, permisos/estados, licencias y credenciales de acceso
+          users: Array.isArray(db.users) ? JSON.parse(JSON.stringify(db.users)) : [],
+          // Base completa de patrones de comprobantes, firmas/reglas y ajustes personalizados
+          receiptPatterns: Array.isArray(db.receiptPatterns) ? JSON.parse(JSON.stringify(db.receiptPatterns)) : []
         }
       };
       return NextResponse.json({ success: true, export: payload, persistence: persistenceInfo() });
     }
 
-    // IMPORTAR CONFIGURACIONES GLOBALES (Ajustes Admin, solo administrador)
+    // IMPORTAR SNAPSHOT COMPLETO DE AJUSTES ADMIN (solo administrador)
     if (action === 'import_settings') {
       if (currentUser?.role !== 'admin') {
         return NextResponse.json({ success: false, error: 'Acceso restringido: Solo el administrador puede importar ajustes' }, { status: 403 });
@@ -290,72 +291,92 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: false, error: 'Archivo de importación inválido: estructura no reconocida' }, { status: 400 });
       }
       const hasSettings = Object.prototype.hasOwnProperty.call(data, 'settings');
+      const hasUsers = Object.prototype.hasOwnProperty.call(data, 'users');
       const hasPatterns = Object.prototype.hasOwnProperty.call(data, 'receiptPatterns');
-      if (!hasSettings && !hasPatterns) {
-        return NextResponse.json({ success: false, error: 'Archivo de importación inválido: no contiene configuraciones de Ajustes Admin' }, { status: 400 });
+      if (!hasSettings && !hasUsers && !hasPatterns) {
+        return NextResponse.json({ success: false, error: 'Archivo de importación inválido: no contiene datos de Ajustes Admin' }, { status: 400 });
       }
       if (hasSettings && (typeof data.settings !== 'object' || data.settings === null || Array.isArray(data.settings))) {
         return NextResponse.json({ success: false, error: 'Archivo de importación inválido: el bloque settings es incorrecto' }, { status: 400 });
+      }
+      if (hasUsers && !Array.isArray(data.users)) {
+        return NextResponse.json({ success: false, error: 'Archivo de importación inválido: el bloque users es incorrecto' }, { status: 400 });
       }
       if (hasPatterns && !Array.isArray(data.receiptPatterns)) {
         return NextResponse.json({ success: false, error: 'Archivo de importación inválido: el bloque receiptPatterns es incorrecto' }, { status: 400 });
       }
 
+      let sanitizedUsers: any[] | null = null;
+      if (hasUsers) {
+        sanitizedUsers = (data.users as any[])
+          .filter((u: any) => u && typeof u === 'object' && !Array.isArray(u))
+          .map((u: any, i: number) => {
+            const username = String(u.username || '').trim();
+            const id = typeof u.id === 'string' && u.id ? u.id : (username ? `usr_${username}` : `usr_imp_${Date.now()}_${i}`);
+            const role = (String(u.role || '').toLowerCase() === 'admin') ? 'admin' : 'user';
+            const user: any = { ...u, id, username, role };
+            if (!user.name && username) user.name = username;
+            if (typeof user.isActive !== 'boolean') user.isActive = user.isActive == null ? true : Boolean(user.isActive);
+            return user;
+          })
+          .filter((u: any) => u.id && (u.username || u.name));
+        if (sanitizedUsers.length === 0) {
+          return NextResponse.json({ success: false, error: 'Archivo de importación inválido: no contiene usuarios válidos' }, { status: 400 });
+        }
+        if (!sanitizedUsers.some((u: any) => u.role === 'admin')) {
+          return NextResponse.json({ success: false, error: 'Archivo de importación inválido: debe incluir al menos un usuario administrador' }, { status: 400 });
+        }
+      }
+
       const beforeSettings = JSON.parse(JSON.stringify(db.settings || {}));
       const beforePatterns = JSON.parse(JSON.stringify(db.receiptPatterns || []));
+      const beforeUsers = JSON.parse(JSON.stringify(db.users || []));
 
       if (hasSettings) {
         const incoming: any = data.settings || {};
+        // Aplicación integral de configuración global (OCR/IA, claves, parámetros y umbrales) para entornos nuevos
         const nextSettings: any = { ...(db.settings || {}), ...incoming };
-        // Preservar credenciales de administrador (no forman parte del backup de configuración global)
-        if (beforeSettings.adminPasswordHash) nextSettings.adminPasswordHash = beforeSettings.adminPasswordHash;
-        else delete nextSettings.adminPasswordHash;
-        if (beforeSettings.adminPassword) nextSettings.adminPassword = beforeSettings.adminPassword; else delete nextSettings.adminPassword;
-        if (beforeSettings.adminPasswordLegacy) nextSettings.adminPasswordLegacy = beforeSettings.adminPasswordLegacy; else delete nextSettings.adminPasswordLegacy;
-
-        // Normalizaciones básicas de configuración global
+        // Normalizaciones mínimas de coherencia
         if (Object.prototype.hasOwnProperty.call(incoming, 'aiProvider')) {
           nextSettings.aiProvider = ALLOWED_PROVIDERS.includes(incoming.aiProvider) ? incoming.aiProvider : (db.settings?.aiProvider || 'openai');
         }
         if (Object.prototype.hasOwnProperty.call(incoming, 'trustLevelConfig')) {
-          try { nextSettings.trustLevelConfig = normalizeTrustConfig(incoming.trustLevelConfig); } catch { nextSettings.trustLevelConfig = getTrustLevelConfig(db.settings); }
+          try { nextSettings.trustLevelConfig = normalizeTrustConfig(incoming.trustLevelConfig); } catch { /* conserva valor importado si no es normalizable */ }
         }
         if (Object.prototype.hasOwnProperty.call(incoming, 'ocrApiKeys') && typeof incoming.ocrApiKeys === 'object' && incoming.ocrApiKeys) {
-          nextSettings.ocrApiKeys = {
-            openai: typeof incoming.ocrApiKeys.openai === 'string' ? incoming.ocrApiKeys.openai : (nextSettings.ocrApiKeys?.openai || ''),
-            gemini: typeof incoming.ocrApiKeys.gemini === 'string' ? incoming.ocrApiKeys.gemini : (nextSettings.ocrApiKeys?.gemini || ''),
-            ocrspace: typeof incoming.ocrApiKeys.ocrspace === 'string' ? incoming.ocrApiKeys.ocrspace : (nextSettings.ocrApiKeys?.ocrspace || ''),
-          };
-          nextSettings.ocrSpaceApiKey = nextSettings.ocrApiKeys.ocrspace || '';
-          nextSettings.aiApiKey = nextSettings.ocrApiKeys.openai || nextSettings.ocrApiKeys.gemini || '';
+          nextSettings.ocrApiKeys = { ...(nextSettings.ocrApiKeys || {}), ...incoming.ocrApiKeys };
+          if (typeof nextSettings.ocrApiKeys.openai !== 'string') nextSettings.ocrApiKeys.openai = '';
+          if (typeof nextSettings.ocrApiKeys.gemini !== 'string') nextSettings.ocrApiKeys.gemini = '';
+          if (typeof nextSettings.ocrApiKeys.ocrspace !== 'string') nextSettings.ocrApiKeys.ocrspace = '';
+          nextSettings.ocrSpaceApiKey = nextSettings.ocrApiKeys.ocrspace || (typeof incoming.ocrSpaceApiKey === 'string' ? incoming.ocrSpaceApiKey : (nextSettings.ocrSpaceApiKey || ''));
+          nextSettings.aiApiKey = nextSettings.ocrApiKeys.openai || nextSettings.ocrApiKeys.gemini || (typeof incoming.aiApiKey === 'string' ? incoming.aiApiKey : (nextSettings.aiApiKey || ''));
         }
         if (Object.prototype.hasOwnProperty.call(incoming, 'ecommerceCapital')) {
           const n = Number(incoming.ecommerceCapital);
-          nextSettings.ecommerceCapital = Number.isFinite(n) && n >= 0 ? n : (db.settings?.ecommerceCapital ?? 0);
+          nextSettings.ecommerceCapital = Number.isFinite(n) && n >= 0 ? n : incoming.ecommerceCapital;
         }
         db.settings = nextSettings;
       }
 
       if (hasPatterns) {
-        const patterns = data.receiptPatterns;
-        const sanitized = patterns
+        // Inyección completa de la base de patrones (datos, firmas/reglas y ajustes personalizados)
+        const patterns = data.receiptPatterns as any[];
+        db.receiptPatterns = patterns
           .filter((p: any) => p && typeof p === 'object' && !Array.isArray(p))
           .map((p: any, i: number) => {
-            const keywords = Array.isArray(p.keywords)
-              ? p.keywords.map((k: any) => String(k).trim()).filter(Boolean)
-              : (p.keywords ? [String(p.keywords)] : []);
-            return {
-              ...p,
-              id: typeof p.id === 'string' && p.id ? p.id : ('pat_imp_' + Date.now() + '_' + i),
-              bankName: String(p.bankName || '').trim(),
-              keywords,
-              imageUrl: typeof p.imageUrl === 'string' ? p.imageUrl : '/uploads/sample-voucher.png',
-              referenceFormat: typeof p.referenceFormat === 'string' ? p.referenceFormat : (p.referenceFormat == null ? '' : String(p.referenceFormat)),
-              notes: typeof p.notes === 'string' ? p.notes : (p.notes == null ? '' : String(p.notes)),
-              createdAt: typeof p.createdAt === 'string' ? p.createdAt : new Date().toISOString(),
-            };
+            const normalized: any = { ...p };
+            if (typeof normalized.id !== 'string' || !normalized.id) normalized.id = `pat_imp_${Date.now()}_${i}`;
+            if (normalized.bankName != null && typeof normalized.bankName !== 'string') normalized.bankName = String(normalized.bankName);
+            if (normalized.keywords && !Array.isArray(normalized.keywords)) {
+              normalized.keywords = [String(normalized.keywords)];
+            }
+            return normalized;
           });
-        db.receiptPatterns = sanitized;
+      }
+
+      if (hasUsers && sanitizedUsers) {
+        // Recreación/sincronización de perfiles, roles, permisos/estados y credenciales
+        db.users = sanitizedUsers;
       }
 
       await saveAppState(db);
@@ -363,14 +384,16 @@ export async function POST(request: Request) {
         await ensureAdminConfigSeed().catch(() => {});
         await syncAdminStateToNormalized(db).catch(() => {});
         if (hasSettings) await logAudit({ entity: 'AdminSetting', entityId: 'main', action: 'IMPORT', before: beforeSettings, after: db.settings, actorLegacyId: currentUser?.id }).catch(() => {});
+        if (hasUsers) await logAudit({ entity: 'User', entityId: 'all', action: 'IMPORT', before: beforeUsers, after: db.users, actorLegacyId: currentUser?.id }).catch(() => {});
         if (hasPatterns) await logAudit({ entity: 'ReceiptPattern', entityId: 'all', action: 'IMPORT', before: beforePatterns, after: db.receiptPatterns, actorLegacyId: currentUser?.id }).catch(() => {});
       }
 
       return NextResponse.json({
         success: true,
-        message: 'Configuraciones importadas y aplicadas correctamente',
+        message: 'Snapshot importado: configuración, usuarios y patrones aplicados correctamente',
         imported: {
           settings: hasSettings,
+          users: hasUsers ? (db.users || []).length : 0,
           receiptPatterns: hasPatterns ? (db.receiptPatterns || []).length : 0
         },
         settings: { trustLevelConfig: getTrustLevelConfig(db.settings) },
