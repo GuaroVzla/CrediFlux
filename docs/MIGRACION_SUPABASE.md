@@ -1,5 +1,7 @@
 # Migración de CrediFlux a Supabase
 
+> Estado actual, bloqueos y pasos pendientes: [`docs/ESTADO_MIGRACION.md`](./ESTADO_MIGRACION.md).
+
 Esta guía describe la migración completa desde el almacén JSON/`AppState` de Prisma
 hacia **Supabase (PostgreSQL + Auth + RLS)**.
 
