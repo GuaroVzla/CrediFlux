@@ -56,6 +56,26 @@ export default function CrediFluxApp() {
   const patternFileInputRef = useRef(null);
   const importSettingsInputRef = useRef(null);
 
+  // Parámetros Avanzados del Motor OCR (Endpoints, Modelos Seleccionados y Umbrales)
+  const [ocrAdvancedOpen, setOcrAdvancedOpen] = useState(false);
+  const [ocrEndpointsForm, setOcrEndpointsForm] = useState({
+    openai: 'https://api.openai.com/v1/chat/completions',
+    gemini: 'https://generativelanguage.googleapis.com/v1beta/models',
+    ocrspace: 'https://api.ocr.space/parse/image',
+    tesseract: 'local'
+  });
+  const [ocrModelsForm, setOcrModelsForm] = useState({
+    openai: 'gpt-4o-mini',
+    gemini: 'gemini-1.5-flash',
+    ocrspace: 'Engine2',
+    tesseract: 'spa+eng'
+  });
+  const [ocrThresholdsForm, setOcrThresholdsForm] = useState({
+    ocrConfidenceMin: 0.8,
+    strictBankMatch: false,
+    requireReferenceMatch: true
+  });
+
   // Modals
   const [clientModal, setClientModal] = useState({ open: false, data: null });
   const [productModal, setProductModal] = useState({ open: false, data: null });
@@ -326,6 +346,19 @@ export default function CrediFluxApp() {
         }
         if (resSettings.receiptPatterns) {
           setReceiptPatterns(resSettings.receiptPatterns);
+        }
+        if (resSettings.settings?.ocrEndpoints) {
+          setOcrEndpointsForm(prev => ({ ...prev, ...resSettings.settings.ocrEndpoints }));
+        }
+        if (resSettings.settings?.ocrModels) {
+          setOcrModelsForm(prev => ({ ...prev, ...resSettings.settings.ocrModels }));
+        }
+        if (resSettings.settings?.ocrThresholds) {
+          setOcrThresholdsForm(prev => ({
+            ...prev,
+            ...resSettings.settings.ocrThresholds,
+            ocrConfidenceMin: resSettings.settings.ocrConfidenceMin ?? prev.ocrConfidenceMin
+          }));
         }
         if (resSettings.settings?.monthlyCapitals) {
           setMonthlyCapitalsForm(resSettings.settings.monthlyCapitals);
@@ -3818,12 +3851,17 @@ export default function CrediFluxApp() {
               const stamp = new Date().toISOString().replace(/[:.]/g, '-');
               const a = document.createElement('a');
               a.href = url;
-              a.download = `crediflux-ajustes-admin-${stamp}.json`;
+              a.download = `crediflux-snapshot-ajustes-admin-${stamp}.json`;
               document.body.appendChild(a);
               a.click();
               a.remove();
               URL.revokeObjectURL(url);
-              notify('Configuraciones exportadas correctamente');
+
+              const summary = data.export?.system?.summary;
+              const summaryText = summary
+                ? `Snapshot completo exportado (${summary.usersCount} perfiles de usuarios/operadores, motor OCR [${summary.activeOcrProvider}] y ${summary.receiptPatternsCount} patrones de comprobantes).`
+                : 'Configuraciones exportadas correctamente';
+              notify(summaryText);
             } catch (err) {
               notify('Error de red al exportar configuraciones', 'error');
             }
@@ -3849,9 +3887,24 @@ export default function CrediFluxApp() {
                 notify('Estructura de archivo inválida', 'error');
                 return;
               }
-              if (!confirm('¿Importar y aplicar estas configuraciones globales de Ajustes Admin? Se sobrescribirán las configuraciones actuales del módulo.')) {
+
+              const targetData = (parsed.data && typeof parsed.data === 'object' && !Array.isArray(parsed.data))
+                ? parsed.data
+                : parsed;
+              const usersCount = Array.isArray(targetData?.users) ? targetData.users.length : 0;
+              const patternsCount = Array.isArray(targetData?.receiptPatterns) ? targetData.receiptPatterns.length : 0;
+              const ocrActive = targetData?.motorOcr?.activeProvider || targetData?.settings?.aiProvider || 'Automático';
+
+              const confirmMessage = `¿Importar e inyectar este Snapshot Integral de Ajustes Admin?\n\n` +
+                `• Cuentas de Usuarios & Operadores: ${usersCount} perfiles (roles, permisos, estados y accesos)\n` +
+                `• Motor OCR y Licencias: ${ocrActive} (claves, endpoints, modelos y umbrales)\n` +
+                `• Base de Patrones Bancarios: ${patternsCount} comprobantes (firmas visuales y reglas)\n\n` +
+                `Se procesarán e inyectarán todos los componentes dejando el entorno u hosting operativo al 100% sin requerir configuraciones manuales posteriores. ¿Deseas continuar?`;
+
+              if (!confirm(confirmMessage)) {
                 return;
               }
+
               const res = await fetch('/api/settings', {
                 method: 'POST',
                 headers: {
@@ -3862,10 +3915,40 @@ export default function CrediFluxApp() {
               });
               const data = await res.json();
               if (data.success) {
+                if (data.settings) setSettings(data.settings);
+                if (data.imported?.activeOcrProvider || data.settings?.aiProvider) {
+                  setOcrProvider(data.imported?.activeOcrProvider || data.settings?.aiProvider);
+                }
+                if (data.settings?.ocrKeys) {
+                  setOcrProviderKeys(data.settings.ocrKeys);
+                }
+                if (Array.isArray(data.users)) {
+                  setAdminUsersList(data.users);
+                }
                 if (Array.isArray(data.receiptPatterns)) {
                   setReceiptPatterns(data.receiptPatterns);
                 }
-                notify(data.message || 'Configuraciones importadas correctamente');
+                if (data.settings?.ocrEndpoints) {
+                  setOcrEndpointsForm(prev => ({ ...prev, ...data.settings.ocrEndpoints }));
+                }
+                if (data.settings?.ocrModels) {
+                  setOcrModelsForm(prev => ({ ...prev, ...data.settings.ocrModels }));
+                }
+                if (data.settings?.ocrThresholds) {
+                  setOcrThresholdsForm(prev => ({
+                    ...prev,
+                    ...data.settings.ocrThresholds,
+                    ocrConfidenceMin: data.settings.ocrConfidenceMin ?? prev.ocrConfidenceMin
+                  }));
+                }
+                if (data.activeAdmin) {
+                  setCurrentUser(prev => {
+                    const merged = { ...(prev || {}), ...data.activeAdmin };
+                    try { localStorage.setItem('crediflux_user', JSON.stringify(merged)); } catch (e) {}
+                    return merged;
+                  });
+                }
+                notify(data.message || 'Snapshot importado con éxito: entorno 100% operativo');
                 fetchAllData();
               } else {
                 notify(data.error || 'No se pudo importar la configuración', 'error');
@@ -4249,13 +4332,38 @@ export default function CrediFluxApp() {
                     <div>
                       <h3 className={settingsTitleCls}>
                         <FileText className="w-5 h-5 text-sky-400" />
-                        Respaldo y Migración de Ajustes
+                        Respaldo y Migración de Ajustes (Snapshot Completo)
                       </h3>
                       <p className={`${settingsDescCls} mt-1`}>
-                        Exporta o importa un snapshot completo de Ajustes Admin para migrar el sistema entre entornos: configuraciones globales y motor OCR (proveedor, claves, endpoints/modelos y umbrales), usuarios/operadores (roles, permisos y estados) y la base completa de patrones de comprobantes.
+                        Exporta o importa un snapshot integral de Ajustes Admin para migrar o respaldar el sistema entre entornos y proveedores de hosting. Incluye perfiles de usuarios y operadores (roles, permisos, estados y credenciales), motor OCR completo (proveedor, claves API, endpoints, modelos y umbrales) y la base completa de patrones bancarios (firmas visuales y reglas).
                       </p>
                     </div>
                   </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 py-1">
+                    <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs text-slate-300 flex items-start gap-2">
+                      <Users className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-semibold text-white block">Usuarios & Operadores</span>
+                        <span className="text-[11px] text-slate-400">Cuentas, roles, permisos, estados, licencias y accesos sincronizados.</span>
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs text-slate-300 flex items-start gap-2">
+                      <Sparkles className="w-4 h-4 text-teal-400 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-semibold text-white block">Motor OCR & Licencias</span>
+                        <span className="text-[11px] text-slate-400">Proveedor activo, API keys descifradas, endpoints, modelos y umbrales.</span>
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs text-slate-300 flex items-start gap-2">
+                      <CheckCircle className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-semibold text-white block">Patrones de Comprobantes</span>
+                        <span className="text-[11px] text-slate-400">Firmas visuales, reglas de análisis regex y ajustes personalizados.</span>
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="flex flex-col sm:flex-row gap-2">
                     <button
                       type="button"
@@ -4280,7 +4388,7 @@ export default function CrediFluxApp() {
                     />
                   </div>
                   <p className={settingsHelperCls}>
-                    La importación valida la estructura e integridad del archivo antes de aplicar cambios e inyecta configuraciones, usuarios y patrones para dejar el entorno operativo sin configuración manual adicional (no incluye registros operativos).
+                    La importación valida la integridad del archivo y procesa e inyecta inmediatamente todos los componentes en el nuevo hosting o entorno limpio, dejando el sistema operativo al 100% sin requerir configuraciones manuales posteriores (no altera registros de transacciones ni clientes).
                   </p>
                 </div>
 
@@ -4424,7 +4532,11 @@ export default function CrediFluxApp() {
                           gemini: String(ocrProviderKeys.gemini || '').trim(),
                           ocrspace: String(ocrProviderKeys.ocrspace || '').trim(),
                           tesseract: ''
-                        }
+                        },
+                        ocrEndpoints: ocrEndpointsForm,
+                        ocrModels: ocrModelsForm,
+                        ocrThresholds: ocrThresholdsForm,
+                        ocrConfidenceMin: Number(ocrThresholdsForm.ocrConfidenceMin) || 0.8
                       };
 
                       try {
@@ -4596,6 +4708,107 @@ export default function CrediFluxApp() {
                                     ? 'Probando conexión y validando el proveedor seleccionado...'
                                     : `${ocrConnectionTest.status === 'success' ? '✓ Éxito' : '✗ Error'}: ${ocrConnectionTest.message}`}
                                 </p>
+                              )}
+                            </div>
+
+                            {/* Parámetros Avanzados del Motor OCR (Endpoints, Modelos y Umbrales) */}
+                            <div className="pt-2 border-t border-teal-500/20">
+                              <button
+                                type="button"
+                                onClick={() => setOcrAdvancedOpen(!ocrAdvancedOpen)}
+                                className="text-xs font-semibold text-teal-300 hover:text-teal-200 flex items-center gap-1.5 transition-colors"
+                              >
+                                <span>{ocrAdvancedOpen ? '▼ Ocultar Parámetros Avanzados de OCR' : '► Configurar Endpoints, Modelos y Umbrales de Validación'}</span>
+                              </button>
+
+                              {ocrAdvancedOpen && (
+                                <div className="mt-3 p-3.5 rounded-lg bg-slate-900/70 border border-teal-500/20 space-y-3.5">
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                      <label className={settingsLabelCls}>Endpoint API ({provider})</label>
+                                      <input
+                                        type="text"
+                                        value={ocrEndpointsForm[provider] || ''}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          setOcrEndpointsForm(prev => ({ ...prev, [provider]: val }));
+                                        }}
+                                        placeholder={
+                                          provider === 'openai' ? 'https://api.openai.com/v1/chat/completions' :
+                                          provider === 'gemini' ? 'https://generativelanguage.googleapis.com/v1beta/models' :
+                                          provider === 'ocrspace' ? 'https://api.ocr.space/parse/image' : 'local'
+                                        }
+                                        className={settingsInputCls}
+                                      />
+                                      <p className={`${settingsHelperCls} mt-1`}>Endpoint HTTP del motor o proxy de inferencia.</p>
+                                    </div>
+                                    <div>
+                                      <label className={settingsLabelCls}>Modelo / Motor Seleccionado ({provider})</label>
+                                      <input
+                                        type="text"
+                                        value={ocrModelsForm[provider] || ''}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          setOcrModelsForm(prev => ({ ...prev, [provider]: val }));
+                                        }}
+                                        placeholder={
+                                          provider === 'openai' ? 'gpt-4o-mini' :
+                                          provider === 'gemini' ? 'gemini-1.5-flash' :
+                                          provider === 'ocrspace' ? 'Engine2' : 'spa+eng'
+                                        }
+                                        className={settingsInputCls}
+                                      />
+                                      <p className={`${settingsHelperCls} mt-1`}>Identificador del modelo multimodal o motor de lectura.</p>
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-800">
+                                    <div>
+                                      <label className={settingsLabelCls}>
+                                        Umbral Mínimo de Confianza ({Math.round((Number(ocrThresholdsForm.ocrConfidenceMin) || 0.8) * 100)}%)
+                                      </label>
+                                      <input
+                                        type="range"
+                                        min="0.5"
+                                        max="0.99"
+                                        step="0.05"
+                                        value={ocrThresholdsForm.ocrConfidenceMin ?? 0.8}
+                                        onChange={(e) => {
+                                          const val = parseFloat(e.target.value);
+                                          setOcrThresholdsForm(prev => ({ ...prev, ocrConfidenceMin: val }));
+                                        }}
+                                        className="w-full accent-teal-400 cursor-pointer"
+                                      />
+                                      <p className={`${settingsHelperCls} mt-1`}>Mínima certeza estadística para validar el comprobante automáticamente.</p>
+                                    </div>
+                                    <div className="flex flex-col justify-center space-y-2">
+                                      <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
+                                        <input
+                                          type="checkbox"
+                                          checked={ocrThresholdsForm.requireReferenceMatch !== false}
+                                          onChange={(e) => {
+                                            const checked = e.target.checked;
+                                            setOcrThresholdsForm(prev => ({ ...prev, requireReferenceMatch: checked }));
+                                          }}
+                                          className="rounded border-slate-700 text-teal-500 focus:ring-teal-500 bg-slate-950"
+                                        />
+                                        <span>Exigir formato de referencia según patrón bancario</span>
+                                      </label>
+                                      <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
+                                        <input
+                                          type="checkbox"
+                                          checked={Boolean(ocrThresholdsForm.strictBankMatch)}
+                                          onChange={(e) => {
+                                            const checked = e.target.checked;
+                                            setOcrThresholdsForm(prev => ({ ...prev, strictBankMatch: checked }));
+                                          }}
+                                          className="rounded border-slate-700 text-teal-500 focus:ring-teal-500 bg-slate-950"
+                                        />
+                                        <span>Validación estricta de banco emisor registrado</span>
+                                      </label>
+                                    </div>
+                                  </div>
+                                </div>
                               )}
                             </div>
 

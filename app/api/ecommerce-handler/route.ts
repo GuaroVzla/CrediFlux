@@ -165,7 +165,10 @@ export async function POST(request: Request) {
           : undefined,
         provider: activeProvider,
         registeredPatterns,
-        ocrSpaceApiKey: ocrApiKeys.ocrspace || process.env.OCR_SPACE_API_KEY || null
+        ocrSpaceApiKey: ocrApiKeys.ocrspace || process.env.OCR_SPACE_API_KEY || null,
+        endpoint: db.settings?.ocrEndpoints?.[activeProvider] || db.settings?.providerConfig?.endpoints?.[activeProvider] || undefined,
+        model: db.settings?.ocrModels?.[activeProvider] || db.settings?.providerConfig?.models?.[activeProvider] || undefined,
+        confidenceThreshold: db.settings?.ocrConfidenceMin ?? db.settings?.ocrThresholds?.ocrConfidenceMin ?? 0.8
       });
     }
 

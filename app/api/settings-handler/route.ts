@@ -3,7 +3,17 @@ import { checkWritePermission, getDefaultMonthlyCapital, MONTH_NAMES } from '../
 import { getTrustLevelConfig, normalizeTrustConfig } from '../../../lib/trust.js';
 import { INTERNAL_OCR_CONFIG, createTestReceiptPngBuffer, runTesseractRecognition } from '../../../lib/ocrEngine.js';
 import { getAppState, saveAppState, persistenceInfo } from '../../../lib/server/persistence.js';
-import { syncAdminStateToNormalized, logAudit, ensureAdminConfigSeed, hasDatabase } from '../../../lib/server/admin-config.js';
+import {
+  syncAdminStateToNormalized,
+  logAudit,
+  ensureAdminConfigSeed,
+  hasDatabase,
+  DEFAULT_OCR_ENDPOINTS,
+  DEFAULT_OCR_MODELS,
+  DEFAULT_OCR_THRESHOLDS,
+  DEFAULT_AI_ROUTING_RULES,
+  enrichReceiptPattern
+} from '../../../lib/server/admin-config.js';
 import { hashPassword } from '../../../lib/server/security.js';
 
 const ALLOWED_PROVIDERS = ['openai', 'gemini', 'ocrspace', 'tesseract'];
@@ -140,12 +150,31 @@ export async function GET(request: Request) {
     }
     const ocrKeys = getStoredOcrKeys(db);
 
+    const ocrEndpoints = db.settings?.ocrEndpoints || db.settings?.providerConfig?.endpoints || { ...DEFAULT_OCR_ENDPOINTS };
+    const ocrModels = db.settings?.ocrModels || db.settings?.providerConfig?.models || { ...DEFAULT_OCR_MODELS };
+    const ocrThresholds = db.settings?.ocrThresholds || db.settings?.providerConfig?.thresholds || { ...DEFAULT_OCR_THRESHOLDS };
+    const ocrConfidenceMin = Number.isFinite(Number(db.settings?.ocrConfidenceMin))
+      ? Number(db.settings.ocrConfidenceMin)
+      : (Number.isFinite(Number(ocrThresholds.ocrConfidenceMin)) ? Number(ocrThresholds.ocrConfidenceMin) : 0.8);
+    const aiRoutingRules = db.settings?.aiRoutingRules || { ...DEFAULT_AI_ROUTING_RULES };
+    const systemLicenseKey = db.settings?.systemLicenseKey || db.settings?.licenseKey || 'CREDIFLUX-FINTECH-2026';
+
     const safeSettings: any = {
+      companyName: db.settings?.companyName || 'CrediFlux',
+      timezone: db.settings?.timezone || 'America/Caracas',
       currency: db.settings?.currency || '$',
       ecommerceCapital: userCurrentCapital,
       aiProvider: activeProvider,
       trustLevelConfig: getTrustLevelConfig(db.settings),
-      internalOcrLicenses: { tesseract: getInternalLicenseStatus('tesseract') }
+      internalOcrLicenses: { tesseract: getInternalLicenseStatus('tesseract') },
+      ocrEndpoints,
+      ocrModels,
+      ocrThresholds,
+      ocrConfidenceMin,
+      aiRoutingRules,
+      aiAutoAssignEnabled: db.settings?.aiAutoAssignEnabled !== false,
+      systemLicenseKey,
+      licenseKey: systemLicenseKey
     };
 
     if (isAdmin) {
@@ -168,31 +197,44 @@ export async function GET(request: Request) {
       // No exponer secretos en claro: contraseñas se almacenan hasheadas (hashing aplicado)
       safeSettings.adminPassword = '';
       safeSettings.hasAdminPassword = Boolean(db.settings?.adminPasswordHash || db.settings?.adminPassword || db.settings?.adminPasswordLegacy);
-      safeSettings.licenseKey = db.settings?.licenseKey;
       safeSettings.monthlyCapitals = currentUser?.monthlyCapitals || {};
 
-      const allUsers = (db.users || []).map((u: any) => ({
-        id: u.id,
-        username: u.username,
-        name: u.name,
-        role: u.role,
-        address: u.address || '',
-        phone: u.phone || '',
-        hasPassword: Boolean(u.passwordHash || u.password || u.passwordLegacy),
-        licenseKey: u.licenseKey || 'N/A (Admin)',
-        licenseAssignedAt: u.licenseAssignedAt || null,
-        licenseExpiresAt: u.licenseExpiresAt || null,
-        licenseDurationMonths: u.licenseDurationMonths || 1,
-        monthlyCapitals: u.monthlyCapitals || getDefaultMonthlyCapital(5000),
-        createdAt: u.createdAt
-      }));
+      const allUsers = (db.users || []).map((u: any, i: number) => {
+        const role = String(u.role || 'user').toLowerCase() === 'admin' ? 'admin' : (String(u.role || '').toLowerCase() === 'operator' || String(u.role || '').toLowerCase() === 'operador' ? 'operator' : 'user');
+        const defaultPermissions = role === 'admin'
+          ? ['all', 'admin', 'manage_users', 'manage_settings', 'manage_loans', 'manage_payments', 'manage_ecommerce', 'manage_receipt_patterns']
+          : (role === 'operator' ? ['operator', 'manage_loans', 'manage_payments', 'manage_ecommerce', 'read_clients', 'read_reports'] : ['read_write', 'manage_loans', 'manage_payments', 'manage_ecommerce']);
+
+        return {
+          id: u.id,
+          username: u.username,
+          name: u.name || u.username,
+          companyName: u.companyName || '',
+          email: u.email || '',
+          role,
+          isActive: u.isActive !== false,
+          permissions: Array.isArray(u.permissions) && u.permissions.length > 0 ? u.permissions : defaultPermissions,
+          address: u.address || '',
+          phone: u.phone || '',
+          hasPassword: Boolean(u.passwordHash || u.password || u.passwordLegacy),
+          licenseKey: u.licenseKey || (role === 'admin' ? 'N/A (Admin)' : ''),
+          licenseAssignedAt: u.licenseAssignedAt || null,
+          licenseExpiresAt: u.licenseExpiresAt || null,
+          licenseDurationMonths: u.licenseDurationMonths || 1,
+          monthlyCapitals: u.monthlyCapitals || getDefaultMonthlyCapital(5000),
+          createdAt: u.createdAt,
+          updatedAt: u.updatedAt
+        };
+      });
+
+      const enrichedPatterns = (db.receiptPatterns || []).map((p: any) => enrichReceiptPattern(p));
 
       return NextResponse.json({
         success: true,
         isAdmin: true,
         settings: safeSettings,
         users: allUsers,
-        receiptPatterns: db.receiptPatterns || [],
+        receiptPatterns: enrichedPatterns,
         persistence: persistenceInfo(),
       });
     }
@@ -227,12 +269,21 @@ export async function POST(request: Request) {
     const body = await request.json();
     const {
       action,
+      companyName,
+      timezone,
       currency,
       adminPassword,
       aiProvider,
       aiApiKey,
       ocrSpaceApiKey,
       ocrKeys: incomingOcrKeys,
+      ocrEndpoints,
+      ocrModels,
+      ocrThresholds,
+      ocrConfidenceMin,
+      aiRoutingRules,
+      aiAutoAssignEnabled,
+      systemLicenseKey,
       trustLevelConfig,
       userMonthlyCapitals,
       resetCapital,
@@ -262,20 +313,153 @@ export async function POST(request: Request) {
       if (currentUser?.role !== 'admin') {
         return NextResponse.json({ success: false, error: 'Acceso restringido: Solo el administrador puede exportar ajustes' }, { status: 403 });
       }
+
+      const ocrKeys = getStoredOcrKeys(db);
+      const activeOcrProvider = ALLOWED_PROVIDERS.includes(db.settings?.aiProvider) ? db.settings.aiProvider : 'ocrspace';
+      const resolvedEndpoints = db.settings?.ocrEndpoints || db.settings?.providerConfig?.endpoints || { ...DEFAULT_OCR_ENDPOINTS };
+      const resolvedModels = db.settings?.ocrModels || db.settings?.providerConfig?.models || { ...DEFAULT_OCR_MODELS };
+      const resolvedThresholds = db.settings?.ocrThresholds || db.settings?.providerConfig?.thresholds || { ...DEFAULT_OCR_THRESHOLDS };
+      const resolvedConfidenceMin = Number.isFinite(Number(db.settings?.ocrConfidenceMin))
+        ? Number(db.settings.ocrConfidenceMin)
+        : (Number.isFinite(Number(resolvedThresholds.ocrConfidenceMin)) ? Number(resolvedThresholds.ocrConfidenceMin) : 0.8);
+      const resolvedRoutingRules = db.settings?.aiRoutingRules || { ...DEFAULT_AI_ROUTING_RULES };
+      const resolvedSystemLicenseKey = db.settings?.systemLicenseKey || db.settings?.licenseKey || 'CREDIFLUX-FINTECH-2026';
+
+      // 1. Perfiles completos de usuarios y operadores con roles, permisos, estados y credenciales
+      const exportedUsers = await Promise.all((db.users || []).map(async (u: any, i: number) => {
+        let passwordHash = u.passwordHash;
+        if (!passwordHash && u.password) {
+          passwordHash = await hashPassword(u.password);
+          u.passwordHash = passwordHash;
+        } else if (!passwordHash && u.passwordLegacy) {
+          passwordHash = await hashPassword(u.passwordLegacy);
+          u.passwordHash = passwordHash;
+        } else if (!passwordHash && u.role === 'admin') {
+          passwordHash = db.settings?.adminPasswordHash || await hashPassword('admin123');
+          u.passwordHash = passwordHash;
+        }
+
+        const role = String(u.role || 'user').toLowerCase() === 'admin'
+          ? 'admin'
+          : (String(u.role || '').toLowerCase() === 'operator' || String(u.role || '').toLowerCase() === 'operador' ? 'operator' : 'user');
+        const defaultPermissions = role === 'admin'
+          ? ['all', 'admin', 'manage_users', 'manage_settings', 'manage_loans', 'manage_payments', 'manage_ecommerce', 'manage_receipt_patterns']
+          : (role === 'operator'
+            ? ['operator', 'manage_loans', 'manage_payments', 'manage_ecommerce', 'read_clients', 'read_reports']
+            : ['read_write', 'manage_loans', 'manage_payments', 'manage_ecommerce']);
+
+        return {
+          id: u.id || (role === 'admin' ? 'usr_admin' : `usr_${u.username || i}`),
+          username: u.username || `user_${i}`,
+          name: u.name || u.username || 'Usuario',
+          companyName: u.companyName || '',
+          email: u.email || '',
+          address: u.address || '',
+          phone: u.phone || '',
+          role,
+          isActive: u.isActive !== false,
+          permissions: Array.isArray(u.permissions) && u.permissions.length > 0 ? u.permissions : defaultPermissions,
+          passwordHash: passwordHash || null,
+          passwordLegacy: u.passwordLegacy || u.password || null,
+          licenseKey: u.licenseKey || (role === 'admin' ? 'N/A (Admin)' : ''),
+          licenseDurationMonths: Number(u.licenseDurationMonths) || 1,
+          licenseAssignedAt: u.licenseAssignedAt || null,
+          licenseExpiresAt: u.licenseExpiresAt || null,
+          monthlyCapitals: u.monthlyCapitals || getDefaultMonthlyCapital(5000),
+          createdAt: u.createdAt || new Date().toISOString(),
+          updatedAt: u.updatedAt || new Date().toISOString()
+        };
+      }));
+
+      // 2. Parámetros completos del motor OCR y Licencias
+      const motorOcrConfig = {
+        activeProvider: activeOcrProvider,
+        apiKeys: {
+          openai: ocrKeys.openai || '',
+          gemini: ocrKeys.gemini || '',
+          ocrspace: ocrKeys.ocrspace || '',
+          tesseract: ''
+        },
+        endpoints: resolvedEndpoints,
+        selectedModels: resolvedModels,
+        validationThresholds: {
+          ocrConfidenceMin: resolvedConfidenceMin,
+          minAmount: resolvedThresholds.minAmount ?? 0.01,
+          maxAmount: resolvedThresholds.maxAmount ?? 999999999.99,
+          strictBankMatch: Boolean(resolvedThresholds.strictBankMatch),
+          requireReferenceMatch: resolvedThresholds.requireReferenceMatch !== false,
+          crossValidateBank: resolvedThresholds.crossValidateBank !== false
+        },
+        routingRules: resolvedRoutingRules,
+        autoAssignEnabled: db.settings?.aiAutoAssignEnabled !== false,
+        licenses: {
+          systemLicenseKey: resolvedSystemLicenseKey,
+          internal: {
+            tesseract: getInternalLicenseStatus('tesseract')
+          }
+        }
+      };
+
+      const fullSettings = {
+        companyName: db.settings?.companyName || 'CrediFlux',
+        currency: db.settings?.currency || '$',
+        ecommerceCapital: db.settings?.ecommerceCapital ?? 5000,
+        timezone: db.settings?.timezone || 'America/Caracas',
+        aiProvider: activeOcrProvider,
+        aiAutoAssignEnabled: motorOcrConfig.autoAssignEnabled,
+        aiRoutingRules: motorOcrConfig.routingRules,
+        ocrConfidenceMin: resolvedConfidenceMin,
+        ocrApiKeys: motorOcrConfig.apiKeys,
+        aiApiKey: motorOcrConfig.apiKeys.openai || motorOcrConfig.apiKeys.gemini || '',
+        ocrSpaceApiKey: motorOcrConfig.apiKeys.ocrspace || '',
+        ocrEndpoints: resolvedEndpoints,
+        ocrModels: resolvedModels,
+        ocrThresholds: motorOcrConfig.validationThresholds,
+        providerConfig: {
+          endpoints: resolvedEndpoints,
+          models: resolvedModels,
+          thresholds: motorOcrConfig.validationThresholds
+        },
+        trustLevelConfig: getTrustLevelConfig(db.settings),
+        systemLicenseKey: resolvedSystemLicenseKey,
+        licenseKey: resolvedSystemLicenseKey,
+        adminPasswordHash: db.settings?.adminPasswordHash || undefined,
+        internalOcrLicenses: {
+          tesseract: getInternalLicenseStatus('tesseract')
+        },
+        featureFlags: db.settings?.featureFlags || {},
+        metadata: db.settings?.metadata || {}
+      };
+
+      // 3. Base completa de patrones de comprobantes bancarios, firmas visuales y reglas de análisis
+      const enrichedReceiptPatterns = (db.receiptPatterns || []).map((p: any) => enrichReceiptPattern(p));
+
       const payload = {
         version: 2,
         module: 'ajustes-admin',
         snapshot: 'full',
         exportedAt: new Date().toISOString(),
+        system: {
+          appName: 'CrediFlux',
+          platform: 'FinTech Core & Multi-Tenant Architecture',
+          snapshotScope: 'integral-admin-settings',
+          summary: {
+            usersCount: exportedUsers.length,
+            operatorsCount: exportedUsers.filter((u: any) => u.role !== 'admin').length,
+            receiptPatternsCount: enrichedReceiptPatterns.length,
+            activeOcrProvider,
+            configuredOcrKeys: Object.keys(motorOcrConfig.apiKeys).filter(k => Boolean((motorOcrConfig.apiKeys as any)[k])),
+            systemLicenseKey: resolvedSystemLicenseKey
+          }
+        },
         data: {
-          // Configuración global completa: motor/proveedor OCR e IA, claves, endpoints/modelos/umbrales y parámetros almacenados
-          settings: JSON.parse(JSON.stringify(db.settings || {})),
-          // Usuarios, operadores, roles, permisos/estados, licencias y credenciales de acceso
-          users: Array.isArray(db.users) ? JSON.parse(JSON.stringify(db.users)) : [],
-          // Base completa de patrones de comprobantes, firmas/reglas y ajustes personalizados
-          receiptPatterns: Array.isArray(db.receiptPatterns) ? JSON.parse(JSON.stringify(db.receiptPatterns)) : []
+          settings: fullSettings,
+          motorOcr: motorOcrConfig,
+          users: exportedUsers,
+          receiptPatterns: enrichedReceiptPatterns
         }
       };
+
       return NextResponse.json({ success: true, export: payload, persistence: persistenceInfo() });
     }
 
@@ -284,120 +468,331 @@ export async function POST(request: Request) {
       if (currentUser?.role !== 'admin') {
         return NextResponse.json({ success: false, error: 'Acceso restringido: Solo el administrador puede importar ajustes' }, { status: 403 });
       }
+
       const src = (importData && typeof importData === 'object') ? importData : null;
-      const envelope = (src && src.data && typeof src.data === 'object') ? src : (src ? { data: src } : null);
-      const data = envelope?.data;
-      if (!data || typeof data !== 'object' || Array.isArray(data)) {
-        return NextResponse.json({ success: false, error: 'Archivo de importación inválido: estructura no reconocida' }, { status: 400 });
-      }
-      const hasSettings = Object.prototype.hasOwnProperty.call(data, 'settings');
-      const hasUsers = Object.prototype.hasOwnProperty.call(data, 'users');
-      const hasPatterns = Object.prototype.hasOwnProperty.call(data, 'receiptPatterns');
-      if (!hasSettings && !hasUsers && !hasPatterns) {
-        return NextResponse.json({ success: false, error: 'Archivo de importación inválido: no contiene datos de Ajustes Admin' }, { status: 400 });
-      }
-      if (hasSettings && (typeof data.settings !== 'object' || data.settings === null || Array.isArray(data.settings))) {
-        return NextResponse.json({ success: false, error: 'Archivo de importación inválido: el bloque settings es incorrecto' }, { status: 400 });
-      }
-      if (hasUsers && !Array.isArray(data.users)) {
-        return NextResponse.json({ success: false, error: 'Archivo de importación inválido: el bloque users es incorrecto' }, { status: 400 });
-      }
-      if (hasPatterns && !Array.isArray(data.receiptPatterns)) {
-        return NextResponse.json({ success: false, error: 'Archivo de importación inválido: el bloque receiptPatterns es incorrecto' }, { status: 400 });
+      // Compatibilidad con envoltorios: { data: { ... } }, { settings, users, ... }, o raíz directa
+      const envelope = (src && src.data && typeof src.data === 'object' && !Array.isArray(src.data))
+        ? src.data
+        : (src && typeof src === 'object' && !Array.isArray(src) ? src : null);
+
+      if (!envelope || typeof envelope !== 'object') {
+        return NextResponse.json({ success: false, error: 'Archivo de importación inválido: estructura JSON no reconocida' }, { status: 400 });
       }
 
-      let sanitizedUsers: any[] | null = null;
-      if (hasUsers) {
-        sanitizedUsers = (data.users as any[])
-          .filter((u: any) => u && typeof u === 'object' && !Array.isArray(u))
-          .map((u: any, i: number) => {
-            const username = String(u.username || '').trim();
-            const id = typeof u.id === 'string' && u.id ? u.id : (username ? `usr_${username}` : `usr_imp_${Date.now()}_${i}`);
-            const role = (String(u.role || '').toLowerCase() === 'admin') ? 'admin' : 'user';
-            const user: any = { ...u, id, username, role };
-            if (!user.name && username) user.name = username;
-            if (typeof user.isActive !== 'boolean') user.isActive = user.isActive == null ? true : Boolean(user.isActive);
-            return user;
-          })
-          .filter((u: any) => u.id && (u.username || u.name));
-        if (sanitizedUsers.length === 0) {
-          return NextResponse.json({ success: false, error: 'Archivo de importación inválido: no contiene usuarios válidos' }, { status: 400 });
-        }
-        if (!sanitizedUsers.some((u: any) => u.role === 'admin')) {
-          return NextResponse.json({ success: false, error: 'Archivo de importación inválido: debe incluir al menos un usuario administrador' }, { status: 400 });
-        }
+      const hasSettings = Object.prototype.hasOwnProperty.call(envelope, 'settings');
+      const hasMotorOcr = Object.prototype.hasOwnProperty.call(envelope, 'motorOcr');
+      const hasUsers = Object.prototype.hasOwnProperty.call(envelope, 'users');
+      const hasPatterns = Object.prototype.hasOwnProperty.call(envelope, 'receiptPatterns');
+
+      if (!hasSettings && !hasMotorOcr && !hasUsers && !hasPatterns) {
+        return NextResponse.json({ success: false, error: 'Archivo de importación inválido: no contiene bloques de Ajustes Admin (settings, motorOcr, users o receiptPatterns)' }, { status: 400 });
+      }
+
+      if (hasSettings && (typeof envelope.settings !== 'object' || envelope.settings === null || Array.isArray(envelope.settings))) {
+        return NextResponse.json({ success: false, error: 'Archivo de importación inválido: el bloque settings debe ser un objeto' }, { status: 400 });
+      }
+      if (hasUsers && !Array.isArray(envelope.users)) {
+        return NextResponse.json({ success: false, error: 'Archivo de importación inválido: el bloque users debe ser un arreglo' }, { status: 400 });
+      }
+      if (hasPatterns && !Array.isArray(envelope.receiptPatterns)) {
+        return NextResponse.json({ success: false, error: 'Archivo de importación inválido: el bloque receiptPatterns debe ser un arreglo' }, { status: 400 });
       }
 
       const beforeSettings = JSON.parse(JSON.stringify(db.settings || {}));
       const beforePatterns = JSON.parse(JSON.stringify(db.receiptPatterns || []));
       const beforeUsers = JSON.parse(JSON.stringify(db.users || []));
 
-      if (hasSettings) {
-        const incoming: any = data.settings || {};
-        // Aplicación integral de configuración global (OCR/IA, claves, parámetros y umbrales) para entornos nuevos
-        const nextSettings: any = { ...(db.settings || {}), ...incoming };
-        // Normalizaciones mínimas de coherencia
-        if (Object.prototype.hasOwnProperty.call(incoming, 'aiProvider')) {
-          nextSettings.aiProvider = ALLOWED_PROVIDERS.includes(incoming.aiProvider) ? incoming.aiProvider : (db.settings?.aiProvider || 'openai');
+      // 1. RECREACIÓN Y SINCRONIZACIÓN INTEGRAL DE USUARIOS Y OPERADORES
+      let sanitizedUsers: any[] | null = null;
+      if (hasUsers) {
+        const rawUsers = envelope.users as any[];
+        sanitizedUsers = await Promise.all(
+          rawUsers
+            .filter((u: any) => u && typeof u === 'object' && !Array.isArray(u))
+            .map(async (u: any, i: number) => {
+              const username = String(u.username || '').trim();
+              const rawRole = String(u.role || '').toLowerCase();
+              const role = rawRole === 'admin' ? 'admin' : (rawRole === 'operator' || rawRole === 'operador' ? 'operator' : 'user');
+              const id = typeof u.id === 'string' && u.id.trim()
+                ? u.id.trim()
+                : (username ? (role === 'admin' ? 'usr_admin' : `usr_${username.toLowerCase().replace(/[^a-z0-9]/g, '_')}`) : `usr_imp_${Date.now()}_${i}`);
+
+              const name = String(u.name || username || `Usuario ${i + 1}`).trim();
+              const isActive = u.isActive !== false;
+
+              // Credenciales: preservar passwordHash existente para login transparente en el nuevo entorno
+              let passwordHash = u.passwordHash ? String(u.passwordHash).trim() : null;
+              if (!passwordHash && u.password) {
+                passwordHash = await hashPassword(String(u.password).trim());
+              } else if (!passwordHash && u.passwordLegacy) {
+                passwordHash = await hashPassword(String(u.passwordLegacy).trim());
+              } else if (!passwordHash) {
+                const existing = db.users.find((eu: any) => eu.id === id || (username && eu.username?.toLowerCase() === username.toLowerCase()));
+                if (existing?.passwordHash) {
+                  passwordHash = existing.passwordHash;
+                } else if (role === 'admin') {
+                  passwordHash = db.settings?.adminPasswordHash || await hashPassword('admin123');
+                } else {
+                  passwordHash = await hashPassword('User2026!');
+                }
+              }
+
+              const defaultPermissions = role === 'admin'
+                ? ['all', 'admin', 'manage_users', 'manage_settings', 'manage_loans', 'manage_payments', 'manage_ecommerce', 'manage_receipt_patterns']
+                : (role === 'operator'
+                  ? ['operator', 'manage_loans', 'manage_payments', 'manage_ecommerce', 'read_clients', 'read_reports']
+                  : ['read_write', 'manage_loans', 'manage_payments', 'manage_ecommerce']);
+
+              const permissions = Array.isArray(u.permissions) && u.permissions.length > 0 ? u.permissions : defaultPermissions;
+
+              return {
+                id,
+                username: username || `user_${id}`,
+                name,
+                companyName: typeof u.companyName === 'string' ? u.companyName.trim() : '',
+                email: typeof u.email === 'string' ? u.email.trim() : '',
+                address: typeof u.address === 'string' ? u.address.trim() : '',
+                phone: typeof u.phone === 'string' ? u.phone.trim() : '',
+                role,
+                isActive,
+                permissions,
+                passwordHash,
+                passwordLegacy: typeof u.passwordLegacy === 'string' ? u.passwordLegacy : (typeof u.password === 'string' ? u.password : null),
+                licenseKey: typeof u.licenseKey === 'string' && u.licenseKey ? u.licenseKey.trim().toUpperCase() : (role === 'admin' ? 'N/A (Admin)' : `LIC-${id.toUpperCase()}`),
+                licenseDurationMonths: Number(u.licenseDurationMonths) || 1,
+                licenseAssignedAt: u.licenseAssignedAt || new Date().toISOString(),
+                licenseExpiresAt: u.licenseExpiresAt || null,
+                monthlyCapitals: (u.monthlyCapitals && typeof u.monthlyCapitals === 'object') ? u.monthlyCapitals : getDefaultMonthlyCapital(5000),
+                createdAt: u.createdAt || new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+              };
+            })
+        );
+
+        sanitizedUsers = sanitizedUsers.filter((u: any) => u.id && u.username);
+
+        if (sanitizedUsers.length === 0) {
+          return NextResponse.json({ success: false, error: 'Archivo de importación inválido: no contiene usuarios válidos' }, { status: 400 });
         }
-        if (Object.prototype.hasOwnProperty.call(incoming, 'trustLevelConfig')) {
-          try { nextSettings.trustLevelConfig = normalizeTrustConfig(incoming.trustLevelConfig); } catch { /* conserva valor importado si no es normalizable */ }
+        if (!sanitizedUsers.some((u: any) => u.role === 'admin')) {
+          return NextResponse.json({ success: false, error: 'Archivo de importación inválido: debe incluir al menos un usuario administrador' }, { status: 400 });
         }
-        if (Object.prototype.hasOwnProperty.call(incoming, 'ocrApiKeys') && typeof incoming.ocrApiKeys === 'object' && incoming.ocrApiKeys) {
-          nextSettings.ocrApiKeys = { ...(nextSettings.ocrApiKeys || {}), ...incoming.ocrApiKeys };
-          if (typeof nextSettings.ocrApiKeys.openai !== 'string') nextSettings.ocrApiKeys.openai = '';
-          if (typeof nextSettings.ocrApiKeys.gemini !== 'string') nextSettings.ocrApiKeys.gemini = '';
-          if (typeof nextSettings.ocrApiKeys.ocrspace !== 'string') nextSettings.ocrApiKeys.ocrspace = '';
-          nextSettings.ocrSpaceApiKey = nextSettings.ocrApiKeys.ocrspace || (typeof incoming.ocrSpaceApiKey === 'string' ? incoming.ocrSpaceApiKey : (nextSettings.ocrSpaceApiKey || ''));
-          nextSettings.aiApiKey = nextSettings.ocrApiKeys.openai || nextSettings.ocrApiKeys.gemini || (typeof incoming.aiApiKey === 'string' ? incoming.aiApiKey : (nextSettings.aiApiKey || ''));
+
+        // Inyectar usuarios en el estado del sistema
+        db.users = sanitizedUsers;
+
+        // Sincronizar hash de clave maestra con el administrador importado
+        const importedAdmin = sanitizedUsers.find((u: any) => u.role === 'admin');
+        if (importedAdmin?.passwordHash) {
+          db.settings.adminPasswordHash = importedAdmin.passwordHash;
+          delete db.settings.adminPassword;
+          delete db.settings.adminPasswordLegacy;
         }
-        if (Object.prototype.hasOwnProperty.call(incoming, 'ecommerceCapital')) {
-          const n = Number(incoming.ecommerceCapital);
-          nextSettings.ecommerceCapital = Number.isFinite(n) && n >= 0 ? n : incoming.ecommerceCapital;
+      }
+
+      // 2. INYECCIÓN DEL MOTOR OCR, CLAVES, ENDPOINTS, MODELOS, UMBRALES Y AJUSTES GENERALES
+      if (hasSettings || hasMotorOcr) {
+        const incomingSettings: any = envelope.settings || {};
+        const incomingMotorOcr: any = envelope.motorOcr || {};
+
+        const nextSettings: any = { ...(db.settings || {}), ...incomingSettings };
+
+        // Parámetros generales de plataforma
+        if (incomingSettings.companyName) nextSettings.companyName = String(incomingSettings.companyName).trim();
+        if (incomingSettings.currency) nextSettings.currency = String(incomingSettings.currency).trim();
+        if (incomingSettings.timezone) nextSettings.timezone = String(incomingSettings.timezone).trim();
+        if (Object.prototype.hasOwnProperty.call(incomingSettings, 'ecommerceCapital')) {
+          const n = Number(incomingSettings.ecommerceCapital);
+          nextSettings.ecommerceCapital = Number.isFinite(n) && n >= 0 ? n : (db.settings?.ecommerceCapital ?? 5000);
         }
+
+        // Proveedor activo OCR / IA
+        const rawProvider = incomingMotorOcr.activeProvider || incomingSettings.aiProvider;
+        if (rawProvider && ALLOWED_PROVIDERS.includes(rawProvider)) {
+          nextSettings.aiProvider = rawProvider;
+        } else if (!ALLOWED_PROVIDERS.includes(nextSettings.aiProvider)) {
+          nextSettings.aiProvider = 'ocrspace';
+        }
+
+        // Claves API de proveedores OCR (descifradas y listas para uso)
+        const incomingKeys = incomingMotorOcr.apiKeys || incomingSettings.ocrApiKeys || {};
+        const existingKeys = getStoredOcrKeys(db);
+        const resolvedKeys = {
+          openai: typeof incomingKeys.openai === 'string' ? incomingKeys.openai.trim() : (typeof incomingSettings.aiApiKey === 'string' && (nextSettings.aiProvider === 'openai') ? incomingSettings.aiApiKey.trim() : (existingKeys.openai || '')),
+          gemini: typeof incomingKeys.gemini === 'string' ? incomingKeys.gemini.trim() : (typeof incomingSettings.aiApiKey === 'string' && (nextSettings.aiProvider === 'gemini') ? incomingSettings.aiApiKey.trim() : (existingKeys.gemini || '')),
+          ocrspace: typeof incomingKeys.ocrspace === 'string' ? incomingKeys.ocrspace.trim() : (typeof incomingSettings.ocrSpaceApiKey === 'string' ? incomingSettings.ocrSpaceApiKey.trim() : (existingKeys.ocrspace || '')),
+          tesseract: ''
+        };
+        nextSettings.ocrApiKeys = resolvedKeys;
+        nextSettings.ocrSpaceApiKey = resolvedKeys.ocrspace;
+        nextSettings.aiApiKey = resolvedKeys.openai || resolvedKeys.gemini || '';
+
+        // Endpoints por motor OCR
+        const incomingEndpoints = incomingMotorOcr.endpoints || incomingSettings.ocrEndpoints || {};
+        nextSettings.ocrEndpoints = {
+          ...DEFAULT_OCR_ENDPOINTS,
+          ...(db.settings?.ocrEndpoints || {}),
+          ...(typeof incomingEndpoints === 'object' && incomingEndpoints ? incomingEndpoints : {})
+        };
+
+        // Modelos seleccionados por motor OCR
+        const incomingModels = incomingMotorOcr.selectedModels || incomingSettings.ocrModels || {};
+        nextSettings.ocrModels = {
+          ...DEFAULT_OCR_MODELS,
+          ...(db.settings?.ocrModels || {}),
+          ...(typeof incomingModels === 'object' && incomingModels ? incomingModels : {})
+        };
+
+        // Umbrales de validación financiera
+        const incomingThresholds = incomingMotorOcr.validationThresholds || incomingSettings.ocrThresholds || {};
+        nextSettings.ocrThresholds = {
+          ...DEFAULT_OCR_THRESHOLDS,
+          ...(db.settings?.ocrThresholds || {}),
+          ...(typeof incomingThresholds === 'object' && incomingThresholds ? incomingThresholds : {})
+        };
+        const confMin = Number(incomingSettings.ocrConfidenceMin ?? incomingThresholds.ocrConfidenceMin);
+        nextSettings.ocrConfidenceMin = Number.isFinite(confMin) && confMin >= 0 && confMin <= 1 ? confMin : (nextSettings.ocrThresholds?.ocrConfidenceMin ?? 0.8);
+        nextSettings.ocrThresholds.ocrConfidenceMin = nextSettings.ocrConfidenceMin;
+
+        // Reglas de enrutamiento y asignación automática
+        const incomingRouting = incomingMotorOcr.routingRules || incomingSettings.aiRoutingRules;
+        nextSettings.aiRoutingRules = (typeof incomingRouting === 'object' && incomingRouting) ? incomingRouting : (db.settings?.aiRoutingRules || { ...DEFAULT_AI_ROUTING_RULES });
+        if (incomingMotorOcr.autoAssignEnabled !== undefined) {
+          nextSettings.aiAutoAssignEnabled = Boolean(incomingMotorOcr.autoAssignEnabled);
+        } else if (incomingSettings.aiAutoAssignEnabled !== undefined) {
+          nextSettings.aiAutoAssignEnabled = Boolean(incomingSettings.aiAutoAssignEnabled);
+        }
+
+        // Metadatos de proveedores estructurados
+        nextSettings.providerConfig = {
+          endpoints: nextSettings.ocrEndpoints,
+          models: nextSettings.ocrModels,
+          thresholds: nextSettings.ocrThresholds
+        };
+
+        // Licencias globales del sistema
+        const incomingLic = incomingMotorOcr.licenses?.systemLicenseKey || incomingSettings.systemLicenseKey || incomingSettings.licenseKey;
+        if (incomingLic && String(incomingLic).trim()) {
+          nextSettings.systemLicenseKey = String(incomingLic).trim();
+          nextSettings.licenseKey = String(incomingLic).trim();
+        }
+
+        // Niveles de confianza de clientes
+        if (incomingSettings.trustLevelConfig && typeof incomingSettings.trustLevelConfig === 'object') {
+          try {
+            nextSettings.trustLevelConfig = normalizeTrustConfig(incomingSettings.trustLevelConfig);
+          } catch {}
+        }
+
         db.settings = nextSettings;
       }
 
+      // 3. INYECCIÓN COMPLETA DE BASE DE PATRONES DE COMPROBANTES, FIRMAS VISUALES Y REGLAS
       if (hasPatterns) {
-        // Inyección completa de la base de patrones (datos, firmas/reglas y ajustes personalizados)
-        const patterns = data.receiptPatterns as any[];
-        db.receiptPatterns = patterns
+        const rawPatterns = envelope.receiptPatterns as any[];
+        db.receiptPatterns = rawPatterns
           .filter((p: any) => p && typeof p === 'object' && !Array.isArray(p))
           .map((p: any, i: number) => {
-            const normalized: any = { ...p };
-            if (typeof normalized.id !== 'string' || !normalized.id) normalized.id = `pat_imp_${Date.now()}_${i}`;
-            if (normalized.bankName != null && typeof normalized.bankName !== 'string') normalized.bankName = String(normalized.bankName);
-            if (normalized.keywords && !Array.isArray(normalized.keywords)) {
-              normalized.keywords = [String(normalized.keywords)];
+            const enriched: any = enrichReceiptPattern(p);
+            if (typeof enriched.id !== 'string' || !enriched.id) {
+              enriched.id = typeof p.id === 'string' && p.id ? p.id : `pat_imp_${Date.now()}_${i}`;
             }
-            return normalized;
+            return enriched;
           });
       }
 
-      if (hasUsers && sanitizedUsers) {
-        // Recreación/sincronización de perfiles, roles, permisos/estados y credenciales
-        db.users = sanitizedUsers;
-      }
-
+      // 4. PERSISTENCIA EN EL ALMACÉN Y SINCRONIZACIÓN CON BASE DE DATOS (POSTGRES / PRISMA)
       await saveAppState(db);
+
       if (hasDatabase()) {
         await ensureAdminConfigSeed().catch(() => {});
         await syncAdminStateToNormalized(db).catch(() => {});
-        if (hasSettings) await logAudit({ entity: 'AdminSetting', entityId: 'main', action: 'IMPORT', before: beforeSettings, after: db.settings, actorLegacyId: currentUser?.id }).catch(() => {});
+        if (hasSettings || hasMotorOcr) await logAudit({ entity: 'AdminSetting', entityId: 'main', action: 'IMPORT', before: beforeSettings, after: db.settings, actorLegacyId: currentUser?.id }).catch(() => {});
         if (hasUsers) await logAudit({ entity: 'User', entityId: 'all', action: 'IMPORT', before: beforeUsers, after: db.users, actorLegacyId: currentUser?.id }).catch(() => {});
         if (hasPatterns) await logAudit({ entity: 'ReceiptPattern', entityId: 'all', action: 'IMPORT', before: beforePatterns, after: db.receiptPatterns, actorLegacyId: currentUser?.id }).catch(() => {});
       }
 
+      // 5. RECONCILIACIÓN DEL USUARIO ACTIVO Y SESIÓN
+      const primaryAdmin = (db.users || []).find((u: any) => u.role === 'admin');
+      const activeAdminUser = primaryAdmin ? {
+        id: primaryAdmin.id,
+        username: primaryAdmin.username,
+        name: primaryAdmin.name,
+        role: primaryAdmin.role,
+        address: primaryAdmin.address || '',
+        phone: primaryAdmin.phone || '',
+        licenseKey: primaryAdmin.licenseKey || 'N/A (Admin)',
+        monthlyCapitals: primaryAdmin.monthlyCapitals || getDefaultMonthlyCapital(5000)
+      } : null;
+
+      const configuredKeysList = Object.keys(db.settings.ocrApiKeys || {}).filter(k => Boolean(db.settings.ocrApiKeys[k]));
+
+      const safeSettings = {
+        companyName: db.settings?.companyName || 'CrediFlux',
+        timezone: db.settings?.timezone || 'America/Caracas',
+        currency: db.settings?.currency || '$',
+        ecommerceCapital: primaryAdmin?.monthlyCapitals?.[new Date().toISOString().slice(0, 7)]?.capital ?? db.settings?.ecommerceCapital ?? 5000,
+        aiProvider: db.settings?.aiProvider || 'ocrspace',
+        trustLevelConfig: getTrustLevelConfig(db.settings),
+        internalOcrLicenses: { tesseract: getInternalLicenseStatus('tesseract') },
+        hasAiKey: Boolean(db.settings?.ocrApiKeys?.openai || db.settings?.ocrApiKeys?.gemini),
+        hasOcrSpaceKey: Boolean(db.settings?.ocrApiKeys?.ocrspace),
+        ocrKeys: db.settings?.ocrApiKeys || {},
+        ocrKeysMasked: {
+          openai: maskKey(db.settings?.ocrApiKeys?.openai),
+          gemini: maskKey(db.settings?.ocrApiKeys?.gemini),
+          ocrspace: maskKey(db.settings?.ocrApiKeys?.ocrspace),
+          tesseract: ''
+        },
+        ocrEndpoints: db.settings?.ocrEndpoints || { ...DEFAULT_OCR_ENDPOINTS },
+        ocrModels: db.settings?.ocrModels || { ...DEFAULT_OCR_MODELS },
+        ocrThresholds: db.settings?.ocrThresholds || { ...DEFAULT_OCR_THRESHOLDS },
+        ocrConfidenceMin: db.settings?.ocrConfidenceMin ?? 0.8,
+        aiRoutingRules: db.settings?.aiRoutingRules || { ...DEFAULT_AI_ROUTING_RULES },
+        aiAutoAssignEnabled: db.settings?.aiAutoAssignEnabled !== false,
+        systemLicenseKey: db.settings?.systemLicenseKey || db.settings?.licenseKey || 'CREDIFLUX-FINTECH-2026',
+        licenseKey: db.settings?.systemLicenseKey || db.settings?.licenseKey,
+        hasAdminPassword: Boolean(db.settings?.adminPasswordHash || db.settings?.adminPassword)
+      };
+
+      const allUsers = (db.users || []).map((u: any) => ({
+        id: u.id,
+        username: u.username,
+        name: u.name,
+        companyName: u.companyName || '',
+        email: u.email || '',
+        role: u.role,
+        isActive: u.isActive !== false,
+        permissions: Array.isArray(u.permissions) ? u.permissions : (u.role === 'admin' ? ['all', 'admin'] : ['read_write']),
+        address: u.address || '',
+        phone: u.phone || '',
+        hasPassword: Boolean(u.passwordHash || u.password || u.passwordLegacy),
+        licenseKey: u.licenseKey || (u.role === 'admin' ? 'N/A (Admin)' : ''),
+        licenseAssignedAt: u.licenseAssignedAt || null,
+        licenseExpiresAt: u.licenseExpiresAt || null,
+        licenseDurationMonths: u.licenseDurationMonths || 1,
+        monthlyCapitals: u.monthlyCapitals || getDefaultMonthlyCapital(5000),
+        createdAt: u.createdAt
+      }));
+
+      const enrichedPatterns = (db.receiptPatterns || []).map((p: any) => enrichReceiptPattern(p));
+
       return NextResponse.json({
         success: true,
-        message: 'Snapshot importado: configuración, usuarios y patrones aplicados correctamente',
+        message: 'Snapshot integral importado con éxito: configuraciones generales, motor OCR, perfiles de usuarios y base de patrones de comprobantes 100% operativos.',
         imported: {
-          settings: hasSettings,
+          settings: hasSettings || hasMotorOcr,
           users: hasUsers ? (db.users || []).length : 0,
-          receiptPatterns: hasPatterns ? (db.receiptPatterns || []).length : 0
+          operators: hasUsers ? (db.users || []).filter((u: any) => u.role !== 'admin').length : 0,
+          receiptPatterns: hasPatterns ? (db.receiptPatterns || []).length : 0,
+          activeOcrProvider: db.settings.aiProvider,
+          configuredOcrKeys: configuredKeysList,
+          systemLicenseKey: db.settings.systemLicenseKey || db.settings.licenseKey
         },
-        settings: { trustLevelConfig: getTrustLevelConfig(db.settings) },
-        receiptPatterns: db.receiptPatterns || [],
+        activeAdmin: activeAdminUser,
+        settings: safeSettings,
+        users: allUsers,
+        receiptPatterns: enrichedPatterns,
         persistence: persistenceInfo(),
       });
     }
@@ -532,6 +927,8 @@ export async function POST(request: Request) {
     }
 
     const beforeSettings = JSON.parse(JSON.stringify(db.settings || {}));
+    if (companyName) db.settings.companyName = String(companyName).trim();
+    if (timezone) db.settings.timezone = String(timezone).trim();
     if (currency) db.settings.currency = String(currency).trim();
     if (aiProvider && ALLOWED_PROVIDERS.includes(aiProvider)) db.settings.aiProvider = aiProvider;
 
@@ -554,9 +951,60 @@ export async function POST(request: Request) {
       nextKeys.ocrspace = String(ocrSpaceApiKey).trim();
     }
 
-    db.settings.ocrApiKeys = { openai: nextKeys.openai || '', gemini: nextKeys.gemini || '', ocrspace: nextKeys.ocrspace || '' };
+    db.settings.ocrApiKeys = { openai: nextKeys.openai || '', gemini: nextKeys.gemini || '', ocrspace: nextKeys.ocrspace || '', tesseract: '' };
     db.settings.ocrSpaceApiKey = db.settings.ocrApiKeys.ocrspace;
     db.settings.aiApiKey = db.settings.ocrApiKeys.openai || db.settings.ocrApiKeys.gemini || '';
+
+    // Parámetros avanzados del motor OCR: endpoints, modelos y umbrales
+    if (ocrEndpoints && typeof ocrEndpoints === 'object') {
+      db.settings.ocrEndpoints = {
+        ...DEFAULT_OCR_ENDPOINTS,
+        ...(db.settings.ocrEndpoints || {}),
+        ...ocrEndpoints
+      };
+    }
+    if (ocrModels && typeof ocrModels === 'object') {
+      db.settings.ocrModels = {
+        ...DEFAULT_OCR_MODELS,
+        ...(db.settings.ocrModels || {}),
+        ...ocrModels
+      };
+    }
+    if (ocrThresholds && typeof ocrThresholds === 'object') {
+      db.settings.ocrThresholds = {
+        ...DEFAULT_OCR_THRESHOLDS,
+        ...(db.settings.ocrThresholds || {}),
+        ...ocrThresholds
+      };
+    }
+    if (ocrConfidenceMin !== undefined) {
+      const parsedMin = Number(ocrConfidenceMin);
+      if (Number.isFinite(parsedMin) && parsedMin >= 0 && parsedMin <= 1) {
+        db.settings.ocrConfidenceMin = parsedMin;
+        if (!db.settings.ocrThresholds) db.settings.ocrThresholds = { ...DEFAULT_OCR_THRESHOLDS };
+        db.settings.ocrThresholds.ocrConfidenceMin = parsedMin;
+      }
+    }
+    if (aiRoutingRules && typeof aiRoutingRules === 'object') {
+      db.settings.aiRoutingRules = {
+        ...DEFAULT_AI_ROUTING_RULES,
+        ...aiRoutingRules
+      };
+    }
+    if (aiAutoAssignEnabled !== undefined) {
+      db.settings.aiAutoAssignEnabled = Boolean(aiAutoAssignEnabled);
+    }
+    if (systemLicenseKey && String(systemLicenseKey).trim()) {
+      const cleanLic = String(systemLicenseKey).trim();
+      db.settings.systemLicenseKey = cleanLic;
+      db.settings.licenseKey = cleanLic;
+    }
+
+    db.settings.providerConfig = {
+      endpoints: db.settings.ocrEndpoints || { ...DEFAULT_OCR_ENDPOINTS },
+      models: db.settings.ocrModels || { ...DEFAULT_OCR_MODELS },
+      thresholds: db.settings.ocrThresholds || { ...DEFAULT_OCR_THRESHOLDS }
+    };
 
     if (trustLevelConfig !== undefined) {
       db.settings.trustLevelConfig = normalizeTrustConfig(trustLevelConfig);
