@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { checkWritePermission, getDefaultMonthlyCapital, MONTH_NAMES } from '../../../lib/db.js';
 import { getTrustLevelConfig, normalizeTrustConfig } from '../../../lib/trust.js';
 import { INTERNAL_OCR_CONFIG, createTestReceiptPngBuffer, runTesseractRecognition } from '../../../lib/ocrEngine.js';
-import { getAppState, saveAppState, saveAppStateWithResult, persistenceInfo, checkPersistenceConnection } from '../../../lib/server/persistence.js';
+import { getStateForRequest, saveStateForRequest, saveStateForRequestWithResult, persistenceInfo, checkPersistenceConnection } from '../../../lib/server/supabase-store';
 import {
   syncAdminStateToNormalized,
   logAudit,
@@ -15,6 +15,8 @@ import {
   enrichReceiptPattern
 } from '../../../lib/server/admin-config.js';
 import { hashPassword } from '../../../lib/server/security.js';
+import { getSupabaseAdminClientOrNull } from '../../../lib/supabase/admin';
+import { isSupabaseConfigured } from '../../../lib/supabase/env';
 
 const ALLOWED_PROVIDERS = ['openai', 'gemini', 'ocrspace', 'tesseract'];
 
@@ -133,10 +135,9 @@ async function testProviderConnection(provider: string, apiKey: string | undefin
 
 export async function GET(request: Request) {
   try {
-    const db = await getAppState();
+    const db = await getStateForRequest(request);
     if (!db.settings) db.settings = {};
-    const userId = request.headers.get('x-user-id');
-    const currentUser = userId ? (db.users || []).find((u: any) => u.id === userId) : null;
+    const currentUser: any = db.__currentUser || null;
     const isAdmin = currentUser?.role === 'admin';
 
     const currentMonthKey = new Date().toISOString().slice(0, 7);
@@ -146,7 +147,7 @@ export async function GET(request: Request) {
     const activeProvider = ALLOWED_PROVIDERS.includes(rawProvider) ? rawProvider : 'openai';
     if (rawProvider && !ALLOWED_PROVIDERS.includes(rawProvider)) {
       db.settings.aiProvider = activeProvider;
-      await saveAppState(db);
+      await saveStateForRequest(request, db);
     }
     const ocrKeys = getStoredOcrKeys(db);
 
@@ -301,12 +302,11 @@ export async function POST(request: Request) {
       importData
     } = body;
 
-    const db = await getAppState();
+    const db = await getStateForRequest(request);
     if (!db.settings) db.settings = {};
     if (!Array.isArray(db.users)) db.users = [];
     if (!Array.isArray(db.receiptPatterns)) db.receiptPatterns = [];
-    const userId = request.headers.get('x-user-id');
-    const currentUser: any = db.users.find((u: any) => u.id === userId);
+    const currentUser: any = db.__currentUser || null;
 
     // EXPORTAR SNAPSHOT COMPLETO DE AJUSTES ADMIN (solo administrador)
     if (action === 'export_settings') {
@@ -720,12 +720,12 @@ export async function POST(request: Request) {
         }, { status: 503 });
       }
 
-      const persisted = await saveAppStateWithResult(db);
+      const persisted = await saveStateForRequestWithResult(request, db);
       if (!persisted.ok) {
         return NextResponse.json({
           success: false,
           error: `No se pudo persistir la configuración importada: ${persisted.error || 'error de escritura en el almacén de datos.'}`,
-          persistence: persisted.diagnostics || persistenceInfo(),
+          persistence: (persisted as any).diagnostics || persistenceInfo(),
         }, { status: 500 });
       }
 
@@ -877,7 +877,7 @@ export async function POST(request: Request) {
 
       target.monthlyCapitals = baseCapitals;
       if (target.role === 'admin') db.settings.ecommerceCapital = 0;
-      await saveAppState(db);
+      await saveStateForRequest(request, db);
       if (hasDatabase()) await syncAdminStateToNormalized(db).catch(() => {});
       return NextResponse.json({ success: true, message: 'Capital reseteado exitosamente', monthlyCapitals: target.monthlyCapitals, persistence: persistenceInfo() });
     }
@@ -901,7 +901,7 @@ export async function POST(request: Request) {
       });
 
       currentUser.monthlyCapitals = { ...(currentUser.monthlyCapitals || {}), ...normalizedCapitals };
-      await saveAppState(db);
+      await saveStateForRequest(request, db);
       if (hasDatabase()) await syncAdminStateToNormalized(db).catch(() => {});
       return NextResponse.json({ success: true, message: 'Capital mensual actualizado exitosamente', monthlyCapitals: currentUser.monthlyCapitals, persistence: persistenceInfo() });
     }
@@ -918,7 +918,7 @@ export async function POST(request: Request) {
         if (target.role === 'admin') return NextResponse.json({ success: false, error: 'No se puede eliminar el usuario administrador maestro' }, { status: 400 });
         const before = { ...target };
         db.users = db.users.filter((u: any) => u.id !== targetUserId);
-        await saveAppState(db);
+        await saveStateForRequest(request, db);
         if (hasDatabase()) { await syncAdminStateToNormalized(db).catch(() => {}); await logAudit({ entity: 'User', entityId: targetUserId, action: 'DELETE', before, after: null, actorLegacyId: currentUser?.id }).catch(() => {}); }
         return NextResponse.json({ success: true, message: 'Usuario eliminado exitosamente', persistence: persistenceInfo() });
       }
@@ -930,6 +930,18 @@ export async function POST(request: Request) {
         if (updatedAddress !== undefined) target.address = String(updatedAddress || '').trim();
         if (updatedPhone !== undefined) target.phone = String(updatedPhone || '').trim();
         if (updatedPassword) {
+          if (isSupabaseConfigured()) {
+            const admin = getSupabaseAdminClientOrNull();
+            if (!admin) {
+              return NextResponse.json({ success: false, error: 'Supabase admin no configurado' }, { status: 503 });
+            }
+            const { error: passwordError } = await admin.auth.admin.updateUserById(targetUserId, {
+              password: String(updatedPassword).trim(),
+            });
+            if (passwordError) {
+              return NextResponse.json({ success: false, error: passwordError.message }, { status: 400 });
+            }
+          }
           target.passwordHash = await hashPassword(String(updatedPassword).trim());
           delete target.password;
           delete target.passwordLegacy;
@@ -944,7 +956,7 @@ export async function POST(request: Request) {
           target.licenseExpiresAt = expiresAt.toISOString();
           if (!target.licenseAssignedAt) target.licenseAssignedAt = now.toISOString();
         }
-        await saveAppState(db);
+        await saveStateForRequest(request, db);
         if (hasDatabase()) { await syncAdminStateToNormalized(db).catch(() => {}); await logAudit({ entity: 'User', entityId: targetUserId, action: 'UPDATE', before, after: { ...target }, actorLegacyId: currentUser?.id }).catch(() => {}); }
         const safeUser = { ...target };
         delete safeUser.password;
@@ -1044,6 +1056,18 @@ export async function POST(request: Request) {
     }
 
     if (adminPassword && String(adminPassword).length >= 4) {
+      if (isSupabaseConfigured() && currentUser?.id) {
+        const admin = getSupabaseAdminClientOrNull();
+        if (!admin) {
+          return NextResponse.json({ success: false, error: 'Supabase admin no configurado' }, { status: 503 });
+        }
+        const { error: adminPasswordError } = await admin.auth.admin.updateUserById(currentUser.id, {
+          password: String(adminPassword),
+        });
+        if (adminPasswordError) {
+          return NextResponse.json({ success: false, error: adminPasswordError.message }, { status: 400 });
+        }
+      }
       const adminHash = await hashPassword(String(adminPassword));
       db.settings.adminPasswordHash = adminHash;
       delete db.settings.adminPassword;
@@ -1056,13 +1080,13 @@ export async function POST(request: Request) {
       }
     }
 
-    const saveResult = await saveAppStateWithResult(db);
+    const saveResult = await saveStateForRequestWithResult(request, db);
     if (!saveResult.ok) {
       console.error('[settings] Error al persistir configuración general:', saveResult.error || saveResult);
       return NextResponse.json({
         success: false,
-        error: `No se pudo guardar la configuración: ${saveResult.error || 'falló la escritura en el almacén de datos.'}${!hasDatabase() ? ' En Vercel/producción configura DATABASE_URL (PostgreSQL) para habilitar persistencia duradera.' : ''}`,
-        persistence: saveResult.diagnostics || persistenceInfo(),
+        error: `No se pudo guardar la configuración: ${saveResult.error || 'falló la escritura en el almacén de datos.'}`,
+        persistence: (saveResult as any).diagnostics || persistenceInfo(),
       }, { status: 500 });
     }
     if (hasDatabase()) {

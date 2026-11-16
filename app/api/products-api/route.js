@@ -1,10 +1,10 @@
-﻿import { NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { checkWritePermission, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
-import { getAppState, saveAppState } from '../../../lib/server/persistence.js';
+import { getStateForRequest, saveStateForRequest } from '../../../lib/server/supabase-store';
 
 export async function GET(request) {
   try {
-    const db = await getAppState();
+    const db = await getStateForRequest(request);
     if (!Array.isArray(db.products)) db.products = [];
     const user = getRequestUser(request, db);
     if (!user) {
@@ -33,7 +33,7 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const db = await getAppState();
+    const db = await getStateForRequest(request);
     if (!Array.isArray(db.products)) db.products = [];
     const perm = checkWritePermission(request, db);
     if (!perm.allowed) {
@@ -88,7 +88,7 @@ export async function POST(request) {
         manualSalePrice: isManual,
         stock: Number.isFinite(Number(stock)) ? Number(stock) : (prev.stock || 0),
       };
-      await saveAppState(db);
+      await saveStateForRequest(request, db);
       return NextResponse.json({ success: true, message: 'Producto actualizado', product: db.products[idx] });
     } else {
       const cost = hasNumber(costPrice) ? Number(costPrice) : 0;
@@ -117,7 +117,7 @@ export async function POST(request) {
         createdAt: new Date().toISOString()
       };
       db.products.unshift(newProduct);
-      await saveAppState(db);
+      await saveStateForRequest(request, db);
       return NextResponse.json({ success: true, message: 'Producto registrado', product: newProduct });
     }
   } catch (error) {
@@ -128,7 +128,7 @@ export async function POST(request) {
 
 export async function DELETE(request) {
   try {
-    const db = await getAppState();
+    const db = await getStateForRequest(request);
     if (!Array.isArray(db.products)) db.products = [];
     const perm = checkWritePermission(request, db);
     if (!perm.allowed) {
@@ -150,7 +150,7 @@ export async function DELETE(request) {
     }
 
     db.products = db.products.filter(p => p.id !== id);
-    await saveAppState(db);
+    await saveStateForRequest(request, db);
 
     return NextResponse.json({ success: true, message: 'Producto eliminado' });
   } catch (error) {

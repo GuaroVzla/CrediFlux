@@ -3,11 +3,11 @@ import fs from 'fs';
 import path from 'path';
 import { checkWritePermission, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
 import { parseReceiptWithAI } from '../../../lib/ocrEngine.js';
-import { getAppState, saveAppState, persistenceInfo } from '../../../lib/server/persistence.js';
+import { getStateForRequest, saveStateForRequest, persistenceInfo } from '../../../lib/server/supabase-store';
 
 export async function GET(request: Request) {
   try {
-    const db = await getAppState();
+    const db = await getStateForRequest(request);
     const currentUser = getRequestUser(request, db);
     if (!currentUser) {
       return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
@@ -105,7 +105,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const db = await getAppState();
+    const db = await getStateForRequest(request);
     const perm = checkWritePermission(request, db);
     if (!perm.allowed) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
@@ -217,7 +217,7 @@ export async function POST(request: Request) {
 
     if (!db.ecommerce) db.ecommerce = [];
     db.ecommerce.push(newTransaction); // push to end for chronological order
-    const saved = await saveAppState(db);
+    const saved = await saveStateForRequest(request, db);
     if (!saved) {
       return NextResponse.json({
         success: false,
@@ -240,7 +240,7 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const db = await getAppState();
+    const db = await getStateForRequest(request);
     const perm = checkWritePermission(request, db);
     if (!perm.allowed) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
@@ -264,7 +264,7 @@ export async function DELETE(request: Request) {
 
     db.ecommerce = (db.ecommerce || []).filter((t: any) => t.id !== id);
 
-    const saved = await saveAppState(db);
+    const saved = await saveStateForRequest(request, db);
     if (!saved) {
       return NextResponse.json({
         success: false,

@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import { computeLoanStatus, checkWritePermission, normalizeDni, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
-import { getAppState, saveAppState } from '../../../lib/server/persistence.js';
+import { getStateForRequest, saveStateForRequest } from '../../../lib/server/supabase-store';
 import { getTrustLevelConfig, computeClientTrust } from '../../../lib/trust.js';
 
 export async function GET(request) {
   try {
-    const db = await getAppState();
+    const db = await getStateForRequest(request);
     if (!Array.isArray(db.clients)) db.clients = [];
     if (!Array.isArray(db.loans)) db.loans = [];
     if (!Array.isArray(db.blacklist)) db.blacklist = [];
@@ -91,7 +91,7 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const db = await getAppState();
+    const db = await getStateForRequest(request);
     if (!Array.isArray(db.clients)) db.clients = [];
     if (!Array.isArray(db.loans)) db.loans = [];
     if (!Array.isArray(db.blacklist)) db.blacklist = [];
@@ -151,7 +151,7 @@ export async function POST(request) {
 
       db.clients.unshift(restoredClient);
       db.blacklist.splice(entryIndex, 1);
-      await saveAppState(db);
+      await saveStateForRequest(request, db);
 
       return NextResponse.json({
         success: true,
@@ -200,7 +200,7 @@ export async function POST(request) {
         address: address ? address.trim() : '',
         notes: notes ? notes.trim() : ''
       };
-      await saveAppState(db);
+      await saveStateForRequest(request, db);
       return NextResponse.json({ success: true, message: 'Cliente actualizado', client: db.clients[idx] });
     } else {
       // Create new. El nivel de confianza es automático y el límite de crédito
@@ -219,7 +219,7 @@ export async function POST(request) {
         createdAt: new Date().toISOString()
       };
       db.clients.unshift(newClient);
-      await saveAppState(db);
+      await saveStateForRequest(request, db);
       return NextResponse.json({ success: true, message: 'Cliente registrado', client: newClient });
     }
   } catch (error) {
@@ -230,7 +230,7 @@ export async function POST(request) {
 
 export async function DELETE(request) {
   try {
-    const db = await getAppState();
+    const db = await getStateForRequest(request);
     if (!Array.isArray(db.clients)) db.clients = [];
     if (!Array.isArray(db.loans)) db.loans = [];
     if (!Array.isArray(db.blacklist)) db.blacklist = [];
@@ -270,7 +270,7 @@ export async function DELETE(request) {
     });
 
     db.clients = (db.clients || []).filter(c => c.id !== id);
-    await saveAppState(db);
+    await saveStateForRequest(request, db);
 
     return NextResponse.json({ success: true, message: 'Cliente eliminado' });
   } catch (error) {

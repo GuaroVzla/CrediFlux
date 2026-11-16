@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
 import { computeLoanStatus, checkWritePermission, normalizeDni, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
-import { getAppState, saveAppState } from '../../../lib/server/persistence.js';
+import { getStateForRequest, saveStateForRequest } from '../../../lib/server/supabase-store';
 
 export async function GET(request) {
   try {
-    const db = await getAppState();
+    const db = await getStateForRequest(request);
     if (!Array.isArray(db.loans)) db.loans = [];
     if (!Array.isArray(db.clients)) db.clients = [];
     if (!Array.isArray(db.products)) db.products = [];
@@ -56,7 +56,7 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const db = await getAppState();
+    const db = await getStateForRequest(request);
     if (!Array.isArray(db.loans)) db.loans = [];
     if (!Array.isArray(db.clients)) db.clients = [];
     if (!Array.isArray(db.products)) db.products = [];
@@ -172,7 +172,7 @@ export async function POST(request) {
     };
 
     db.loans.unshift(newLoan);
-    await saveAppState(db);
+    await saveStateForRequest(request, db);
 
     return NextResponse.json({
       success: true,
@@ -187,7 +187,7 @@ export async function POST(request) {
 
 export async function DELETE(request) {
   try {
-    const db = await getAppState();
+    const db = await getStateForRequest(request);
     if (!Array.isArray(db.loans)) db.loans = [];
     if (!Array.isArray(db.clients)) db.clients = [];
     if (!Array.isArray(db.products)) db.products = [];
@@ -270,7 +270,7 @@ export async function DELETE(request) {
       }
     }
 
-    await saveAppState(db);
+    await saveStateForRequest(request, db);
 
     return NextResponse.json({
       success: true,

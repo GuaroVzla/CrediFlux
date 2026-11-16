@@ -1,7 +1,235 @@
 import { NextResponse } from 'next/server';
 import { generateRandomLicense, isUserLicenseExpired, getDefaultMonthlyCapital } from '../../../lib/db.js';
-import { getAppState, saveAppState, persistenceInfo } from '../../../lib/server/persistence.js';
+import { getStateForRequest, saveStateForRequest, persistenceInfo } from '../../../lib/server/supabase-store';
 import { hashPassword, verifyPassword, sanitizeUserForClient } from '../../../lib/server/security.js';
+import { createSupabaseServerClient, createSupabaseRouteClient } from '../../../lib/supabase/server';
+import { getSupabaseAdminClientOrNull } from '../../../lib/supabase/admin';
+import { isSupabaseConfigured, usernameToEmail } from '../../../lib/supabase/env';
+import { profileToLegacyUser, resolveRequestAuth } from '../../../lib/server/request-auth';
+
+function supabaseUnavailable() {
+  return NextResponse.json({
+    success: false,
+    error: 'Supabase Auth no está configurado. Define NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY y SUPABASE_SERVICE_ROLE_KEY.'
+  }, { status: 503 });
+}
+
+async function loadProfileById(userId, fallbackClient) {
+  const admin = getSupabaseAdminClientOrNull();
+  if (admin) {
+    const { data } = await admin.from('profiles').select('*').eq('id', userId).maybeSingle();
+    if (data) return data;
+  }
+  const supabase = fallbackClient || (await createSupabaseServerClient());
+  const { data } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+  return data || null;
+}
+
+/**
+ * Migración transparente: si las credenciales coinciden con el almacén legado
+ * (hash scrypt del JSON/Postgres anterior), se crea el usuario en Supabase Auth
+ * con esa misma contraseña y se enlaza su perfil.
+ */
+async function tryLegacyBootstrap(username, password) {
+  const admin = getSupabaseAdminClientOrNull();
+  if (!admin) return null;
+  try {
+    const { getAppState: getLegacyState } = await import('../../../lib/server/persistence.js');
+    const legacy = await getLegacyState();
+    const user = (legacy.users || []).find(
+      (u) => u?.username?.toLowerCase() === String(username || '').trim().toLowerCase()
+    );
+    if (!user) return null;
+
+    const stored = user.passwordHash || user.password || user.passwordLegacy || '';
+    const ver = await verifyPassword(password, stored);
+    if (!ver.ok) return null;
+
+    const email = usernameToEmail(user.username);
+    const created = await admin.auth.admin.createUser({
+      email,
+      password: String(password),
+      email_confirm: true,
+      user_metadata: { username: user.username, full_name: user.name || user.username },
+    });
+    if (created.error || !created.data?.user) {
+      console.warn('[auth] Bootstrap legado no pudo crear el usuario:', created.error?.message);
+      return null;
+    }
+
+    const authUser = created.data.user;
+    await admin.from('profiles').upsert({
+      id: authUser.id,
+      username: user.username,
+      full_name: user.name || user.username,
+      company_name: user.companyName || null,
+      email,
+      address: user.address || null,
+      phone: user.phone || null,
+      role: user.role === 'admin' ? 'admin' : 'user',
+      is_active: user.isActive !== false,
+      license_key: user.licenseKey || null,
+      license_status: 'active',
+      license_assigned_at: user.licenseAssignedAt || null,
+      license_expires_at: user.licenseExpiresAt || null,
+      license_duration_months: user.licenseDurationMonths || 1,
+      monthly_capitals: user.monthlyCapitals || getDefaultMonthlyCapital(5000),
+    }, { onConflict: 'id' });
+
+    return authUser;
+  } catch (error) {
+    console.error('[auth] Error en bootstrap legado:', error?.message || error);
+    return null;
+  }
+}
+
+async function supabaseLogin(request, { username, password }) {
+  const { supabase, applyCookies } = createSupabaseRouteClient(request);
+  const email = usernameToEmail(username);
+
+  let session = null;
+  let authedUser = null;
+  const signIn = await supabase.auth.signInWithPassword({ email, password: String(password || '') });
+
+  if (signIn.error || !signIn.data?.user) {
+    const bootstrapped = await tryLegacyBootstrap(username, password);
+    if (!bootstrapped) {
+      return NextResponse.json(
+        { success: false, error: signIn.error?.message || 'Usuario o contraseña incorrectos' },
+        { status: 401 }
+      );
+    }
+    const retry = await supabase.auth.signInWithPassword({ email, password: String(password || '') });
+    if (retry.error) {
+      return NextResponse.json({ success: false, error: retry.error.message }, { status: 401 });
+    }
+    session = retry.data.session;
+    authedUser = retry.data.user;
+  } else {
+    session = signIn.data.session;
+    authedUser = signIn.data.user;
+  }
+
+  const profile = await loadProfileById(
+    authedUser?.id || (await supabase.auth.getUser()).data.user?.id,
+    supabase
+  );
+  if (!profile) {
+    return NextResponse.json(
+      { success: false, error: 'No se encontró el perfil del usuario en Supabase.' },
+      { status: 404 }
+    );
+  }
+
+  const user = profileToLegacyUser(profile);
+  const isExpired = user.role !== 'admin' && isUserLicenseExpired(user);
+  const currentMonthKey = new Date().toISOString().slice(0, 7);
+  const userCurrentCapital = user.monthlyCapitals?.[currentMonthKey]?.capital ?? 5000;
+
+  return applyCookies(NextResponse.json({
+    success: true,
+    message: 'Acceso autorizado',
+    token: session?.access_token || 'supabase-session',
+    user: {
+      ...user,
+      isExpired,
+      licenseKey: user.licenseKey || '',
+      licenseExpiresAt: user.licenseExpiresAt || null,
+      licenseAssignedAt: user.licenseAssignedAt || null,
+      monthlyCapitals: user.monthlyCapitals || getDefaultMonthlyCapital(5000),
+    },
+    settings: { currency: '$', ecommerceCapital: userCurrentCapital },
+    security: { passwordMigrated: false },
+    persistence: persistenceInfo(),
+  }));
+}
+
+async function supabaseRegister({ requester, username, password, name, address, phone, companyName, licenseDurationMonths, assignedLicenseKey }) {
+  if (!requester || requester.role !== 'admin') {
+    return NextResponse.json(
+      { success: false, error: 'Acceso denegado: El registro de nuevos usuarios está reservado exclusivamente al Administrador.' },
+      { status: 403 }
+    );
+  }
+  if (!username || !password || !name) {
+    return NextResponse.json({ success: false, error: 'Nombre y Apellido, Usuario y Clave son obligatorios' }, { status: 400 });
+  }
+  const admin = getSupabaseAdminClientOrNull();
+  if (!admin) return supabaseUnavailable();
+
+  const months = parseInt(licenseDurationMonths, 10) || 1;
+  const licenseObj = generateRandomLicense(months);
+  const email = usernameToEmail(username);
+
+  const created = await admin.auth.admin.createUser({
+    email,
+    password: String(password).trim(),
+    email_confirm: true,
+    user_metadata: { username: String(username).trim(), full_name: String(name).trim() },
+  });
+
+  if (created.error || !created.data?.user) {
+    const message = created.error?.message || 'No se pudo crear el usuario en Supabase Auth';
+    const duplicate = /already|registered|exists/i.test(message);
+    return NextResponse.json(
+      { success: false, error: duplicate ? 'El nombre de usuario ya está registrado' : message },
+      { status: duplicate ? 400 : 500 }
+    );
+  }
+
+  const authUser = created.data.user;
+  const profile = {
+    id: authUser.id,
+    username: String(username).trim(),
+    full_name: String(name).trim(),
+    company_name: companyName ? String(companyName).trim() : null,
+    email,
+    address: address ? String(address).trim() : null,
+    phone: phone ? String(phone).trim() : null,
+    role: 'user',
+    is_active: true,
+    license_key: assignedLicenseKey ? String(assignedLicenseKey).trim().toUpperCase() : licenseObj.licenseKey,
+    license_status: 'active',
+    license_assigned_at: licenseObj.assignedAt,
+    license_expires_at: licenseObj.expiresAt,
+    license_duration_months: months,
+    monthly_capitals: getDefaultMonthlyCapital(5000),
+  };
+
+  const { data, error } = await admin.from('profiles').upsert(profile, { onConflict: 'id' }).select('*').single();
+  if (error) {
+    await admin.auth.admin.deleteUser(authUser.id).catch(() => {});
+    return NextResponse.json({ success: false, error: `No se pudo guardar el perfil: ${error.message}` }, { status: 500 });
+  }
+
+  return NextResponse.json({
+    success: true,
+    message: `Usuario final ${profile.full_name} registrado con éxito en CrediFlux.`,
+    user: sanitizeUserForClient(profileToLegacyUser(data)),
+    persistence: persistenceInfo(),
+  });
+}
+
+export async function GET(request) {
+  try {
+    if (!isSupabaseConfigured()) {
+      return NextResponse.json({ success: false, error: 'Supabase no configurado' }, { status: 503 });
+    }
+    const auth = await resolveRequestAuth(request);
+    if (!auth.userId || !auth.profile) {
+      return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+    }
+    const user = profileToLegacyUser(auth.profile);
+    return NextResponse.json({
+      success: true,
+      user: { ...user, isExpired: user.role !== 'admin' && isUserLicenseExpired(user) },
+      persistence: persistenceInfo(),
+    });
+  } catch (error) {
+    console.error('Auth session error:', error);
+    return NextResponse.json({ success: false, error: 'Error al recuperar la sesión' }, { status: 500 });
+  }
+}
 
 export async function POST(request) {
   try {
@@ -20,12 +248,15 @@ export async function POST(request) {
       assignedLicenseKey,
       userId
     } = body;
-    const db = await getAppState();
+    const db = await getStateForRequest(request);
     if (!Array.isArray(db.users)) db.users = [];
     if (!db.settings || typeof db.settings !== 'object') db.settings = {};
 
     // ACTION: LOGIN
     if (action === 'login') {
+      if (isSupabaseConfigured()) {
+        return supabaseLogin(request, { username, password });
+      }
       const user = db.users.find(u => u.username?.toLowerCase() === String(username || '').trim().toLowerCase());
 
       if (!user) {
@@ -56,7 +287,7 @@ export async function POST(request) {
           delete db.settings.adminPasswordLegacy;
         }
         migrated = true;
-        await saveAppState(db);
+        await saveStateForRequest(request, db);
       }
 
       const isExpired = user.role !== 'admin' && isUserLicenseExpired(user);
@@ -93,8 +324,14 @@ export async function POST(request) {
 
     // ACTION: REGISTER USER (ESTRICTAMENTE RESTRINGIDO A ROL DE ADMINISTRADOR)
     if (action === 'register') {
-      const requesterId = request.headers.get('x-user-id');
-      const requester = db.users.find(u => u.id === requesterId);
+      if (isSupabaseConfigured()) {
+        return supabaseRegister({
+          requester: db.__currentUser || null,
+          username, password, name, address, phone, companyName,
+          licenseDurationMonths, assignedLicenseKey,
+        });
+      }
+      const requester = db.__currentUser || null;
 
       if (!requester || requester.role !== 'admin') {
         return NextResponse.json(
@@ -140,7 +377,7 @@ export async function POST(request) {
       };
 
       db.users.push(newUser);
-      const saved = await saveAppState(db);
+      const saved = await saveStateForRequest(request, db);
       if (!saved) {
         return NextResponse.json({
           success: false,
@@ -158,6 +395,30 @@ export async function POST(request) {
 
     // ACTION: CHANGE PASSWORD (Para el usuario activo o admin)
     if (action === 'change_password') {
+      if (isSupabaseConfigured()) {
+        if (!newPassword || String(newPassword).length < 4) {
+          return NextResponse.json({ success: false, error: 'La nueva contraseña debe tener al menos 4 caracteres' }, { status: 400 });
+        }
+        const auth = await resolveRequestAuth(request);
+        if (!auth.userId) {
+          return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+        }
+        const targetId = userId || auth.userId;
+        if (targetId !== auth.userId && auth.profile?.role !== 'admin') {
+          return NextResponse.json({ success: false, error: 'No autorizado para cambiar la contraseña de otro usuario' }, { status: 403 });
+        }
+        const admin = getSupabaseAdminClientOrNull();
+        if (!admin) return supabaseUnavailable();
+        const { error } = await admin.auth.admin.updateUserById(targetId, { password: String(newPassword).trim() });
+        if (error) {
+          return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+        }
+        return NextResponse.json({
+          success: true,
+          message: 'Contraseña actualizada con éxito',
+          persistence: persistenceInfo(),
+        });
+      }
       if (!newPassword || String(newPassword).length < 4) {
         return NextResponse.json(
           { success: false, error: 'La nueva contraseña debe tener al menos 4 caracteres' },
@@ -181,13 +442,48 @@ export async function POST(request) {
         delete db.settings.adminPassword;
         delete db.settings.adminPasswordLegacy;
       }
-      await saveAppState(db);
+      await saveStateForRequest(request, db);
 
       return NextResponse.json({ success: true, message: 'Contraseña actualizada con éxito', persistence: persistenceInfo() });
     }
 
     // ACTION: RENEW / ACTIVATE LICENSE (Usuario final introduce nueva licencia o admin la renueva)
     if (action === 'activate_license') {
+      if (isSupabaseConfigured()) {
+        if (!licenseKey || !String(licenseKey).trim()) {
+          return NextResponse.json({ success: false, error: 'La clave de licencia es requerida' }, { status: 400 });
+        }
+        const auth = await resolveRequestAuth(request);
+        if (!auth.userId) {
+          return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+        }
+        const targetId = userId || auth.userId;
+        if (targetId !== auth.userId && auth.profile?.role !== 'admin') {
+          return NextResponse.json({ success: false, error: 'No autorizado' }, { status: 403 });
+        }
+        const admin = getSupabaseAdminClientOrNull();
+        if (!admin) return supabaseUnavailable();
+        const months = parseInt(licenseDurationMonths, 10) || 1;
+        const now = new Date();
+        const expiresAt = new Date(now);
+        expiresAt.setMonth(expiresAt.getMonth() + months);
+        const { data, error } = await admin.from('profiles').update({
+          license_key: String(licenseKey).trim().toUpperCase(),
+          license_status: 'active',
+          license_assigned_at: now.toISOString(),
+          license_expires_at: expiresAt.toISOString(),
+          license_duration_months: months,
+        }).eq('id', targetId).select('*').single();
+        if (error) {
+          return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+        }
+        return NextResponse.json({
+          success: true,
+          message: 'Licencia actualizada y activada exitosamente',
+          user: profileToLegacyUser(data),
+          persistence: persistenceInfo(),
+        });
+      }
       if (!licenseKey || !String(licenseKey).trim()) {
         return NextResponse.json({ success: false, error: 'La clave de licencia es requerida' }, { status: 400 });
       }
@@ -208,7 +504,7 @@ export async function POST(request) {
       user.licenseExpiresAt = expiresAt.toISOString();
       user.licenseDurationMonths = months;
 
-      await saveAppState(db);
+      await saveStateForRequest(request, db);
 
       return NextResponse.json({
         success: true,
@@ -231,8 +527,7 @@ export async function POST(request) {
 
     // ACTION: GENERATE NEW LICENSE CODE (Exclusivo para Admin)
     if (action === 'generate_license') {
-      const requesterId = request.headers.get('x-user-id');
-      const requester = db.users.find(u => u.id === requesterId);
+      const requester = db.__currentUser || null;
       if (!requester || requester.role !== 'admin') {
         return NextResponse.json({ success: false, error: 'Solo el administrador puede generar licencias' }, { status: 403 });
       }
@@ -240,6 +535,16 @@ export async function POST(request) {
       const months = parseInt(licenseDurationMonths, 10) || 1;
       const licenseObj = generateRandomLicense(months);
       return NextResponse.json({ success: true, ...licenseObj });
+    }
+
+    // ACTION: LOGOUT (cierra la sesión de Supabase y limpia cookies)
+    if (action === 'logout') {
+      if (isSupabaseConfigured()) {
+        const { supabase, applyCookies } = createSupabaseRouteClient(request);
+        await supabase.auth.signOut();
+        return applyCookies(NextResponse.json({ success: true, message: 'Sesión cerrada' }));
+      }
+      return NextResponse.json({ success: true, message: 'Sesión cerrada' });
     }
 
     return NextResponse.json({ success: false, error: 'Acción no válida' }, { status: 400 });

@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
 import { computeLoanStatus, checkWritePermission, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
-import { getAppState, saveAppState } from '../../../lib/server/persistence.js';
+import { getStateForRequest, saveStateForRequest } from '../../../lib/server/supabase-store';
 
 export async function GET(request) {
   try {
-    const db = await getAppState();
+    const db = await getStateForRequest(request);
     if (!Array.isArray(db.payments)) db.payments = [];
     if (!Array.isArray(db.loans)) db.loans = [];
     const user = getRequestUser(request, db);
@@ -21,7 +21,7 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const db = await getAppState();
+    const db = await getStateForRequest(request);
     if (!Array.isArray(db.payments)) db.payments = [];
     if (!Array.isArray(db.loans)) db.loans = [];
     const perm = checkWritePermission(request, db);
@@ -115,7 +115,7 @@ export async function POST(request) {
       };
 
       db.payments.unshift(newPayment);
-      await saveAppState(db);
+      await saveStateForRequest(request, db);
 
       return NextResponse.json({
         success: true,
@@ -175,7 +175,7 @@ export async function POST(request) {
     };
 
     db.payments.unshift(newPayment);
-    await saveAppState(db);
+    await saveStateForRequest(request, db);
 
     return NextResponse.json({
       success: true,
@@ -191,7 +191,7 @@ export async function POST(request) {
 
 export async function DELETE(request) {
   try {
-    const db = await getAppState();
+    const db = await getStateForRequest(request);
     if (!Array.isArray(db.payments)) db.payments = [];
     if (!Array.isArray(db.loans)) db.loans = [];
     const perm = checkWritePermission(request, db);
@@ -273,7 +273,7 @@ export async function DELETE(request) {
     }
 
     db.payments.splice(paymentIndex, 1);
-    await saveAppState(db);
+    await saveStateForRequest(request, db);
 
     return NextResponse.json({
       success: true,

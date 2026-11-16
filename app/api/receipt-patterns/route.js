@@ -1,18 +1,16 @@
 import { NextResponse } from 'next/server';
-import { getAppState, saveAppState, persistenceInfo } from '../../../lib/server/persistence.js';
+import { getStateForRequest, saveStateForRequest, persistenceInfo } from '../../../lib/server/supabase-store';
 import { syncAdminStateToNormalized, logAudit, ensureAdminConfigSeed, hasDatabase } from '../../../lib/server/admin-config.js';
 import { saveUpload, deleteUpload } from '../../../lib/storage/uploads.js';
 import { checkWritePermission, getRequestUser } from '../../../lib/db.js';
 
 function findUser(db, request) {
-  const userId = request.headers.get('x-user-id');
-  if (!userId) return null;
-  return (db.users || []).find(u => u.id === userId) || null;
+  return getRequestUser(request, db);
 }
 
 export async function GET(request) {
   try {
-    const db = await getAppState();
+    const db = await getStateForRequest(request);
     const perm = checkWritePermission(request, db);
     if (!perm.allowed) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
@@ -35,7 +33,7 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const db = await getAppState();
+    const db = await getStateForRequest(request);
 
     // Permisos (compatibilidad con lógica existente)
     const perm = checkWritePermission(request, db);
@@ -95,7 +93,7 @@ export async function POST(request) {
     if (!Array.isArray(db.receiptPatterns)) db.receiptPatterns = [];
     db.receiptPatterns.unshift(newPattern);
 
-    await saveAppState(db);
+    await saveStateForRequest(request, db);
 
     if (hasDatabase()) {
       await ensureAdminConfigSeed().catch(() => {});
@@ -118,7 +116,7 @@ export async function POST(request) {
 
 export async function DELETE(request) {
   try {
-    const db = await getAppState();
+    const db = await getStateForRequest(request);
     const perm = checkWritePermission(request, db);
     if (!perm.allowed) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
@@ -134,7 +132,7 @@ export async function DELETE(request) {
 
     const existing = (db.receiptPatterns || []).find(p => p.id === id) || null;
     db.receiptPatterns = (db.receiptPatterns || []).filter(p => p.id !== id);
-    await saveAppState(db);
+    await saveStateForRequest(request, db);
 
     if (existing) {
       await deleteUpload({ key: existing.imageKey, url: existing.imageUrl }).catch(() => {});

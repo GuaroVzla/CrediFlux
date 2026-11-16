@@ -1,0 +1,612 @@
+-- =============================================================================
+-- CrediFlux - Esquema relacional Supabase / PostgreSQL
+-- Versión: 2026-11-16
+--
+-- Principios:
+--  * Multi-usuario estricto: todas las tablas de negocio tienen user_id y RLS.
+--  * Importes financieros en NUMERIC (nunca float) con precisión explícita.
+--  * Perfiles enlazados 1:1 con auth.users (Supabase Auth).
+--  * Timestamps de auditoría (created_at / updated_at) en todas las tablas.
+--
+-- Ejecutar en el SQL Editor de Supabase o con `supabase db push`.
+-- =============================================================================
+
+create extension if not exists pgcrypto;
+
+-- =============================================================================
+-- 1. FUNCIONES UTILITARIAS
+-- =============================================================================
+
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+-- Devuelve true si el usuario autenticado tiene rol administrador.
+-- SECURITY DEFINER evita recursión de RLS al consultar profiles.
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.profiles p
+    where p.id = auth.uid()
+      and p.role = 'admin'
+      and p.is_active = true
+  );
+$$;
+
+revoke all on function public.is_admin() from public;
+grant execute on function public.is_admin() to authenticated, service_role;
+
+-- Normaliza una cédula/DNI: "V-18.452.910" -> "v18452910".
+create or replace function public.normalize_dni(value text)
+returns text
+language sql
+immutable
+as $$
+  select lower(regexp_replace(coalesce(value, ''), '[^0-9a-zA-Z]', '', 'g'));
+$$;
+
+-- =============================================================================
+-- 2. PERFILES Y CONFIGURACIÓN
+-- =============================================================================
+
+create table if not exists public.profiles (
+  id                      uuid primary key references auth.users (id) on delete cascade,
+  username                text not null,
+  full_name               text not null default '',
+  company_name            text,
+  email                   text,
+  address                 text,
+  phone                   text,
+  role                    text not null default 'user' check (role in ('admin', 'operator', 'user')),
+  is_active               boolean not null default true,
+  license_key             text,
+  license_status          text not null default 'active' check (license_status in ('active', 'expired', 'suspended', 'revoked')),
+  license_assigned_at     timestamptz,
+  license_expires_at      timestamptz,
+  license_duration_months integer not null default 1 check (license_duration_months > 0),
+  monthly_capitals        jsonb not null default '{}'::jsonb,
+  metadata                jsonb not null default '{}'::jsonb,
+  created_at              timestamptz not null default now(),
+  updated_at              timestamptz not null default now(),
+  constraint profiles_username_format check (username ~ '^[a-zA-Z0-9._-]{3,64}$')
+);
+
+create unique index if not exists profiles_username_key on public.profiles (lower(username));
+create index if not exists profiles_role_idx on public.profiles (role) where is_active = true;
+
+comment on table public.profiles is 'Perfil de aplicación enlazado 1:1 con auth.users.';
+
+create table if not exists public.user_settings (
+  id                        uuid primary key default gen_random_uuid(),
+  user_id                   uuid not null unique references auth.users (id) on delete cascade,
+  company_name              text not null default 'CrediFlux',
+  currency                  text not null default '$',
+  timezone                  text not null default 'America/Caracas',
+  ecommerce_capital         numeric(18, 2) not null default 5000 check (ecommerce_capital >= 0),
+  ai_provider               text not null default 'ocrspace' check (ai_provider in ('openai', 'gemini', 'ocrspace', 'tesseract')),
+  ai_auto_assign_enabled    boolean not null default true,
+  ai_routing_rules          jsonb not null default '{}'::jsonb,
+  ocr_confidence_min        numeric(5, 4) not null default 0.8 check (ocr_confidence_min between 0 and 1),
+  ocr_api_keys              jsonb not null default '{}'::jsonb,
+  provider_config           jsonb not null default '{}'::jsonb,
+  feature_flags             jsonb not null default '{}'::jsonb,
+  system_license_key        text,
+  data                      jsonb not null default '{}'::jsonb,
+  created_at                timestamptz not null default now(),
+  updated_at                timestamptz not null default now()
+);
+
+comment on column public.user_settings.ocr_api_keys is 'Claves de proveedores cifradas en reposo por la capa de aplicación.';
+
+create table if not exists public.trust_level_configs (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  tier        text not null check (tier in ('alto', 'medio', 'riesgoso')),
+  label       text not null,
+  description text,
+  criteria    jsonb not null default '{}'::jsonb,
+  is_active   boolean not null default true,
+  sort_order  integer not null default 0,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  unique (user_id, tier)
+);
+
+-- =============================================================================
+-- 3. CLIENTES Y LISTA NEGRA
+-- =============================================================================
+
+create table if not exists public.clients (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid not null references auth.users (id) on delete cascade,
+  name            text not null check (length(trim(name)) > 0),
+  dni             text not null check (length(trim(dni)) > 0),
+  dni_normalized  text generated always as (public.normalize_dni(dni)) stored,
+  phone           text,
+  address         text,
+  trust_level     text not null default 'medio' check (lower(trust_level) in ('alto', 'medio', 'riesgoso')),
+  credit_limit    numeric(18, 2) not null default 500 check (credit_limit >= 0),
+  notes           text,
+  is_active       boolean not null default true,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+create unique index if not exists clients_user_dni_key
+  on public.clients (user_id, dni_normalized)
+  where is_active = true;
+create index if not exists clients_user_idx on public.clients (user_id, created_at desc);
+
+create table if not exists public.blacklist_entries (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid not null references auth.users (id) on delete cascade,
+  client_id       uuid,
+  name            text not null,
+  dni             text not null,
+  dni_normalized  text generated always as (public.normalize_dni(dni)) stored,
+  phone           text,
+  address         text,
+  reason          text,
+  notes           text,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  unique (user_id, dni_normalized)
+);
+
+create index if not exists blacklist_entries_user_idx on public.blacklist_entries (user_id, created_at desc);
+
+-- =============================================================================
+-- 4. CATÁLOGO DE PRODUCTOS / EQUIPOS
+-- =============================================================================
+
+create table if not exists public.products (
+  id                    uuid primary key default gen_random_uuid(),
+  user_id               uuid not null references auth.users (id) on delete cascade,
+  name                  text not null check (length(trim(name)) > 0),
+  category              text,
+  cost_price            numeric(18, 2) not null default 0 check (cost_price >= 0),
+  sale_price            numeric(18, 2) not null default 0 check (sale_price >= 0),
+  profit_margin_percent numeric(9, 2) not null default 0,
+  manual_sale_price     boolean not null default false,
+  stock                 integer not null default 0 check (stock >= 0),
+  sku                   text,
+  metadata              jsonb not null default '{}'::jsonb,
+  created_at            timestamptz not null default now(),
+  updated_at            timestamptz not null default now()
+);
+
+create index if not exists products_user_idx on public.products (user_id, created_at desc);
+create index if not exists products_category_idx on public.products (user_id, category);
+
+-- =============================================================================
+-- 5. PRÉSTAMOS / FINANCIAMIENTOS
+-- =============================================================================
+
+create table if not exists public.loans (
+  id                 uuid primary key default gen_random_uuid(),
+  user_id            uuid not null references auth.users (id) on delete cascade,
+  client_id          uuid references public.clients (id) on delete set null,
+  client_name        text not null default '',
+  type               text not null default 'dinero' check (type in ('dinero', 'producto', 'cash', 'equipment')),
+  product_id         uuid references public.products (id) on delete set null,
+  product_name       text,
+  principal          numeric(18, 2) not null default 0 check (principal >= 0),
+  down_payment       numeric(18, 2) not null default 0 check (down_payment >= 0),
+  financed_amount    numeric(18, 2) not null default 0 check (financed_amount >= 0),
+  interest_rate      numeric(9, 4) not null default 0 check (interest_rate >= 0),
+  total_amount       numeric(18, 2) not null default 0 check (total_amount >= 0),
+  installment_count  integer not null default 1 check (installment_count > 0),
+  installment_amount numeric(18, 2) not null default 0 check (installment_amount >= 0),
+  frequency          text not null default 'mensual' check (frequency in ('diario', 'semanal', 'quincenal', 'mensual')),
+  start_date         date not null default current_date,
+  notes              text,
+  status             text not null default 'al_dia' check (status in ('al_dia', 'proximo', 'moroso', 'completado', 'archivado')),
+  archived           boolean not null default false,
+  archived_at        timestamptz,
+  archive_reason     text,
+  final_status       text,
+  metadata           jsonb not null default '{}'::jsonb,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now(),
+  constraint loans_down_payment_check check (down_payment <= principal)
+);
+
+create index if not exists loans_user_idx on public.loans (user_id, created_at desc);
+create index if not exists loans_client_idx on public.loans (user_id, client_id);
+create index if not exists loans_status_idx on public.loans (user_id, status) where archived = false;
+
+create table if not exists public.loan_installments (
+  id                 uuid primary key default gen_random_uuid(),
+  user_id            uuid not null references auth.users (id) on delete cascade,
+  loan_id            uuid not null references public.loans (id) on delete cascade,
+  installment_number integer not null check (installment_number > 0),
+  due_date           date not null,
+  amount             numeric(18, 2) not null default 0 check (amount >= 0),
+  paid               boolean not null default false,
+  paid_date          date,
+  receipt_ref        text,
+  metadata           jsonb not null default '{}'::jsonb,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now(),
+  unique (loan_id, installment_number)
+);
+
+create index if not exists loan_installments_user_idx on public.loan_installments (user_id, due_date);
+create index if not exists loan_installments_pending_idx on public.loan_installments (user_id, due_date) where paid = false;
+
+create table if not exists public.payments (
+  id                 uuid primary key default gen_random_uuid(),
+  user_id            uuid not null references auth.users (id) on delete cascade,
+  loan_id            uuid references public.loans (id) on delete cascade,
+  client_id          uuid references public.clients (id) on delete set null,
+  installment_id     uuid references public.loan_installments (id) on delete set null,
+  installment_number integer,
+  amount             numeric(18, 2) not null check (amount > 0),
+  payment_date       date not null default current_date,
+  method             text,
+  reference          text,
+  notes              text,
+  metadata           jsonb not null default '{}'::jsonb,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now()
+);
+
+create index if not exists payments_user_idx on public.payments (user_id, payment_date desc);
+create index if not exists payments_loan_idx on public.payments (user_id, loan_id);
+
+-- =============================================================================
+-- 6. E-COMMERCE Y P2P VES/USDT
+-- =============================================================================
+
+create table if not exists public.ecommerce_transactions (
+  id               uuid primary key default gen_random_uuid(),
+  user_id          uuid not null references auth.users (id) on delete cascade,
+  type             text not null default 'venta' check (type in ('compra', 'venta')),
+  title            text,
+  amount_bs        numeric(18, 2) not null default 0 check (amount_bs >= 0),
+  amount_usd       numeric(18, 2) not null default 0 check (amount_usd >= 0),
+  bcv_rate         numeric(18, 8) not null default 0 check (bcv_rate >= 0),
+  bank_origin      text,
+  bank_destination text,
+  reference        text,
+  transaction_date date not null default current_date,
+  receipt_url      text,
+  ocr_provider     text,
+  raw_ocr          jsonb,
+  metadata         jsonb not null default '{}'::jsonb,
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now()
+);
+
+create index if not exists ecommerce_user_idx on public.ecommerce_transactions (user_id, transaction_date desc);
+
+create table if not exists public.exchange_rates (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references auth.users (id) on delete cascade,
+  source        text not null check (source in ('bcv', 'binance_p2p', 'manual')),
+  base_currency text not null default 'VES',
+  quote_currency text not null default 'USD',
+  rate          numeric(18, 8) not null check (rate > 0),
+  buy_rate      numeric(18, 8) check (buy_rate > 0),
+  sell_rate     numeric(18, 8) check (sell_rate > 0),
+  is_manual     boolean not null default false,
+  fetched_at    timestamptz not null default now(),
+  raw           jsonb not null default '{}'::jsonb,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+
+create index if not exists exchange_rates_user_idx on public.exchange_rates (user_id, source, fetched_at desc);
+
+create table if not exists public.p2p_transactions (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references auth.users (id) on delete cascade,
+  side          text not null check (side in ('buy', 'sell')),
+  amount_usdt   numeric(18, 6) not null check (amount_usdt > 0),
+  amount_ves    numeric(18, 2) not null check (amount_ves > 0),
+  rate          numeric(18, 8) not null check (rate > 0),
+  counterparty  text,
+  bank          text,
+  reference     text,
+  status        text not null default 'completed' check (status in ('pending', 'completed', 'cancelled')),
+  occurred_at   timestamptz not null default now(),
+  notes         text,
+  metadata      jsonb not null default '{}'::jsonb,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  constraint p2p_rate_consistency check (abs(amount_ves - (amount_usdt * rate)) <= greatest(1, amount_ves * 0.01))
+);
+
+create index if not exists p2p_user_idx on public.p2p_transactions (user_id, occurred_at desc);
+
+-- =============================================================================
+-- 7. PATRONES DE COMPROBANTES Y AUDITORÍA
+-- =============================================================================
+
+create table if not exists public.receipt_patterns (
+  id               uuid primary key default gen_random_uuid(),
+  user_id          uuid not null references auth.users (id) on delete cascade,
+  bank_name        text not null,
+  keywords         jsonb not null default '[]'::jsonb,
+  reference_format text,
+  reference_regex  text,
+  notes            text,
+  image_key        text,
+  image_url        text,
+  image_mime       text,
+  is_active        boolean not null default true,
+  version          integer not null default 1 check (version > 0),
+  created_by       uuid references auth.users (id) on delete set null,
+  extra            jsonb not null default '{}'::jsonb,
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now()
+);
+
+create index if not exists receipt_patterns_user_idx on public.receipt_patterns (user_id, bank_name);
+
+create table if not exists public.audit_logs (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  actor_id   uuid references auth.users (id) on delete set null,
+  entity     text not null,
+  entity_id  text,
+  action     text not null check (action in ('CREATE', 'UPDATE', 'DELETE', 'IMPORT', 'LOGIN', 'LOGOUT')),
+  before     jsonb,
+  after      jsonb,
+  ip_address inet,
+  user_agent text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists audit_logs_user_idx on public.audit_logs (user_id, created_at desc);
+
+-- =============================================================================
+-- 8. TRIGGERS DE TIMESTAMPS
+-- =============================================================================
+
+do $$
+declare
+  t text;
+begin
+  foreach t in array array[
+    'profiles', 'user_settings', 'trust_level_configs', 'clients',
+    'blacklist_entries', 'products', 'loans', 'loan_installments',
+    'payments', 'ecommerce_transactions', 'exchange_rates',
+    'p2p_transactions', 'receipt_patterns'
+  ]
+  loop
+    execute format('drop trigger if exists %I_set_updated_at on public.%I', t, t);
+    execute format(
+      'create trigger %I_set_updated_at before update on public.%I
+       for each row execute function public.set_updated_at()', t, t
+    );
+  end loop;
+end;
+$$;
+
+-- =============================================================================
+-- 9. ALTA AUTOMÁTICA DE PERFIL + CONFIGURACIÓN AL REGISTRARSE
+-- =============================================================================
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_username text;
+  v_full_name text;
+begin
+  -- Derivar username del metadata o del email sintético usuario@crediflux.local.
+  v_username := coalesce(
+    nullif(trim(new.raw_user_meta_data ->> 'username'), ''),
+    split_part(coalesce(new.email, ''), '@', 1)
+  );
+  if v_username is null or v_username = '' then
+    v_username := 'user_' || substr(new.id::text, 1, 8);
+  end if;
+
+  v_full_name := coalesce(
+    nullif(trim(new.raw_user_meta_data ->> 'full_name'), ''),
+    nullif(trim(new.raw_user_meta_data ->> 'name'), ''),
+    v_username
+  );
+
+  insert into public.profiles (id, username, full_name, email, role, is_active)
+  values (new.id, v_username, v_full_name, new.email, 'user', true)
+  on conflict (id) do nothing;
+
+  insert into public.user_settings (user_id)
+  values (new.id)
+  on conflict (user_id) do nothing;
+
+  insert into public.trust_level_configs (user_id, tier, label, description, sort_order)
+  values
+    (new.id, 'alto', 'Alta', 'Pagos al día o cumpliendo estrictamente el cronograma.', 1),
+    (new.id, 'medio', 'Media', 'Retrasos menores dentro de la tolerancia configurada.', 2),
+    (new.id, 'riesgoso', 'Riesgosa', 'Retrasos superiores al límite o cuotas vencidas.', 3)
+  on conflict (user_id, tier) do nothing;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- Protección de campos sensibles: solo un admin (o service_role) puede cambiar
+-- rol, licencia o estado. Un usuario normal solo edita sus datos personales.
+create or replace function public.protect_profile_fields()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is not null and not public.is_admin() then
+    new.role := old.role;
+    new.license_key := old.license_key;
+    new.license_status := old.license_status;
+    new.license_assigned_at := old.license_assigned_at;
+    new.license_expires_at := old.license_expires_at;
+    new.license_duration_months := old.license_duration_months;
+    new.is_active := old.is_active;
+    new.monthly_capitals := old.monthly_capitals;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists profiles_protect_fields on public.profiles;
+create trigger profiles_protect_fields
+  before update on public.profiles
+  for each row execute function public.protect_profile_fields();
+
+-- =============================================================================
+-- 10. ROW LEVEL SECURITY (aislamiento estricto por usuario)
+-- =============================================================================
+
+alter table public.profiles              enable row level security;
+alter table public.user_settings         enable row level security;
+alter table public.trust_level_configs   enable row level security;
+alter table public.clients               enable row level security;
+alter table public.blacklist_entries     enable row level security;
+alter table public.products              enable row level security;
+alter table public.loans                 enable row level security;
+alter table public.loan_installments     enable row level security;
+alter table public.payments              enable row level security;
+alter table public.ecommerce_transactions enable row level security;
+alter table public.exchange_rates        enable row level security;
+alter table public.p2p_transactions      enable row level security;
+alter table public.receipt_patterns      enable row level security;
+alter table public.audit_logs            enable row level security;
+
+-- --------------------------- profiles --------------------------------------
+drop policy if exists "profiles_select_own_or_admin" on public.profiles;
+create policy "profiles_select_own_or_admin"
+  on public.profiles for select to authenticated
+  using (id = (select auth.uid()) or public.is_admin());
+
+drop policy if exists "profiles_update_own_or_admin" on public.profiles;
+create policy "profiles_update_own_or_admin"
+  on public.profiles for update to authenticated
+  using (id = (select auth.uid()) or public.is_admin())
+  with check (id = (select auth.uid()) or public.is_admin());
+
+drop policy if exists "profiles_delete_admin" on public.profiles;
+create policy "profiles_delete_admin"
+  on public.profiles for delete to authenticated
+  using (public.is_admin());
+
+-- --------------------------- user_settings ---------------------------------
+drop policy if exists "user_settings_own" on public.user_settings;
+create policy "user_settings_own"
+  on public.user_settings for all to authenticated
+  using (user_id = (select auth.uid()))
+  with check (user_id = (select auth.uid()));
+
+-- --------------------------- tablas de negocio -----------------------------
+-- Se genera una política por operación para cada tabla con user_id.
+do $$
+declare
+  t text;
+begin
+  foreach t in array array[
+    'trust_level_configs', 'clients', 'blacklist_entries', 'products',
+    'loans', 'loan_installments', 'payments', 'ecommerce_transactions',
+    'exchange_rates', 'p2p_transactions', 'receipt_patterns'
+  ]
+  loop
+    execute format('drop policy if exists %I on public.%I', t || '_select_own', t);
+    execute format('drop policy if exists %I on public.%I', t || '_insert_own', t);
+    execute format('drop policy if exists %I on public.%I', t || '_update_own', t);
+    execute format('drop policy if exists %I on public.%I', t || '_delete_own', t);
+
+    execute format(
+      'create policy %I on public.%I for select to authenticated
+       using (user_id = (select auth.uid()))', t || '_select_own', t);
+    execute format(
+      'create policy %I on public.%I for insert to authenticated
+       with check (user_id = (select auth.uid()))', t || '_insert_own', t);
+    execute format(
+      'create policy %I on public.%I for update to authenticated
+       using (user_id = (select auth.uid()))
+       with check (user_id = (select auth.uid()))', t || '_update_own', t);
+    execute format(
+      'create policy %I on public.%I for delete to authenticated
+       using (user_id = (select auth.uid()))', t || '_delete_own', t);
+  end loop;
+end;
+$$;
+
+-- --------------------------- audit_logs ------------------------------------
+drop policy if exists "audit_logs_select_own_or_admin" on public.audit_logs;
+create policy "audit_logs_select_own_or_admin"
+  on public.audit_logs for select to authenticated
+  using (user_id = (select auth.uid()) or public.is_admin());
+
+drop policy if exists "audit_logs_insert_own" on public.audit_logs;
+create policy "audit_logs_insert_own"
+  on public.audit_logs for insert to authenticated
+  with check (user_id = (select auth.uid()));
+
+-- =============================================================================
+-- 11. GRANTS
+-- =============================================================================
+
+grant usage on schema public to authenticated, service_role;
+grant select, insert, update, delete on all tables in schema public to authenticated;
+grant all privileges on all tables in schema public to service_role;
+
+-- =============================================================================
+-- 12. STORAGE DE COMPROBANTES (bucket privado por usuario)
+-- =============================================================================
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('receipts', 'receipts', false, 10485760, array['image/png', 'image/jpeg', 'image/webp', 'application/pdf'])
+on conflict (id) do nothing;
+
+drop policy if exists "receipts_select_own" on storage.objects;
+create policy "receipts_select_own"
+  on storage.objects for select to authenticated
+  using (bucket_id = 'receipts' and (storage.foldername(name))[1] = (select auth.uid())::text);
+
+drop policy if exists "receipts_insert_own" on storage.objects;
+create policy "receipts_insert_own"
+  on storage.objects for insert to authenticated
+  with check (bucket_id = 'receipts' and (storage.foldername(name))[1] = (select auth.uid())::text);
+
+drop policy if exists "receipts_update_own" on storage.objects;
+create policy "receipts_update_own"
+  on storage.objects for update to authenticated
+  using (bucket_id = 'receipts' and (storage.foldername(name))[1] = (select auth.uid())::text);
+
+drop policy if exists "receipts_delete_own" on storage.objects;
+create policy "receipts_delete_own"
+  on storage.objects for delete to authenticated
+  using (bucket_id = 'receipts' and (storage.foldername(name))[1] = (select auth.uid())::text);
+
+-- =============================================================================
+-- 13. COMENTARIOS FINALES
+-- =============================================================================
+
+comment on table public.loans is 'Préstamos personales en efectivo y financiamiento de equipos.';
+comment on table public.loan_installments is 'Cronograma de cuotas por préstamo.';
+comment on table public.exchange_rates is 'Histórico de tasas BCV / Binance P2P por usuario.';
+comment on table public.p2p_transactions is 'Historial de operaciones P2P VES-USDT.';
+comment on table public.blacklist_entries is 'Lista negra de clientes por incumplimiento.';

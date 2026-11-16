@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { checkWritePermission } from '../../../../lib/db.js';
-import { getAppState, saveAppState } from '../../../../lib/server/persistence.js';
+import { getStateForRequest, saveStateForRequest } from '../../../../lib/server/supabase-store';
 
 function dateStrOf(value) {
   if (!value) return '';
@@ -20,7 +20,7 @@ function matchesPeriod(dateStr, filter) {
 
 export async function POST(request) {
   try {
-    const db = await getAppState();
+    const db = await getStateForRequest(request);
     if (!Array.isArray(db.loans)) db.loans = [];
     if (!Array.isArray(db.payments)) db.payments = [];
     if (!Array.isArray(db.clients)) db.clients = [];
@@ -164,7 +164,7 @@ export async function POST(request) {
       summary.ecommerce = before - (db.ecommerce || []).length;
     }
 
-    await saveAppState(db);
+    await saveStateForRequest(request, db);
 
     return NextResponse.json({
       success: true,

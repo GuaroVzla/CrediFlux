@@ -206,19 +206,57 @@ export default function CrediFluxApp() {
     });
   };
 
-  // Initialize session from localStorage
+  // Inicializa y valida la sesión contra Supabase (cookie httpOnly gestionada por @supabase/ssr).
   useEffect(() => {
-    const savedUser = localStorage.getItem('crediflux_user') || localStorage.getItem('ricardo_user');
-    const savedToken = localStorage.getItem('crediflux_token') || localStorage.getItem('ricardo_token');
-    if (savedUser && savedToken) {
-      const parsedUser = JSON.parse(savedUser);
-      setCurrentUser(parsedUser);
-      setIsAuthenticated(true);
-      if (parsedUser.monthlyCapitals) {
-        setMonthlyCapitalsForm(parsedUser.monthlyCapitals);
+    const bootstrapSession = async () => {
+      const savedUser = localStorage.getItem('crediflux_user') || localStorage.getItem('ricardo_user');
+      if (savedUser) {
+        try {
+          const parsedUser = JSON.parse(savedUser);
+          setCurrentUser(parsedUser);
+          if (parsedUser.monthlyCapitals) setMonthlyCapitalsForm(parsedUser.monthlyCapitals);
+        } catch (e) {}
       }
-    }
-    fetchAllData();
+
+      try {
+        const res = await fetch('/api/auth', { cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+
+        // 401 = la cookie de sesión no existe o expiró: se cierra la sesión local.
+        if (res.status === 401) {
+          localStorage.removeItem('crediflux_token');
+          localStorage.removeItem('crediflux_user');
+          localStorage.removeItem('ricardo_token');
+          localStorage.removeItem('ricardo_user');
+          setCurrentUser(null);
+          setIsAuthenticated(false);
+          return;
+        }
+
+        if (res.ok && data.success && data.user) {
+          localStorage.setItem('crediflux_user', JSON.stringify(data.user));
+          setCurrentUser(data.user);
+          setIsAuthenticated(true);
+          if (data.user.monthlyCapitals) setMonthlyCapitalsForm(data.user.monthlyCapitals);
+          fetchAllData();
+          return;
+        }
+
+        // 503 o error transitorio (Supabase aún no configurado, red caída):
+        // se conserva la sesión local para no expulsar al usuario.
+        if (savedUser) {
+          setIsAuthenticated(true);
+          fetchAllData();
+        }
+      } catch (e) {
+        // Sin conexión: se conserva la sesión local solo para visualización.
+        if (savedUser) {
+          setIsAuthenticated(true);
+          fetchAllData();
+        }
+      }
+    };
+    bootstrapSession();
   }, []);
 
   // Tasas de cambio: BCV oficial (dolarapi.com) + promedio ponderado P2P de Binance (VES/USDT)
@@ -258,6 +296,37 @@ export default function CrediFluxApp() {
 
       return next;
     });
+
+    // Histórico de tasas BCV / Binance P2P en Supabase (RLS por usuario).
+    if (isAuthenticated) {
+      const officialRate = oficialResult.status === 'fulfilled' ? Number(oficialResult.value?.promedio) : NaN;
+      const p2pPayload = p2pResult.status === 'fulfilled' ? p2pResult.value : null;
+      const fetchedAt = new Date().toISOString();
+
+      if (Number.isFinite(officialRate) && officialRate > 0) {
+        fetch('/api/exchange-rates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source: 'bcv', rate: officialRate, fetchedAt })
+        }).catch(() => {});
+      }
+
+      const p2pAverage = Number(p2pPayload?.average);
+      if (p2pPayload?.success && Number.isFinite(p2pAverage) && p2pAverage > 0) {
+        fetch('/api/exchange-rates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            source: 'binance_p2p',
+            rate: p2pAverage,
+            buyRate: Number(p2pPayload.buy?.price) || null,
+            sellRate: Number(p2pPayload.sell?.price) || null,
+            fetchedAt: p2pPayload.updatedAt || fetchedAt,
+            raw: p2pPayload
+          })
+        }).catch(() => {});
+      }
+    }
   };
 
   // Actualización automática de tasas cada 5 minutos mientras la sesión esté activa.
@@ -748,7 +817,14 @@ export default function CrediFluxApp() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'logout' })
+      });
+    } catch (e) {}
     localStorage.removeItem('crediflux_token');
     localStorage.removeItem('crediflux_user');
     localStorage.removeItem('ricardo_token');
