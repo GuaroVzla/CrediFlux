@@ -1061,7 +1061,7 @@ export async function POST(request: Request) {
       console.error('[settings] Error al persistir configuración general:', saveResult.error || saveResult);
       return NextResponse.json({
         success: false,
-        error: No se pudo guardar la configuración: ,
+        error: `No se pudo guardar la configuración: ${saveResult.error || 'falló la escritura en el almacén de datos.'}${!hasDatabase() ? ' En Vercel/producción configura DATABASE_URL (PostgreSQL) para habilitar persistencia duradera.' : ''}`,
         persistence: saveResult.diagnostics || persistenceInfo(),
       }, { status: 500 });
     }
