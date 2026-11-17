@@ -17,7 +17,9 @@
     "db:migrate-json": "node scripts/migrate-json-to-postgres.mjs",
     "db:push": "supabase db push",
     "db:types": "supabase gen types typescript --linked --schema public > lib/supabase/database.types.ts",
-    "db:migrate-supabase": "node scripts/migrate-json-to-supabase.mjs"
+    "db:migrate-supabase": "node scripts/migrate-json-to-supabase.mjs",
+    "vercel:check": "node scripts/vercel-setup.mjs",
+    "vercel:fix": "node scripts/vercel-setup.mjs --apply"
   },
   "keywords": [],
   "author": "",

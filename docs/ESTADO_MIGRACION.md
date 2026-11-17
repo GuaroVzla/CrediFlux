@@ -86,6 +86,16 @@ Development**:
 
 ### B. Reparar / reconectar Vercel
 
+Diagnóstico y reparación asistida (ver `docs/DESPLIEGUE_VERCEL.md`):
+
+```powershell
+$env:VERCEL_TOKEN = "..."          # https://vercel.com/account/tokens
+node scripts/vercel-setup.mjs      # diagnóstico, no cambia nada
+node scripts/vercel-setup.mjs --apply
+```
+
+Si se prefiere hacerlo a mano:
+
 1. Vercel → *Project Settings → Git* → vincular `GuaroVzla/CrediFlux`
    (rama de producción: `main`).
 2. *General*: Framework = Next.js, Root Directory = `.`, Node = **22.x**
@@ -122,6 +132,7 @@ Development**:
 | Migración de datos | `scripts/migrate-json-to-supabase.mjs` |
 | Diagnóstico | `app/api/health/route.ts` |
 | Guía operativa | `docs/MIGRACION_SUPABASE.md` |
+| Despliegue Vercel | `docs/DESPLIEGUE_VERCEL.md` + `vercel.json` + `scripts/vercel-setup.mjs` |
 
 ## 7. Decisiones tomadas
 
