@@ -106,6 +106,7 @@ function emptyState() {
     blacklist: [],
     exchangeRates: [],
     p2pTransactions: [],
+    capitalMovements: [],
     __currentUser: null as AnyRecord | null,
   };
 }
@@ -131,7 +132,7 @@ async function getScopedState(auth: RequestAuth): Promise<AnyRecord> {
   const supabase = auth.supabase!;
   const userId = auth.userId!;
 
-  const [profileResult, settingsResult, trustResult, clients, products, loans, installments, payments, ecommerce, blacklist, patterns, rates, p2p] =
+  const [profileResult, settingsResult, trustResult, clients, products, loans, installments, payments, ecommerce, blacklist, patterns, rates, p2p, capital] =
     await Promise.all([
       supabase.from('profiles').select('*').order('created_at', { ascending: true }),
       supabase.from('user_settings').select('*').eq('user_id', userId).maybeSingle(),
@@ -146,6 +147,7 @@ async function getScopedState(auth: RequestAuth): Promise<AnyRecord> {
       readAll<any>(supabase, 'receipt_patterns', userId, { column: 'created_at', ascending: false }),
       readAll<any>(supabase, 'exchange_rates', userId, { column: 'fetched_at', ascending: false }),
       readAll<any>(supabase, 'p2p_transactions', userId, { column: 'occurred_at', ascending: false }),
+      readAll<any>(supabase, 'capital_movements', userId, { column: 'created_at', ascending: false }),
     ]);
 
   badRequest(profileResult.error, 'No se pudieron leer los perfiles');
@@ -186,6 +188,7 @@ async function getScopedState(auth: RequestAuth): Promise<AnyRecord> {
     blacklist: blacklist.map(mapBlacklist),
     exchangeRates: rates.map(mapExchangeRate),
     p2pTransactions: p2p.map(mapP2P),
+    capitalMovements: capital.map(mapCapitalMovement),
   };
 }
 
@@ -405,9 +408,22 @@ function mapP2P(row: AnyRecord) {
   };
 }
 
+function mapCapitalMovement(row: AnyRecord) {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    type: row.type,
+    amountUsd: num(row.amount_usd),
+    currencyOrigin: row.currency_origin,
+    exchangeRate: row.exchange_rate == null ? null : num(row.exchange_rate),
+    notes: row.notes || '',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 // =============================================================================
-// ESCRITURA
-// =============================================================================
+// ESCRITURA// =============================================================================
 
 export async function saveStateForRequest(request: Request, state: AnyRecord): Promise<boolean> {
   const result = await saveStateForRequestWithResult(request, state);
@@ -480,8 +496,12 @@ async function persistScopedState(auth: RequestAuth, state: AnyRecord) {
 
   const rates = Array.isArray(state.exchangeRates) ? state.exchangeRates : [];
   const p2p = Array.isArray(state.p2pTransactions) ? state.p2pTransactions : [];
+  const capitalMovements = Array.isArray(state.capitalMovements) ? state.capitalMovements : [];
   if (rates.length > 0) await syncCollection(supabase, userId, 'exchange_rates', rates.map((r) => exchangeRateRow(userId, r)));
   if (p2p.length > 0) await syncCollection(supabase, userId, 'p2p_transactions', p2p.map((t) => p2pRow(userId, t)));
+  if (capitalMovements.length > 0 || state.__syncCapital === true) {
+    await syncCollection(supabase, userId, 'capital_movements', capitalMovements.map((m) => capitalMovementRow(userId, m)));
+  }
 }
 
 async function syncCollection(
@@ -798,6 +818,24 @@ function p2pRow(userId: string, tx: AnyRecord) {
     status: ['pending', 'completed', 'cancelled'].includes(tx.status) ? tx.status : 'completed',
     occurred_at: timestampOrNow(tx.occurredAt),
     notes: text(tx.notes),
+  };
+}
+
+function capitalMovementRow(userId: string, movement: AnyRecord) {
+  const type = movement.type === 'RETIRO_CAPITAL' ? 'RETIRO_CAPITAL' : 'APORTE_CAPITAL';
+  const currency = ['USD', 'USDT', 'VES'].includes(movement.currencyOrigin)
+    ? movement.currencyOrigin
+    : 'USD';
+  const rate = num(movement.exchangeRate);
+  return {
+    id: toUuid(movement.id),
+    user_id: userId,
+    type,
+    amount_usd: Math.max(0.01, num(movement.amountUsd)),
+    currency_origin: currency,
+    exchange_rate: Number.isFinite(rate) && rate > 0 ? rate : null,
+    notes: text(movement.notes),
+    created_at: timestampOrNow(movement.createdAt),
   };
 }
 

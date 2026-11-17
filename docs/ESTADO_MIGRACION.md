@@ -164,6 +164,51 @@ Ejecutada contra la API REST con el JWT de cada usuario:
 
 | Prueba | Resultado |
 | --- | --- |
+| `admin` `GET /profiles` | 2 filas (admin + RICARDO, permitido por su rol) |
+| `RICARDO` `GET /profiles` | 1 fila (solo la propia) |
+| `admin` `GET /products` | 0 filas (datos financieros aislados por `user_id`) |
+| `RICARDO` `GET /products` | 1 fila (el producto importado) |
+| `RICARDO` inserta cliente con `user_id` del admin | `403` `new row violates row-level security policy` |
+| `RICARDO` lee el perfil del admin por `id` | 0 filas |
+
+## 11. Módulo de Gestión de Capital (Aportes y Retiros) - 2026-11-17
+
+### Modelo de Datos
+- Tabla `capital_movements` con campos: `id`, `user_id` (aislamiento estricto), `type` (`APORTE_CAPITAL` | `RETIRO_CAPITAL`), `amount_usd` decimal, `currency_origin` (`USD` | `USDT` | `VES`), `exchange_rate` opcional, `notes`, `created_at`.
+- tipos `CapitalMovementType` y `CapitalCurrency` añadidos a los alias en `lib/supabase/database.types.ts`.
+
+### Reglas de Cálculo y Aislamiento Contable (Crucial)
+- Los movimientos `APORTE_CAPITAL` y `RETIRO_CAPITAL` **NO** se registran como transacciones comerciales ni alteran `Ganancias Netas`.
+- `Capital Invertido Neto` = SUM(`APORTE_CAPITAL`) - SUM(`RETIRO_CAPITAL`).
+- `Liquidez Disponible` = `Capital Invertido Neto` + `Ganancias Netas` - `Capital Comprometido` (préstamos activos + inventario USDT).
+- `Ganancias Netas` permanece intacta ($0 de alteración por aportes o retiros de capital).
+
+### KPIs en el Dashboard
+- **Capital Invertido Neto**: tarjeta visual SUM(APORTE) - SUM(RETIRO).
+- **Liquidez Disponible**: tarjeta visual `Capital Neto + Ganancias Netas - Capital Comprometido`.
+- **ROI Global**: tarjeta visual `(Ganancias Netas / Capital Invertido Neto) × 100`, División por 0 manejada.
+
+### UI / UX
+- Botón/modal rápido "Gestionar Capital" con selector de moneda (USD/USDT/VES), cálculo automático de tasa si es VES, y soporte dark/light mode coherente.
+- Tabla/historial resumido de los movimientos de capital recientes dentro del panel del Dashboard.
+- Aislamiento RLS verificado: cada usuario solo ve y modifica sus propios movimientos.
+
+### Backend API
+- `GET /api/capital-movements` - lista movimientos y resumen.
+- `POST /api/capital-movements` - registra aporte o retiro (valida tipo, amount > 0, currencyOrigin, rate obligatorio si VES, verifica fondos suficientes para retiros).
+- `DELETE /api/capital-movements?id=<id>` - elimina un movimiento (con permiso).
+
+### Scripts y Migración
+- Migración `supabase/migrations/20261117000100_capital_movements.sql` aplicada vía Management API.
+- `scripts/generate-supabase-types.mjs` regenera tipos de forma reproducible.
+- `package.json` → `"db:types": "node scripts/generate-supabase-types.mjs"`.
+
+### Estado por Defecto
+- `lib/server/persistence.js` → `buildDefaultState` incluye `capitalMovements: []`.
+- `lib/server/supabase-store.ts` sincroniza `capital_movements` entre JSON legacy y Supabase.
+
+| Prueba | Resultado |
+| --- | --- |
 | `admin` → `GET /profiles` | 2 filas (admin + RICARDO, permitido por su rol) |
 | `RICARDO` → `GET /profiles` | 1 fila (solo la propia) |
 | `admin` → `GET /products` | 0 filas (datos financieros aislados por `user_id`) |

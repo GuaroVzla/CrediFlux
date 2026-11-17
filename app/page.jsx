@@ -38,6 +38,11 @@ export default function CrediFluxApp() {
   const [loans, setLoans] = useState([]);
   const [payments, setPayments] = useState([]);
   const [ecommerceData, setEcommerceData] = useState({ summary: {}, transactions: [] });
+
+  // Capital (Aportes y Retiros)
+  const [capitalModal, setCapitalModal] = useState({ open: false, type: 'APORTE_CAPITAL', currencyOrigin: 'USD', amount: '', exchangeRate: '', notes: '' });
+  const [capitalMovements, setCapitalMovements] = useState([]);
+  const [capitalSummary, setCapitalSummary] = useState({aportes: 0, retiros: 0, netCapital: 0, count: 0 });
   const [settings, setSettings] = useState({});
   const [adminUsersList, setAdminUsersList] = useState([]);
   const [receiptPatterns, setReceiptPatterns] = useState([]);
@@ -348,13 +353,14 @@ export default function CrediFluxApp() {
 
       const headers = { 'x-user-id': userId };
 
-      const [resClients, resProducts, resLoans, resPayments, resEcom, resSettings] = await Promise.all([
+      const [resClients, resProducts, resLoans, resPayments, resEcom, resSettings, resCapital] = await Promise.all([
         fetch('/api/clients', { headers }).then(r => r.json()),
         fetch('/api/products', { headers }).then(r => r.json()),
         fetch('/api/loans', { headers }).then(r => r.json()),
         fetch('/api/payments', { headers }).then(r => r.json()),
         fetch('/api/ecommerce', { headers }).then(r => r.json()),
-        fetch('/api/settings', { headers }).then(r => r.json())
+        fetch('/api/settings', { headers }).then(r => r.json()),
+        fetch('/api/capital-movements', { headers }).then(r => r.json())
       ]);
 
       if (resClients.success) {
@@ -449,6 +455,12 @@ export default function CrediFluxApp() {
           }
           localStorage.setItem('crediflux_user', JSON.stringify(updatedUser));
         }
+      }
+
+      // Capital movements summary from API
+      if (resCapital.success) {
+        setCapitalMovements(resCapital.movements || []);
+        setCapitalSummary(resCapital.summary || {aportes: 0, retiros: 0, netCapital: 0, count: 0 });
       }
     } catch (err) {
       console.error('Error fetching data:', err);
@@ -1685,7 +1697,91 @@ export default function CrediFluxApp() {
                       <p className="text-lg font-extrabold text-white tabular-nums">{fmtBs(totalGananciasBs)}</p>
                     </div>
                   </div>
-                  <div className="space-y-2">
+                
+
+            {/* KPIs de Capital */}
+            <section className="grid grid-cols-1 lg:grid-cols-3 gap-4 pt-4">
+              {/* Capital Invertido Neto */}
+              <div className={`${card} p-4 rounded-xl border border-slate-700/50 ${themeDark ? 'bg-slate-950' : 'bg-white'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Capital Invertido Neto</p>
+                    <h3 className="text-lg font-bold text-white">$ {capitalSummary.netCapital.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h3>
+                  </div>
+                  <span className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400"><TrendingUp className="w-3 h-3" /></span>
+                </div>
+                <p className="text-[10px] text-slate-400">SUM(APORTE_CAPITAL) - SUM(RETIRO_CAPITAL)</p>
+              </div>
+
+              {/* Liquidez Disponible */}
+              <div className={`${card} p-4 rounded-xl border border-slate-700/50 ${themeDark ? 'bg-slate-950' : 'bg-white'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Liquidez Disponible</p>
+                    <h3 className="text-lg font-bold text-white">$ {Number(capitalSummary.netCapital + (settings?.netProfit || 0) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h3>
+                  </div>
+                  <span className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400"><TrendingUp className="w-3 h-3" /></span>
+                </div>
+                <p className="text-[10px] text-slate-400">Capital Neto + Ganancias Netas - Capital Comprometido</p>
+              </div>
+
+              {/* ROI Global */}
+              <div className={`${card} p-4 rounded-xl border border-slate-700/50 ${themeDark ? 'bg-slate-950' : 'bg-white'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">ROI Global</p>
+                    <h3 className="text-lg font-bold text-white">{capitalSummary.netCapital > 0 ? ((Number(settings?.netProfit || 0) || 0) / capitalSummary.netCapital * 100).toFixed(2) + ' %' : '0.00 %'}</h3>
+                  </div>
+                  <span className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400"><TrendingUp className="w-3 h-3" /></span>
+                </div>
+                <p className="text-[10px] text-slate-400">(Ganancias Netas / Capital Invertido Neto) × 100</p>
+              </div>
+            </section>
+
+            {/* Historial de Movimientos de Capital */}
+            {capitalMovements.length > 0 && (
+              <section className="p-4 rounded-xl border border-slate-700/50 ${themeDark ? 'bg-slate-950' : 'bg-white'} mb-4">
+                <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-3">Últimos Movimientos de Capital</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-600/50">
+                        <th className="text-left text-slate-300">Fecha</th>
+                        <th className="text-left text-slate-300">Tipo</th>
+                        <th className="text-left text-slate-300">Monto (USD)</th>
+                        <th className="text-left text-slate-300">Moneda</th>
+                        <th className="text-left text-slate-300">Notas</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {capitalMovements
+                        .slice(0, 5)
+                        .reverse()
+                        .map((m, i) => (
+                          <tr key={m.id} className="border-b border-slate-600/50 hover:bg-slate-900/50 ${themeDark ? 'cursor-pointer' : ''}">
+                            <td className="text-slate-400">{new Date(m.createdAt || 0).toLocaleDateString()}</td>
+                            <td className={`text-slate-400 ${m.type === 'APORTE_CAPITAL' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {m.type}
+                            </td>
+                            <td className="text-slate-400 tabular-nums">{m.amountUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            <td className="text-slate-400">{m.currencyOrigin}</td>
+                            <td className="text-slate-400 text-xs">{m.notes || ''}</td>
+                          </tr>
+                        ))}
+                      {capitalMovements.length <= 5 ? null : (
+                        <tr>
+                          <td colSpan={5} className="text-center text-slate-500 text-xs">
+                            Ver todos los {capitalMovements.length} movimientos
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
+
+            <div className="space-y-2">
                     <div className="p-3 rounded-xl border border-slate-800/80 bg-slate-950/20">
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-[11px] font-medium text-slate-300">Margen de ganancia de financiamientos</p>
@@ -1710,6 +1806,137 @@ export default function CrediFluxApp() {
                 </div>
               </div>
             </section>
+
+            {/* Gestionar Capital */}
+            <div className="flex items-center gap-3 mb-4">
+              <button
+                onClick={() => setCapitalModal(prev => ({ ...prev, open: true }))}
+                className={`px-4 py-2 rounded-xl font-medium transition-all ${themeDark ? 'bg-emerald-600 text-slate-100 hover:bg-emerald-500' : 'bg-slate-200 text-slate-800 hover:text-slate-900'}`}
+                aria-label="Gestionar Capital"
+              >
+                <Bag className="w-4 h-4" /> Gestionar Capital
+              </button>
+            </div>
+
+            {/* Modal: Gestionar Capital */}
+            <div
+              className={`fixed inset-0 z-50 hidden items-center justify-center ${themeDark ? 'bg-slate-900/80' : 'bg-white'} opacity-80 rounded-border`}
+              onClick={e => e.currentTarget.click()}
+              role="dialog"
+              aria-modal="true"
+            >
+              <div
+                className={`rounded-2xl p-6 max-w-md w-full ${themeDark ? 'bg-slate-800' : 'bg-white'} border border-slate-600/50`}
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-bold text-white">Gestionar Capital</h2>
+                  <button
+                    onClick={() => setCapitalModal(prev => ({ ...prev, open: false }))}
+                    className="text-slate-400 hover:text-white p-1"
+                    aria-label="Cerrar modal"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Formulario: Tipo */}
+                <div className="space-y-3 mb-4">
+                  <label className="text-[10px] font-medium text-slate-300">Tipo</label>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => setCapitalModal(prev => ({ ...prev, type: 'APORTE_CAPITAL' }))}
+                      className={`py-1 px-2 rounded text-xs font-bold transition-all ${capitalModal.type === 'APORTE_CAPITAL' ? 'bg-emerald-600 text-slate-100' : 'text-slate-400 bg-transparent border border-emerald-500/20'}`}
+                    >
+                      Aporte
+                    </button>
+                    <button
+                      onClick={() => setCapitalModal(prev => ({ ...prev, type: 'RETIRO_CAPITAL' }))}
+                      className={`py-1 px-2 rounded text-xs font-bold transition-all ${capitalModal.type === 'RETIRO_CAPITAL' ? 'bg-rose-600 text-slate-100' : 'text-slate-400 bg-transparent border border-rose-500/20'}`}
+                    >
+                      Retiro
+                    </button>
+                  </div>
+
+                  {/* Selector de Moneda */}
+                  <label className="text-[10px] font-medium text-slate-300">Moneda</label>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => setCapitalModal(prev => ({ ...prev, currencyOrigin: 'USD' }))}
+                      className={`py-1 px-2 rounded text-xs font-bold transition-all ${capitalModal.currencyOrigin === 'USD' ? 'bg-emerald-600 text-slate-100' : 'text-slate-400 bg-transparent border border-emerald-500/20'}`}
+                    >
+                      USD
+                    </button>
+                    <button
+                      onClick={() => setCapitalModal(prev => ({ ...prev, currencyOrigin: 'USDT' }))}
+                      className={`py-1 px-2 rounded text-xs font-bold transition-all ${capitalModal.currencyOrigin === 'USDT' ? 'bg-emerald-600 text-slate-100' : 'text-slate-400 bg-transparent border border-emerald-500/20'}`}
+                    >
+                      USDT
+                    </button>
+                    <button
+                      onClick={() => setCapitalModal(prev => ({ ...prev, currencyOrigin: 'VES' }))}
+                      className={`py-1 px-2 rounded text-xs font-bold transition-all ${capitalModal.currencyOrigin === 'VES' ? 'bg-rose-600 text-slate-100' : 'text-slate-400 bg-transparent border border-rose-500/20'}`}
+                    >
+                      VES
+                    </button>
+                  </div>
+
+                  {/* Input Monto */}
+                  <div>
+                    <label className="text-[10px] font-medium text-slate-300">Monto (USD)</label>
+                    <input
+                      type="number"
+                      value={capitalModal.amount}
+                      onChange={e => setCapitalModal(prev => ({ ...prev, amount: e.target.value }))}
+                      placeholder="0"
+                      className={`w-full px-3 py-2 rounded-xl border border-slate-600/50 bg-slate-900/50 ${themeDark} text-slate-100 placeholder-slate-400 text-sm focus-outline-none focus:ring-1 focus:ring-emerald-500/50`}
+                    />
+                  </div>
+
+                  {/* Input Tasa (solo VES) */}
+                  {capitalModal.currencyOrigin === 'VES' && (
+                    <div>
+                      <label className="text-[10px] font-medium text-slate-300">Tasa de Cambio (VES/USD)</label>
+                      <input
+                        type="number"
+                        value={capitalModal.exchangeRate}
+                        onChange={e => setCapitalModal(prev => ({ ...prev, exchangeRate: e.target.value }))}
+                        placeholder="Ej: 30.50"
+                        className={`w-full px-3 py-2 rounded-xl border border-slate-600/50 bg-slate-900/50 ${themeDark} text-slate-100 placeholder-slate-400 text-sm focus-outline-none focus:ring-1 focus:ring-emerald-500/50`}
+                      />
+                      <p className="text-[10px] text-slate-500 mt-1">El amount_usd se calculará automáticamente: amount / exchange_rate</p>
+                    </div>
+                  )}
+
+                  {/* Notas */}
+                  <div>
+                    <label className="text-[10px] font-medium text-slate-300">Notas</label>
+                    <textarea
+                      value={capitalModal.notes}
+                      onChange={e => setCapitalModal(prev => ({ ...prev, notes: e.target.value }))}
+                      placeholder="Observaciones..."
+                      className={`w-full px-3 py-2 rounded-xl border border-slate-600/50 bg-slate-900/50 ${themeDark} text-slate-100 placeholder-slate-400 text-sm focus-outline-none focus:ring-1 focus:ring-emerald-500/50 h-24 resize-y`}
+                    />
+                  </div>
+                </div>
+
+                {/* Acciones: Guardar y Cancelar */}
+                <div className="flex gap-3 pt-4 border-t border-slate-700/50">
+                  <button
+                    onClick={() => setCapitalModal(prev => ({ ...prev, open: false }))}
+                    className={`flex-1 py-2 rounded-xl font-medium transition-all ${themeDark ? 'bg-slate-700 text-slate-200' : 'bg-slate-200 text-slate-800'}`}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={async () => handleCapitalMovementSave()}
+                    className={`flex-1 py-2 rounded-xl font-medium transition-all ${themeDark ? 'bg-emerald-600 text-slate-100' : 'bg-emerald-500 text-slate-900'}`}
+                    disabled={capitalModal.loading}
+                  >
+                    {capitalModal.loading ? 'Guardando...' : 'Guardar Movimiento'}
+                  </button>
+                </div>
+              </div>
+            </div>
 
             {/* Bloque: Cobros urgentes y accesos rápidos */}
             <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -3856,6 +4083,49 @@ export default function CrediFluxApp() {
             const next = { ...monthlyCapitalsForm, ...cleared };
             setMonthlyCapitalsForm(next);
             await saveCapitalUpdate(next, `Todo el capital de ${selectedCapitalYear} fue reiniciado a 0`);
+          };
+
+          const handleCapitalMovementSave = async () => {
+            const { type, currencyOrigin, amount, exchangeRate, notes, loading } = capitalModal;
+            if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+              notify('Ingresa un monto mayor a 0', 'error');
+              return;
+            }
+            let amountUsd = Number(amount);
+            if (currencyOrigin === 'VES') {
+              if (!Number.isFinite(Number(exchangeRate)) || Number(exchangeRate) <= 0) {
+                notify('La tasa de cambio es obligatoria para VES', 'error');
+                return;
+              }
+              amountUsd = Number(amount) / Number(exchangeRate);
+            }
+            const amountUsdFixed = Math.round(amountUsd * 100) / 100;
+            if (amountUsdFixed <= 0) {
+              notify('El monto equivale a 0 USD', 'error');
+              return;
+            }
+            setCapitalModal(prev => ({ ...prev, loading: true }));
+            try {
+              const resp = await fetch('/api/capital-movements', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-user-id': (localStorage.getItem('crediflux_user') || localStorage.getItem('ricardo_user') || '').replace(/"/g, '') },
+                body: JSON.stringify({ type, currencyOrigin, amount: amountUsdFixed, exchangeRate: currencyOrigin === 'VES' ? Number(exchangeRate) : undefined, notes })
+              });
+              const data = await resp.json();
+              if (data.success) {
+                notify('Movimiento de capital guardado', 'success');
+                setCapitalModal(prev => ({ ...prev, open: false, amount: '', exchangeRate: '', notes: '' }));
+                // Refrescar datos del dashboard
+                fetchAllData();
+              } else {
+                notify(data.error || 'Error al guardar', 'error');
+              }
+            } catch (err) {
+              console.error('Error saving capital movement:', err);
+              notify('Error de conexión', 'error');
+            } finally {
+              setCapitalModal(prev => ({ ...prev, loading: false }));
+            }
           };
 
           const handleQuickAddEcomCapital = async () => {

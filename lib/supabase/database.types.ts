@@ -1,11 +1,11 @@
 // -----------------------------------------------------------------------------
 // Tipos de la base de datos Supabase (generados por la CLI).
 // Regenerar con:
-//   npx supabase gen types typescript --linked --schema public > lib/supabase/database.types.ts
+//   npm run db:types
 // No editar a mano: cualquier ajuste debe ir en supabase/migrations/*.
 // -----------------------------------------------------------------------------
 
-﻿export type Json =
+export type Json =
   | string
   | number
   | boolean
@@ -103,6 +103,45 @@ export type Database = {
           notes?: string | null
           phone?: string | null
           reason?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      capital_movements: {
+        Row: {
+          amount_usd: number
+          created_at: string
+          currency_origin: string
+          exchange_rate: number | null
+          id: string
+          metadata: Json
+          notes: string | null
+          type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount_usd: number
+          created_at?: string
+          currency_origin?: string
+          exchange_rate?: number | null
+          id?: string
+          metadata?: Json
+          notes?: string | null
+          type: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount_usd?: number
+          created_at?: string
+          currency_origin?: string
+          exchange_rate?: number | null
+          id?: string
+          metadata?: Json
+          notes?: string | null
+          type?: string
           updated_at?: string
           user_id?: string
         }
@@ -966,6 +1005,8 @@ export type ExchangeSource = 'bcv' | 'binance_p2p' | 'manual';
 export type P2PSide = 'buy' | 'sell';
 export type P2PStatus = 'pending' | 'completed' | 'cancelled';
 export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'IMPORT' | 'LOGIN' | 'LOGOUT';
+export type CapitalMovementType = 'APORTE_CAPITAL' | 'RETIRO_CAPITAL';
+export type CapitalCurrency = 'USD' | 'USDT' | 'VES';
 
 type RowOf<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row'];
 
@@ -983,3 +1024,4 @@ export type ExchangeRateRow = RowOf<'exchange_rates'>;
 export type P2PTransactionRow = RowOf<'p2p_transactions'>;
 export type ReceiptPatternRow = RowOf<'receipt_patterns'>;
 export type AuditLogRow = RowOf<'audit_logs'>;
+export type CapitalMovementRow = RowOf<'capital_movements'>;

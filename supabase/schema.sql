@@ -336,6 +336,35 @@ create table if not exists public.p2p_transactions (
 create index if not exists p2p_user_idx on public.p2p_transactions (user_id, occurred_at desc);
 
 -- =============================================================================
+-- 6.1 CAPITAL: APORTES Y RETIROS
+-- Movimientos de capital del inversionista. Deliberadamente separados de
+-- ecommerce_transactions y p2p_transactions: NO son operaciones comerciales y
+-- NO alteran el cálculo de Ganancias Netas.
+-- =============================================================================
+
+create table if not exists public.capital_movements (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid not null references auth.users (id) on delete cascade,
+  type            text not null check (type in ('APORTE_CAPITAL', 'RETIRO_CAPITAL')),
+  amount_usd      numeric(18, 2) not null check (amount_usd > 0),
+  currency_origin text not null default 'USD' check (currency_origin in ('USD', 'USDT', 'VES')),
+  exchange_rate   numeric(18, 8) check (exchange_rate is null or exchange_rate > 0),
+  notes           text,
+  metadata        jsonb not null default '{}'::jsonb,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+create index if not exists capital_movements_user_idx on public.capital_movements (user_id, created_at desc);
+create index if not exists capital_movements_type_idx on public.capital_movements (user_id, type);
+
+drop trigger if exists capital_movements_set_updated_at on public.capital_movements;
+create trigger capital_movements_set_updated_at
+  before update on public.capital_movements
+  for each row execute function public.set_updated_at();
+
+
+-- =============================================================================
 -- 7. PATRONES DE COMPROBANTES Y AUDITORÍA
 -- =============================================================================
 
@@ -497,6 +526,7 @@ alter table public.payments              enable row level security;
 alter table public.ecommerce_transactions enable row level security;
 alter table public.exchange_rates        enable row level security;
 alter table public.p2p_transactions      enable row level security;
+alter table public.capital_movements     enable row level security;
 alter table public.receipt_patterns      enable row level security;
 alter table public.audit_logs            enable row level security;
 
@@ -533,7 +563,8 @@ begin
   foreach t in array array[
     'trust_level_configs', 'clients', 'blacklist_entries', 'products',
     'loans', 'loan_installments', 'payments', 'ecommerce_transactions',
-    'exchange_rates', 'p2p_transactions', 'receipt_patterns'
+    'exchange_rates', 'p2p_transactions', 'receipt_patterns',
+    'capital_movements'
   ]
   loop
     execute format('drop policy if exists %I on public.%I', t || '_select_own', t);
