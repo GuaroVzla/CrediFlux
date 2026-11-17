@@ -108,8 +108,13 @@ async function showBuildLog(deploymentId) {
 async function main() {
   if (!TOKEN) die('Falta VERCEL_TOKEN. Créalo en https://vercel.com/account/tokens');
 
-  const me = await api('/v2/user');
-  console.log(`Cuenta Vercel: ${me.user?.username || me.user?.email || 'desconocida'}`);
+  // Este endpoint no existe para tokens de equipo ("vcp_..."); no es bloqueante.
+  try {
+    const me = await api('/v2/user');
+    console.log(`Cuenta Vercel: ${me.user?.username || me.user?.email || 'desconocida'}`);
+  } catch {
+    console.log('Token de equipo (no expone /v2/user). Continuando...');
+  }
 
   const { project, projects } = await findProject();
   if (!project) {
@@ -174,7 +179,6 @@ async function main() {
     body: JSON.stringify({
       framework: 'nextjs',
       nodeVersion: '22.x',
-      rootDirectory: '.',
       buildCommand: 'npm run build',
       installCommand: 'npm install',
     }),
@@ -211,7 +215,7 @@ async function main() {
       name: project.name,
       deploymentId: latest.uid || latest.id,
       target: 'production',
-      withCache: false,
+      meta: { action: 'redeploy' },
     }),
   });
   console.log(`  nuevo deployment: ${created.url || created.id}`);

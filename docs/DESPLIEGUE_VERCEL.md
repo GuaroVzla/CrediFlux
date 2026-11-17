@@ -1,60 +1,53 @@
 # Despliegue en Vercel
 
-> Estado: **roto**. `https://crediflux.vercel.app` devuelve
-> `500 FUNCTION_INVOCATION_FAILED` en **todas** las rutas, incluidos
-> `/favicon.ico` y archivos estáticos.
-> Última comprobación: 2026-11-17 (`x-vercel-id: iad1::...`).
+> Estado: **funcionando** desde 2026-11-17.
+> Producción: <https://proyectoricardo.vercel.app>
+> `GET /api/health` → `ok: true`, `supabaseConfigured: true`, `mode: supabase`.
 
-## 1. Diagnóstico rápido
+## 1. Cuál es el proyecto real
 
-```powershell
-$env:VERCEL_TOKEN = "..."        # https://vercel.com/account/tokens
-node scripts/vercel-setup.mjs    # solo lectura
-```
+| Dato | Valor |
+| --- | --- |
+| Proyecto Vercel | `proyectoricardo` (`prj_K5WNYSZxl1QyQMSixyyFZ7lp5qXs`) |
+| Equipo | `team_NlYqkM8RwRbvARZwnCN1Nr5l` |
+| Repo | `github:GuaroVzla/CrediFlux`, rama de producción `main` |
+| Dominio asignado | `proyectoricardo.vercel.app` |
+| Node | `22.x` (estaba en `26.x`) |
+| Región | `iad1` (vía `vercel.json`) |
 
-El script imprime:
+### Qué pasaba con `crediflux.vercel.app`
 
-- cuenta de Vercel autenticada;
-- si existe un proyecto `crediflux` en esa cuenta;
-- framework, versión de Node, root directory, comandos y **repo vinculado**;
-- qué variables de entorno faltan;
-- los últimos 5 deployments con su estado;
-- si el último falló, el final de los logs del build.
+Ese dominio **no pertenece a este proyecto ni a esta cuenta**. Devuelve
+`500 FUNCTION_INVOCATION_FAILED` porque es un proyecto distinto (de otra cuenta)
+cuyo runtime revienta al inicializar. Ningún cambio en este repo podía
+arreglarlo.
 
-### Interpretación
+Por eso el proyecto real sí desplegaba (`READY`) pero se validaba contra un
+dominio ajeno.
 
-| Síntoma en el diagnóstico | Causa probable | Acción |
-| --- | --- | --- |
-| `No hay ningún proyecto "crediflux"` | el dominio pertenece a otra cuenta/proyecto | entrar con la cuenta correcta o crear proyecto nuevo |
-| `repo: SIN VINCULAR` | proyecto desvinculado de GitHub | `--apply` o vincular a mano |
-| `framework: other/null` | preset incorrecto (no Next.js) | `--apply` |
-| `nodeVersion` distinto de `22.x` | runtime antiguo | `--apply` |
-| Faltan variables | runtime sin Supabase → modo legado o error de init | `--apply` |
-| Último deployment `ERROR` con logs de build | fallo real de compilación | leer logs |
+### Por qué la app desplegada no usaba Supabase
 
-> Nota: el código compila en CI (`tsc` + `next build` verificados en local el
-> 2026-11-17), así que el fallo del deploy es de **configuración del proyecto**,
-> no de compilación. El 500 uniforme en estáticos apunta a un deployment
-> servido con preset/root/output incorrectos o a un runtime que revienta al
-> inicializar.
+El proyecto no tenía **ninguna** variable de entorno: `/api/health` respondía
+`supabaseConfigured: false` y `mode: "json-file"`, es decir, la app corría en
+modo legado sin persistencia (serverless + sin escritura local).
 
-## 2. Reparación automática
+## 2. Diagnóstico y reparación
 
 ```powershell
-$env:VERCEL_TOKEN = "..."
-node scripts/vercel-setup.mjs --apply
+$env:VERCEL_TOKEN = "..."          # token de cuenta o de equipo (vcp_...)
+node scripts/vercel-setup.mjs                     # diagnóstico (solo lectura)
+node scripts/vercel-setup.mjs --project=proyectoricardo --apply
 ```
 
-`--apply` hace:
+El script tolera tokens de equipo (no llaman a `/v2/user`), lista los proyectos
+visibles si no encuentra el objetivo, muestra framework, Node, repo vinculado,
+variables y últimos deployments (con log del build si falló), y con `--apply`:
 
-1. `framework = nextjs`, `nodeVersion = 22.x`, `rootDirectory = "."`,
-   `buildCommand = npm run build`, `installCommand = npm install`.
-2. Sube a **production, preview y development**:
-   `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
-   `SUPABASE_SERVICE_ROLE_KEY`, `SETTINGS_ENCRYPTION_KEY` (tomadas de `.env.local`).
+1. Fija `framework = nextjs`, `nodeVersion = 22.x`, comandos de build/install.
+2. Sube las variables de `.env.local` a production, preview y development.
 3. Redespliega el último deployment a producción.
 
-## 3. Variables necesarias
+## 3. Variables en Vercel
 
 | Variable | Origen | Ámbito |
 | --- | --- | --- |
@@ -65,25 +58,27 @@ node scripts/vercel-setup.mjs --apply
 | `BLOB_READ_WRITE_TOKEN` | opcional (comprobantes) | servidor |
 
 > Las claves JWT legacy del proyecto **no funcionan** (`401 Invalid API key`).
-> Usa las claves nuevas `sb_publishable_*` / `sb_secret_*`.
+> Usar `sb_publishable_*` / `sb_secret_*`.
 
-## 4. Checklist de verificación tras el deploy
+> `crediflux.vercel.app` es de otra cuenta. No sirve como URL de producción en el
+> esquema actual.
 
-1. `https://<dominio>/api/health` →
-   `{ ok: true, supabaseConfigured: true, persistence: { mode: "supabase", encryptionAtRest: true } }`
-2. `/` responde 200 (sin 500 en estáticos).
-3. Login con `admin` funciona y se crea cookie de sesión.
-4. Alta de cliente + recarga: el registro aparece y persiste.
-5. Login con el segundo usuario: no ve datos del admin (RLS).
-6. Logs de funciones en Vercel sin `[proxy]` ni `[supabase-store]` en error.
+## 4. Verificación (2026-11-17)
 
-## 5. Notas de configuración
+| Prueba | Resultado |
+| --- | --- |
+| `GET https://proyectoricardo.vercel.app/` | `200` HTML |
+| `GET /api/health` | `200`, `mode: supabase`, `encryptionAtRest: true` |
+| `POST /api/auth` (`admin`) | `200`, `success: true`, cookie de sesión creada |
+| `GET /api/products` con sesión | `200` |
+| `GET /api/clients` con sesión | `200` (lista negra del admin visible) |
 
-- `vercel.json` fija `framework`, comandos y región `iad1` (misma que el
-  proyecto Supabase `us-east-1`).
-- `npm run build` ejecuta `prisma generate` antes de `next build`. La CLI
-  `prisma` está en `devDependencies`: Vercel las instala en build por defecto,
-  pero si el proyecto las omite (`NODE_ENV=production` o `--omit=dev`) el build
-  fallará en `prisma generate`.
-- Tesseract usa `serverExternalPackages`; las rutas OCR pueden necesitar más
-  tiempo de ejecución del que da el plan actual.
+## 5. Pendientes
+
+1. Decidir URL definitiva. Opciones:
+   - quedarse con `proyectoricardo.vercel.app`;
+   - renombrar este proyecto a `crediflux` **solo si** antes se renombra o
+     elimina el proyecto antiguo de la otra cuenta que ocupa ese dominio;
+   - asignar un dominio propio (`crediflux.com` u otro) en *Project → Domains*.
+2. `BLOB_READ_WRITE_TOKEN` si se van a subir comprobantes en producción.
+3. Rotar contraseñas de los usuarios importados y el token de Vercel usado aquí.

@@ -19,8 +19,8 @@
 | Login real vía `/api/auth` | ✅ `admin` autenticado contra Supabase Auth |
 | Datos legados importados | ✅ 2 usuarios, 1 producto, 1 lista negra, 6 patrones (0 clientes/préstamos/pagos) |
 | `.env.local` | ✅ creado (ignorado por git) |
-| Variables en Vercel | ❌ no configuradas |
-| Deploy de Vercel | ❌ `crediflux.vercel.app` responde 500 `FUNCTION_INVOCATION_FAILED` en **todas** las rutas, incluidos estáticos |
+| Variables en Vercel | ✅ cargadas en `proyectoricardo` (production, preview, development) |
+| Deploy de Vercel | ✅ `https://proyectoricardo.vercel.app` operativo con Supabase |
 
 Último commit: `10102 docs: guardar estado y pasos pendientes de la migracion`
 
@@ -60,56 +60,49 @@ devuelven `401 Invalid API key`. Hay que usar las claves nuevas:
 `@supabase/supabase-js` 2.119 y `@supabase/ssr` 0.12.7 las soportan sin cambios
 de código. En Vercel hay que copiar exactamente esas claves.
 
-## 4. Bloqueos conocidos
+## 4. Cuál era el problema de Vercel (resuelto)
 
-Solo queda Vercel:
+El proyecto real es **`proyectoricardo`**, vinculado a `GuaroVzla/CrediFlux` y
+desplegando `main` correctamente. Dos cosas estaban mal:
 
-1. **Vercel no parece enlazado a este repo.**
-   La API de GitHub no registra *deployments* ni *check-runs* de Vercel para
-   ninguno de los commits recientes. El 500 aparece incluso en archivos
-   estáticos (`/uploads/sample-voucher.svg`), lo que descarta un fallo de
-   código: es un deployment/proyecto roto o desvinculado.
+1. **`crediflux.vercel.app` pertenece a otra cuenta/proyecto.** Ese dominio
+   devuelve 500 en todas las rutas (incluso estáticos) porque su runtime
+   revienta al inicializar; ningún cambio en este repo podía arreglarlo. Se
+   estaba validando contra un dominio ajeno.
+2. **El proyecto no tenía variables de entorno.** `/api/health` respondía
+   `supabaseConfigured: false` y `mode: "json-file"`: la app desplegada corría
+   en modo legado sin persistencia (serverless, sin escritura local).
+
+Corregido: variables cargadas en production/preview/development, Node fijado a
+`22.x` (estaba en `26.x`), redespliegue a producción y verificación real.
+
+- Producción: <https://proyectoricardo.vercel.app>
+- `/api/health` → `ok: true`, `mode: supabase`, `encryptionAtRest: true`
+- Login `admin` vía `/api/auth` → `200`, cookie de sesión, lecturas con RLS.
+
+Detalle completo en `docs/DESPLIEGUE_VERCEL.md`.
 
 ## 5. Qué falta y en qué orden
 
-### A. Configurar variables en Vercel
+### A. Decidir la URL definitiva
 
-En *Project Settings → Environment Variables*, para **Production, Preview y
-Development**:
+- quedarse con `proyectoricardo.vercel.app`, o
+- renombrar el proyecto a `crediflux` **solo si** antes se renombra/elimina el
+  proyecto antiguo de la otra cuenta que ocupa `crediflux.vercel.app`, o
+- asignar un dominio propio en *Project → Domains*.
 
-| Variable | Valor |
-| --- | --- |
-| `NEXT_PUBLIC_SUPABASE_URL` | `https://vcsfrmmntmljeikidbkh.supabase.co` |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `sb_publishable_...` |
-| `SUPABASE_SERVICE_ROLE_KEY` | `sb_secret_...` |
-| `SETTINGS_ENCRYPTION_KEY` | 64 caracteres hex (la de `.env.local`) |
-
-### B. Reparar / reconectar Vercel
-
-Diagnóstico y reparación asistida (ver `docs/DESPLIEGUE_VERCEL.md`):
+### B. Mantenimiento del deploy
 
 ```powershell
-$env:VERCEL_TOKEN = "..."          # https://vercel.com/account/tokens
-node scripts/vercel-setup.mjs      # diagnóstico, no cambia nada
-node scripts/vercel-setup.mjs --apply
+$env:VERCEL_TOKEN = "..."
+node scripts/vercel-setup.mjs --project=proyectoricardo          # diagnóstico
+node scripts/vercel-setup.mjs --project=proyectoricardo --apply  # config + env + redeploy
 ```
-
-Si se prefiere hacerlo a mano:
-
-1. Vercel → *Project Settings → Git* → vincular `GuaroVzla/CrediFlux`
-   (rama de producción: `main`).
-2. *General*: Framework = Next.js, Root Directory = `.`, Node = **22.x**
-   (`package.json` ya exige `>=20.9.0`).
-3. Revisar el build más reciente y sus logs; el código compila en CI, por lo que
-   cualquier fallo restante será de configuración del proyecto.
-4. Tras el deploy, validar:
-   - `https://<dominio>/api/health` → `{ ok: true, supabaseConfigured: true }`
-   - Login real y CRUD con dos usuarios (aislamiento RLS).
 
 ### C. Pendientes menores
 
 - Cambiar la contraseña del admin (`Lago123*`) y la del operador `RICARDO`
-  (temporal: `8d98100d-6e5`).
+  (temporal: `8d98100d-6e5`); rotar el token de Vercel usado en esta sesión.
 - Valorar `BLOB_READ_WRITE_TOKEN` para comprobantes en producción
   (hoy `blobConfigured: false`).
 - `data/*.json` ya no es la fuente de verdad: Supabase manda.
