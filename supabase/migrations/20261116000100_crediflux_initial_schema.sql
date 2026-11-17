@@ -27,26 +27,9 @@ begin
 end;
 $$;
 
--- Devuelve true si el usuario autenticado tiene rol administrador.
--- SECURITY DEFINER evita recursión de RLS al consultar profiles.
-create or replace function public.is_admin()
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select exists (
-    select 1
-    from public.profiles p
-    where p.id = auth.uid()
-      and p.role = 'admin'
-      and p.is_active = true
-  );
-$$;
-
-revoke all on function public.is_admin() from public;
-grant execute on function public.is_admin() to authenticated, service_role;
+-- Nota: public.is_admin() se define más abajo, después de crear public.profiles,
+-- porque Postgres valida el cuerpo de las funciones SQL al crearlas
+-- (check_function_bodies = on) y la tabla debe existir primero.
 
 -- Normaliza una cédula/DNI: "V-18.452.910" -> "v18452910".
 create or replace function public.normalize_dni(value text)
@@ -85,6 +68,27 @@ create table if not exists public.profiles (
 
 create unique index if not exists profiles_username_key on public.profiles (lower(username));
 create index if not exists profiles_role_idx on public.profiles (role) where is_active = true;
+
+-- Devuelve true si el usuario autenticado tiene rol administrador.
+-- SECURITY DEFINER evita recursión de RLS al consultar profiles.
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.profiles p
+    where p.id = auth.uid()
+      and p.role = 'admin'
+      and p.is_active = true
+  );
+$$;
+
+revoke all on function public.is_admin() from public;
+grant execute on function public.is_admin() to authenticated, service_role;
 
 comment on table public.profiles is 'Perfil de aplicación enlazado 1:1 con auth.users.';
 
@@ -220,7 +224,7 @@ create table if not exists public.loans (
   metadata           jsonb not null default '{}'::jsonb,
   created_at         timestamptz not null default now(),
   updated_at         timestamptz not null default now(),
-  constraint loans_down_payment_check check (down_payment <= principal)
+  constraint loans_down_payment_lte_principal check (down_payment <= principal)
 );
 
 create index if not exists loans_user_idx on public.loans (user_id, created_at desc);
