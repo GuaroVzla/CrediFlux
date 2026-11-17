@@ -14,6 +14,20 @@ Plataforma SaaS financiera de alta gama, moderna y privada diseñada para la adm
 
 ---
 
+## 🌐 Producción
+
+| Recurso | URL |
+| --- | --- |
+| Aplicación | <https://crediflux-app.vercel.app> |
+| Health check | <https://crediflux-app.vercel.app/api/health> → `{ ok: true, mode: "supabase" }` |
+
+- Proyecto Vercel: `crediflux-app` (team `oswaldo-serrano`), rama `main`.
+- Base de datos: Supabase (`vcsfrmmntmljeikidbkh`) con RLS y Auth.
+- Alias secundario: `proyectoricardo.vercel.app`.
+- Guía de despliegue y diagnóstico: [`docs/DESPLIEGUE_VERCEL.md`](docs/DESPLIEGUE_VERCEL.md).
+
+---
+
 ## 🔐 1. Seguridad y Acceso Privado
 
 - **Licencia Privada de Uso:** Acceso protegido mediante clave de licencia (`CREDIFLUX-FINTECH-2026`) o credenciales de administrador.

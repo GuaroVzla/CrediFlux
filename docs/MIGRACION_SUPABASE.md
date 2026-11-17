@@ -45,10 +45,14 @@ Copia `.env.example` a `.env.local` y completa:
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://<ref>.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
-SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
-SETTINGS_ENCRYPTION_KEY=<clave-aleatoria-larga>
+NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
+SUPABASE_SERVICE_ROLE_KEY=sb_secret_...
+SETTINGS_ENCRYPTION_KEY=<64 caracteres hex>
 ```
+
+> El proyecto Supabase rechaza las claves JWT legacy (`anon` / `service_role`)
+> con `401 Invalid API key`. Usa las claves nuevas `sb_publishable_*` y
+> `sb_secret_*` (Settings → API Keys).
 
 En Vercel: **Project Settings → Environment Variables**, para Production, Preview
 y Development. La `service_role` nunca debe llevar prefijo `NEXT_PUBLIC_`.
@@ -111,6 +115,12 @@ Las tasas BCV y Binance P2P se guardan como histórico en `exchange_rates`
 
 ## 8. Despliegue
 
+- **Producción:** <https://crediflux-app.vercel.app> (proyecto Vercel
+  `crediflux-app`, rama `main`).
+- Variables cargadas en Production, Preview y Development.
+- `crediflux.vercel.app` está retenido por otra cuenta de Vercel; ver
+  `docs/DESPLIEGUE_VERCEL.md` §2.
+
 ```bash
 npm run build
 npx tsc --noEmit
@@ -119,5 +129,11 @@ git commit -m "feat: migrar persistencia a Supabase con RLS y auth"
 git push origin main
 ```
 
-Vercel reconstruye automáticamente. Si el proyecto de Vercel no está vinculado,
-importa el repositorio y define las variables de entorno antes del primer deploy.
+Vercel reconstruye automáticamente en cada push a `main`. Para diagnosticar o
+reparar la configuración del proyecto:
+
+```powershell
+$env:VERCEL_TOKEN = "..."
+node scripts/vercel-setup.mjs --project=crediflux-app
+node scripts/vercel-setup.mjs --project=crediflux-app --apply
+```
