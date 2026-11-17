@@ -62,19 +62,20 @@ de código. En Vercel hay que copiar exactamente esas claves.
 
 ## 4. Cuál era el problema de Vercel (resuelto)
 
-El proyecto real es **`proyectoricardo`**, vinculado a `GuaroVzla/CrediFlux` y
-desplegando `main` correctamente. Dos cosas estaban mal:
+El proyecto real es **`crediflux`** (antes `proyectoricardo`), vinculado a
+`GuaroVzla/CrediFlux` y desplegando `main` correctamente. Dos cosas estaban mal:
 
-1. **`crediflux.vercel.app` pertenece a otra cuenta/proyecto.** Ese dominio
-   devuelve 500 en todas las rutas (incluso estáticos) porque su runtime
-   revienta al inicializar; ningún cambio en este repo podía arreglarlo. Se
-   estaba validando contra un dominio ajeno.
+1. **`crediflux.vercel.app` lo retiene otro proyecto de otro equipo de Vercel**
+   (`409 owned-on-other-team`). Ese proyecto ajeno es el que devuelve 500 en
+   todas las rutas (incluso estáticos); ningún cambio en este repo podía
+   arreglarlo. Se estaba validando contra un dominio que no era nuestro.
 2. **El proyecto no tenía variables de entorno.** `/api/health` respondía
    `supabaseConfigured: false` y `mode: "json-file"`: la app desplegada corría
    en modo legado sin persistencia (serverless, sin escritura local).
 
 Corregido: variables cargadas en production/preview/development, Node fijado a
-`22.x` (estaba en `26.x`), redespliegue a producción y verificación real.
+`22.x` (estaba en `26.x`), proyecto renombrado a `crediflux`, redespliegue a
+producción y verificación real.
 
 - Producción: <https://proyectoricardo.vercel.app>
 - `/api/health` → `ok: true`, `mode: supabase`, `encryptionAtRest: true`
@@ -84,19 +85,21 @@ Detalle completo en `docs/DESPLIEGUE_VERCEL.md`.
 
 ## 5. Qué falta y en qué orden
 
-### A. Decidir la URL definitiva
+### A. Liberar `crediflux.vercel.app`
 
-- quedarse con `proyectoricardo.vercel.app`, o
-- renombrar el proyecto a `crediflux` **solo si** antes se renombra/elimina el
-  proyecto antiguo de la otra cuenta que ocupa `crediflux.vercel.app`, o
-- asignar un dominio propio en *Project → Domains*.
+El nombre de proyecto ya es `crediflux`, pero el dominio sigue asignado al
+proyecto antiguo de **otra cuenta** (`owned-on-other-team`). Hay que entrar con
+esa cuenta, renombrar o eliminar su proyecto `crediflux`, y luego asignar el
+dominio a este proyecto (pasos en `docs/DESPLIEGUE_VERCEL.md` §5).
+
+Mientras tanto la URL operativa es `proyectoricardo.vercel.app`.
 
 ### B. Mantenimiento del deploy
 
 ```powershell
 $env:VERCEL_TOKEN = "..."
-node scripts/vercel-setup.mjs --project=proyectoricardo          # diagnóstico
-node scripts/vercel-setup.mjs --project=proyectoricardo --apply  # config + env + redeploy
+node scripts/vercel-setup.mjs --project=crediflux          # diagnóstico
+node scripts/vercel-setup.mjs --project=crediflux --apply  # config + env + redeploy
 ```
 
 ### C. Pendientes menores

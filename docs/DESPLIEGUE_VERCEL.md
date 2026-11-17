@@ -1,42 +1,40 @@
 # Despliegue en Vercel
 
 > Estado: **funcionando** desde 2026-11-17.
-> Producción: <https://proyectoricardo.vercel.app>
+> Producción activa: <https://proyectoricardo.vercel.app>
 > `GET /api/health` → `ok: true`, `supabaseConfigured: true`, `mode: supabase`.
 
 ## 1. Cuál es el proyecto real
 
 | Dato | Valor |
 | --- | --- |
-| Proyecto Vercel | `proyectoricardo` (`prj_K5WNYSZxl1QyQMSixyyFZ7lp5qXs`) |
-| Equipo | `team_NlYqkM8RwRbvARZwnCN1Nr5l` |
+| Proyecto Vercel | `crediflux` (antes `proyectoricardo`) — `prj_K5WNYSZxl1QyQMSixyyFZ7lp5qXs` |
+| Equipo | `oswaldo-serrano` (`team_NlYqkM8RwRbvARZwnCN1Nr5l`) |
 | Repo | `github:GuaroVzla/CrediFlux`, rama de producción `main` |
-| Dominio asignado | `proyectoricardo.vercel.app` |
+| Dominios del proyecto | `proyectoricardo.vercel.app` |
+| Dominio deseado | `crediflux.vercel.app` → **bloqueado por otro equipo** |
 | Node | `22.x` (estaba en `26.x`) |
 | Región | `iad1` (vía `vercel.json`) |
 
-### Qué pasaba con `crediflux.vercel.app`
+### Por qué `crediflux.vercel.app` da 500
 
-Ese dominio **no pertenece a este proyecto ni a esta cuenta**. Devuelve
-`500 FUNCTION_INVOCATION_FAILED` porque es un proyecto distinto (de otra cuenta)
-cuyo runtime revienta al inicializar. Ningún cambio en este repo podía
-arreglarlo.
-
-Por eso el proyecto real sí desplegaba (`READY`) pero se validaba contra un
-dominio ajeno.
+Ese dominio está asignado a **otro proyecto de otro equipo** de Vercel
+(`owned-on-other-team`). Ese proyecto ajeno es el que revienta al inicializar y
+devuelve `500 FUNCTION_INVOCATION_FAILED` en todas las rutas, incluidos
+estáticos. Ningún cambio en este repo puede arreglarlo.
 
 ### Por qué la app desplegada no usaba Supabase
 
 El proyecto no tenía **ninguna** variable de entorno: `/api/health` respondía
 `supabaseConfigured: false` y `mode: "json-file"`, es decir, la app corría en
-modo legado sin persistencia (serverless + sin escritura local).
+modo legado sin persistencia (serverless + sin escritura local). Corregido.
 
 ## 2. Diagnóstico y reparación
 
 ```powershell
 $env:VERCEL_TOKEN = "..."          # token de cuenta o de equipo (vcp_...)
 node scripts/vercel-setup.mjs                     # diagnóstico (solo lectura)
-node scripts/vercel-setup.mjs --project=proyectoricardo --apply
+node scripts/vercel-setup.mjs --project=crediflux --apply
 ```
 
 El script tolera tokens de equipo (no llaman a `/v2/user`), lista los proyectos
@@ -60,9 +58,6 @@ variables y últimos deployments (con log del build si falló), y con `--apply`:
 > Las claves JWT legacy del proyecto **no funcionan** (`401 Invalid API key`).
 > Usar `sb_publishable_*` / `sb_secret_*`.
 
-> `crediflux.vercel.app` es de otra cuenta. No sirve como URL de producción en el
-> esquema actual.
-
 ## 4. Verificación (2026-11-17)
 
 | Prueba | Resultado |
@@ -73,12 +68,31 @@ variables y últimos deployments (con log del build si falló), y con `--apply`:
 | `GET /api/products` con sesión | `200` |
 | `GET /api/clients` con sesión | `200` (lista negra del admin visible) |
 
-## 5. Pendientes
+## 5. Cómo liberar `crediflux.vercel.app`
 
-1. Decidir URL definitiva. Opciones:
-   - quedarse con `proyectoricardo.vercel.app`;
-   - renombrar este proyecto a `crediflux` **solo si** antes se renombra o
-     elimina el proyecto antiguo de la otra cuenta que ocupa ese dominio;
-   - asignar un dominio propio (`crediflux.com` u otro) en *Project → Domains*.
-2. `BLOB_READ_WRITE_TOKEN` si se van a subir comprobantes en producción.
-3. Rotar contraseñas de los usuarios importados y el token de Vercel usado aquí.
+Pasos manuales (requieren entrar con la **otra** cuenta de Vercel, la que creó
+ese proyecto):
+
+1. Inicia sesión en Vercel con la cuenta/equipo dueño de
+   `crediflux.vercel.app` (no es el team `oswaldo-serrano`).
+2. Localiza el proyecto llamado `crediflux` (es el que responde 500).
+3. Renómbralo (p. ej. `crediflux-legacy`) o elimínalo. Eso libera el dominio.
+4. Avisa y se ejecuta:
+
+   ```powershell
+   $env:VERCEL_TOKEN = "..."
+   node scripts/vercel-setup.mjs --project=crediflux --apply
+   # o solo el dominio:
+   # POST https://api.vercel.com/v9/projects/<id>/domains { "name": "crediflux.vercel.app" }
+   ```
+
+5. Validar `https://crediflux.vercel.app/api/health`.
+
+Alternativa: asignar un dominio propio (`crediflux.com`, etc.) en
+*Project → Domains*, que no depende de nombres de proyecto.
+
+## 6. Pendientes
+
+1. Liberar el dominio (§5) o usar dominio propio.
+2. `BLOB_READ_WRITE_TOKEN` si se subirán comprobantes en producción.
+3. Rotar contraseñas de usuarios importados y el token de Vercel usado aquí.
