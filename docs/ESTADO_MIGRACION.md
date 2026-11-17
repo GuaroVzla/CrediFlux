@@ -19,8 +19,8 @@
 | Login real vía `/api/auth` | ✅ `admin` autenticado contra Supabase Auth |
 | Datos legados importados | ✅ 2 usuarios, 1 producto, 1 lista negra, 6 patrones (0 clientes/préstamos/pagos) |
 | `.env.local` | ✅ creado (ignorado por git) |
-| Variables en Vercel | ✅ cargadas en `proyectoricardo` (production, preview, development) |
-| Deploy de Vercel | ✅ `https://proyectoricardo.vercel.app` operativo con Supabase |
+| Variables en Vercel | ✅ cargadas en `crediflux-app` (production, preview, development) |
+| Deploy de Vercel | ✅ `https://crediflux-app.vercel.app` operativo con Supabase |
 
 Último commit: `10102 docs: guardar estado y pasos pendientes de la migracion`
 
@@ -62,10 +62,10 @@ de código. En Vercel hay que copiar exactamente esas claves.
 
 ## 4. Cuál era el problema de Vercel (resuelto)
 
-El proyecto real es **`crediflux`** (antes `proyectoricardo`), vinculado a
+El proyecto real es **`crediflux-app`** (antes `proyectoricardo`), vinculado a
 `GuaroVzla/CrediFlux` y desplegando `main` correctamente. Dos cosas estaban mal:
 
-1. **`crediflux.vercel.app` lo retiene otro proyecto de otro equipo de Vercel**
+1. **`crediflux.vercel.app` lo retiene otro proyecto de otra cuenta de Vercel**
    (`409 owned-on-other-team`). Ese proyecto ajeno es el que devuelve 500 en
    todas las rutas (incluso estáticos); ningún cambio en este repo podía
    arreglarlo. Se estaba validando contra un dominio que no era nuestro.
@@ -74,10 +74,10 @@ El proyecto real es **`crediflux`** (antes `proyectoricardo`), vinculado a
    en modo legado sin persistencia (serverless, sin escritura local).
 
 Corregido: variables cargadas en production/preview/development, Node fijado a
-`22.x` (estaba en `26.x`), proyecto renombrado a `crediflux`, redespliegue a
-producción y verificación real.
+`22.x` (estaba en `26.x`), proyecto renombrado, dominio
+`crediflux-app.vercel.app` asignado y verificación real.
 
-- Producción: <https://proyectoricardo.vercel.app>
+- Producción: <https://crediflux-app.vercel.app> (alias: `proyectoricardo.vercel.app`)
 - `/api/health` → `ok: true`, `mode: supabase`, `encryptionAtRest: true`
 - Login `admin` vía `/api/auth` → `200`, cookie de sesión, lecturas con RLS.
 
@@ -85,21 +85,18 @@ Detalle completo en `docs/DESPLIEGUE_VERCEL.md`.
 
 ## 5. Qué falta y en qué orden
 
-### A. Liberar `crediflux.vercel.app`
+### A. `crediflux.vercel.app`
 
-El nombre de proyecto ya es `crediflux`, pero el dominio sigue asignado al
-proyecto antiguo de **otra cuenta** (`owned-on-other-team`). Hay que entrar con
-esa cuenta, renombrar o eliminar su proyecto `crediflux`, y luego asignar el
-dominio a este proyecto (pasos en `docs/DESPLIEGUE_VERCEL.md` §5).
-
-Mientras tanto la URL operativa es `proyectoricardo.vercel.app`.
+Bloqueado por otra cuenta (`owned-on-other-team`); solo lo libera su dueño o el
+soporte de Vercel. Texto de reclamación en `docs/DESPLIEGUE_VERCEL.md` §2.
+Mientras tanto la URL operativa es `crediflux-app.vercel.app`.
 
 ### B. Mantenimiento del deploy
 
 ```powershell
 $env:VERCEL_TOKEN = "..."
-node scripts/vercel-setup.mjs --project=crediflux          # diagnóstico
-node scripts/vercel-setup.mjs --project=crediflux --apply  # config + env + redeploy
+node scripts/vercel-setup.mjs --project=crediflux-app          # diagnóstico
+node scripts/vercel-setup.mjs --project=crediflux-app --apply  # config + env + redeploy
 ```
 
 ### C. Pendientes menores
