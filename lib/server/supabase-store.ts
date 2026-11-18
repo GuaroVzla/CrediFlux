@@ -128,6 +128,28 @@ export async function getStateForRequest(request: Request): Promise<AnyRecord> {
   return state;
 }
 
+/**
+ * Estado completo de otro usuario para acciones administrativas controladas.
+ * Usa service_role (OMITE RLS) y nunca el scope del usuario solicitante, de modo
+ * que una limpieza por admin no lea ni escriba los datos del administrador.
+ */
+export async function getStateForTargetUser(targetUserId: string): Promise<AnyRecord> {
+  const admin = getSupabaseAdminClientOrNull();
+  if (!admin) {
+    throw new Error('Supabase admin no configurado: se requiere service_role para purgar otro usuario.');
+  }
+  const auth: RequestAuth = {
+    mode: 'supabase',
+    supabase: admin,
+    authUser: null,
+    profile: null,
+    userId: targetUserId,
+  };
+  const state = await getScopedState(auth);
+  state.__currentUser = null;
+  return state;
+}
+
 async function getScopedState(auth: RequestAuth): Promise<AnyRecord> {
   const supabase = auth.supabase!;
   const userId = auth.userId!;

@@ -13,6 +13,26 @@ import {
 } from 'lucide-react';
 import { getTrustLevelConfig, computeClientTrust } from '../lib/trust';
 
+const PURGE_TARGET_KEYS = [
+  'payments',
+  'loans',
+  'clients',
+  'products',
+  'ecommerce',
+  'capital'
+];
+
+const PURGE_TARGET_OPTIONS = [
+  ['payments', 'Historial de financiamientos (pagos)'],
+  ['loans', 'Eliminar financiamientos'],
+  ['clients', 'Clientes'],
+  ['products', 'Productos'],
+  ['ecommerce', 'Registro cronológico de transacciones de e-commerce'],
+  ['capital', 'Capital operativo (montos e historial de aportes y retiros)']
+];
+
+const EMPTY_PURGE_TARGETS = Object.fromEntries(PURGE_TARGET_KEYS.map((key) => [key, false]));
+
 export default function CrediFluxApp() {
   // Authentication & Session
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -108,10 +128,21 @@ export default function CrediFluxApp() {
   const [purgeModal, setPurgeModal] = useState({
     open: false,
     user: null,
-    targets: { payments: false, loans: false, clients: false, products: false, ecommerce: false },
+    targets: { ...EMPTY_PURGE_TARGETS },
     filter: { period: 'all', day: '', month: '', year: '', until: '' },
     processing: false
   });
+
+  const purgeTargetSelection = PURGE_TARGET_KEYS.map((key) => Boolean(purgeModal.targets?.[key]));
+  const allPurgeTargetsSelected = purgeTargetSelection.every(Boolean);
+  const somePurgeTargetsSelected = purgeTargetSelection.some(Boolean);
+  const selectAllPurgeRef = useRef(null);
+
+  useEffect(() => {
+    if (selectAllPurgeRef.current) {
+      selectAllPurgeRef.current.indeterminate = somePurgeTargetsSelected && !allPurgeTargetsSelected;
+    }
+  }, [somePurgeTargetsSelected, allPurgeTargetsSelected, purgeModal.open]);
 
   // End-user license renewal form
   const [renewLicenseKey, setRenewLicenseKey] = useState('');
@@ -4729,7 +4760,7 @@ export default function CrediFluxApp() {
                                     onClick={() => setPurgeModal({
                                       open: true,
                                       user: u,
-                                      targets: { payments: false, loans: false, clients: false, products: false, ecommerce: false },
+                                      targets: { ...EMPTY_PURGE_TARGETS },
                                       filter: { period: 'all', day: '', month: '', year: '', until: '' },
                                       processing: false
                                     })}
@@ -6919,18 +6950,30 @@ export default function CrediFluxApp() {
             <div className="space-y-4 mt-4">
               <div className={`rounded-xl border p-3 ${settingsSubcardTheme}`}>
                 <p className="text-xs font-semibold text-slate-200 mb-2">Datos a limpiar (granular)</p>
+                <label className="flex items-center gap-2 text-xs font-semibold text-emerald-300 mb-2 pb-2 border-b border-slate-700/60 cursor-pointer">
+                  <input
+                    ref={selectAllPurgeRef}
+                    type="checkbox"
+                    checked={allPurgeTargetsSelected}
+                    disabled={purgeModal.processing}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setPurgeModal(prev => ({
+                        ...prev,
+                        targets: Object.fromEntries(PURGE_TARGET_KEYS.map((key) => [key, checked]))
+                      }));
+                    }}
+                    className="accent-emerald-500"
+                  />
+                  Seleccionar todos
+                </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {[
-                    ['payments', 'Historial de financiamientos (pagos)'],
-                    ['loans', 'Eliminar financiamientos'],
-                    ['clients', 'Clientes'],
-                    ['products', 'Productos'],
-                    ['ecommerce', 'Registro cronológico de transacciones de e-commerce']
-                  ].map(([key, label]) => (
+                  {PURGE_TARGET_OPTIONS.map(([key, label]) => (
                     <label key={key} className="flex items-start gap-2 text-xs text-slate-300">
                       <input
                         type="checkbox"
                         checked={Boolean(purgeModal.targets?.[key])}
+                        disabled={purgeModal.processing}
                         onChange={(e) => setPurgeModal(prev => ({
                           ...prev,
                           targets: { ...prev.targets, [key]: e.target.checked }
@@ -6941,7 +6984,7 @@ export default function CrediFluxApp() {
                     </label>
                   ))}
                 </div>
-                <p className={`${settingsHelperCls} mt-2`}>Nota: el almacenamiento actual es compartido; la limpieza se aplica a los registros que coincidan con el filtro seleccionado.</p>
+                <p className={`${settingsHelperCls} mt-2`}>Nota: la limpieza se aplica únicamente a los datos del usuario seleccionado y a los registros que coincidan con el filtro de fecha indicado.</p>
               </div>
 
               <div className={`rounded-xl border p-3 ${settingsSubcardTheme}`}>
@@ -6984,10 +7027,10 @@ export default function CrediFluxApp() {
                 </button>
                 <button
                   type="button"
-                  disabled={purgeModal.processing}
+                  disabled={purgeModal.processing || !somePurgeTargetsSelected}
                   onClick={async () => {
                     const targets = purgeModal.targets || {};
-                    if (!Object.values(targets).some(Boolean)) {
+                    if (!somePurgeTargetsSelected) {
                       notify('Selecciona al menos un tipo de dato para vaciar', 'error');
                       return;
                     }
@@ -6997,14 +7040,14 @@ export default function CrediFluxApp() {
                       const res = await fetch('/api/admin/purge', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser?.id || '' },
-                        body: JSON.stringify({ userId: purgeModal.user?.id, targets, filter: purgeModal.filter })
+                        body: JSON.stringify({ userId: purgeModal.user?.id, target_user_id: purgeModal.user?.id, targets, filter: purgeModal.filter })
                       });
                       const d = await res.json();
                       if (d.licenseExpired) {
                         notify(SUPPORT_CONTACT_TEXT, 'error');
                       } else if (d.success) {
                         const s = d.summary || {};
-                        notify(`Datos vaciados: pagos ${s.payments || 0}, financiamientos ${s.loans || 0}, clientes ${s.clients || 0}, productos ${s.products || 0}, e-commerce ${s.ecommerce || 0}`);
+                        notify(`Datos vaciados: pagos ${s.payments || 0}, financiamientos ${s.loans || 0}, clientes ${s.clients || 0}, productos ${s.products || 0}, e-commerce ${s.ecommerce || 0}, capital ${s.capital || 0}`);
                         setPurgeModal(prev => ({ ...prev, open: false, processing: false }));
                         fetchAllData();
                       } else {
