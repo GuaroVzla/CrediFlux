@@ -1,8 +1,12 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'CrediFlux | Gesti��n Financiera, PrǸstamos y E-Commerce Inteligente',
-  description: 'Plataforma SaaS financiera de alta gama para la administraci��n de crǸditos, financiamientos, prǸstamos personales y control de transacciones con OCR IA multimodal.',
+  applicationName: 'CrediFlux',
+  title: {
+    default: 'CrediFlux | Gestión Financiera, Préstamos y E-Commerce Inteligente',
+    template: '%s | CrediFlux',
+  },
+  description: 'Plataforma SaaS financiera de alta gama para la administración de créditos, financiamientos, préstamos personales y control de transacciones con OCR IA multimodal.',
 };
 
 // Style para anular propiedades CSS de Firefox obsoletas y evitar warnings en consola

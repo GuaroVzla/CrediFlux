@@ -9,7 +9,7 @@ import {
   ArrowDownRight, Check, X, ChevronRight, ChevronDown, ChevronUp, PieChart,
   ShoppingBag, Building, ShieldCheck, Phone, MapPin, Award, UserPlus,
   Wallet, Ban,
-  HelpCircle, AlertCircle, Briefcase, Save
+  HelpCircle, AlertCircle, Briefcase, Save, Coins, Landmark
 } from 'lucide-react';
 import { getTrustLevelConfig, computeClientTrust } from '../lib/trust';
 
@@ -40,7 +40,7 @@ export default function CrediFluxApp() {
   const [ecommerceData, setEcommerceData] = useState({ summary: {}, transactions: [] });
 
   // Capital (Aportes y Retiros)
-  const [capitalModal, setCapitalModal] = useState({ open: false, type: 'APORTE_CAPITAL', currencyOrigin: 'USD', amount: '', exchangeRate: '', notes: '' });
+  const [capitalModal, setCapitalModal] = useState({ open: false, tab: 'movimiento', type: 'APORTE_CAPITAL', amount: '', notes: '', loading: false });
   const [capitalMovements, setCapitalMovements] = useState([]);
   const [capitalSummary, setCapitalSummary] = useState({aportes: 0, retiros: 0, netCapital: 0, count: 0 });
   const [settings, setSettings] = useState({});
@@ -115,14 +115,6 @@ export default function CrediFluxApp() {
 
   // End-user license renewal form
   const [renewLicenseKey, setRenewLicenseKey] = useState('');
-
-  // End-user monthly capital state (12 months per selectable year)
-  const currentYear = new Date().getFullYear();
-  const [monthlyCapitalsForm, setMonthlyCapitalsForm] = useState({});
-  const [selectedCapitalYear, setSelectedCapitalYear] = useState(new Date().getFullYear());
-  const [selectedCapitalMonth, setSelectedCapitalMonth] = useState(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
-  const [capitalMonthAmount, setCapitalMonthAmount] = useState('');
-  const [ecomTestCapitalAmount, setEcomTestCapitalAmount] = useState('');
 
   // Motor IA de Ajustes: proveedor OCR seleccionado, credenciales por proveedor y resultado de prueba
   const [ocrProvider, setOcrProvider] = useState('openai');
@@ -219,7 +211,6 @@ export default function CrediFluxApp() {
         try {
           const parsedUser = JSON.parse(savedUser);
           setCurrentUser(parsedUser);
-          if (parsedUser.monthlyCapitals) setMonthlyCapitalsForm(parsedUser.monthlyCapitals);
         } catch (e) {}
       }
 
@@ -242,7 +233,6 @@ export default function CrediFluxApp() {
           localStorage.setItem('crediflux_user', JSON.stringify(data.user));
           setCurrentUser(data.user);
           setIsAuthenticated(true);
-          if (data.user.monthlyCapitals) setMonthlyCapitalsForm(data.user.monthlyCapitals);
           fetchAllData();
           return;
         }
@@ -435,24 +425,12 @@ export default function CrediFluxApp() {
             ocrConfidenceMin: resSettings.settings.ocrConfidenceMin ?? prev.ocrConfidenceMin
           }));
         }
-        if (resSettings.settings?.monthlyCapitals) {
-          setMonthlyCapitalsForm(resSettings.settings.monthlyCapitals);
-          setCurrentUser(prev => {
-            if (!prev) return prev;
-            const updated = { ...prev, monthlyCapitals: resSettings.settings.monthlyCapitals };
-            try { localStorage.setItem('crediflux_user', JSON.stringify(updated)); } catch (e) {}
-            return updated;
-          });
-        }
         if (resSettings.currentUserInfo) {
           const updatedUser = {
             ...resSettings.currentUserInfo,
             isExpired: checkIsExpired(resSettings.currentUserInfo)
           };
           setCurrentUser(updatedUser);
-          if (updatedUser.monthlyCapitals) {
-            setMonthlyCapitalsForm(updatedUser.monthlyCapitals);
-          }
           localStorage.setItem('crediflux_user', JSON.stringify(updatedUser));
         }
       }
@@ -725,9 +703,6 @@ export default function CrediFluxApp() {
         localStorage.removeItem('ricardo_token');
         localStorage.removeItem('ricardo_user');
         setCurrentUser(data.user);
-        if (data.user.monthlyCapitals) {
-          setMonthlyCapitalsForm(data.user.monthlyCapitals);
-        }
         setIsAuthenticated(true);
         notify(`Bienvenido, ${data.user.name}`);
         fetchAllData();
@@ -800,32 +775,6 @@ export default function CrediFluxApp() {
       }
     } catch (err) {
       console.error(err);
-    }
-  };
-
-  // Guardar capitales mensuales del usuario final
-  const handleSaveMonthlyCapitals = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await fetch('/api/settings', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': currentUser.id
-        },
-        body: JSON.stringify({
-          userMonthlyCapitals: monthlyCapitalsForm
-        })
-      });
-      const data = await res.json();
-      if (data.success) {
-        notify('¡Matriz de capital mensual guardada exitosamente!');
-        fetchAllData();
-      } else {
-        notify(data.error || 'Error al guardar capital', 'error');
-      }
-    } catch (err) {
-      notify('Error de red', 'error');
     }
   };
 
@@ -959,6 +908,76 @@ export default function CrediFluxApp() {
         fetchAllData();
       } else {
         notify(data.error || 'Error al eliminar', 'error');
+      }
+    } catch (err) {
+      notify('Error al comunicarse con el servidor', 'error');
+    }
+  };
+
+  const handleCapitalMovementSave = async () => {
+    const { type, amount, notes } = capitalModal;
+    if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+      notify('Ingresa un monto mayor a 0', 'error');
+      return;
+    }
+    const amountUsdFixed = Math.round(Number(amount) * 100) / 100;
+    if (amountUsdFixed <= 0) {
+      notify('El monto debe ser mayor a 0 USD', 'error');
+      return;
+    }
+    setCapitalModal(prev => ({ ...prev, loading: true }));
+    const sessionUserId = currentUser?.id || (() => {
+      try {
+        return JSON.parse(localStorage.getItem('crediflux_user') || localStorage.getItem('ricardo_user') || '{}')?.id || '';
+      } catch (e) {
+        return '';
+      }
+    })();
+    try {
+      const resp = await fetch('/api/capital-movements', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': sessionUserId
+        },
+        body: JSON.stringify({
+          type,
+          currencyOrigin: 'USD',
+          amount: amountUsdFixed,
+          notes
+        })
+      });
+      const data = await resp.json();
+      if (data.success) {
+        notify(type === 'APORTE_CAPITAL' ? '¡Aporte de capital registrado con éxito!' : '¡Retiro de capital procesado con éxito!');
+        setCapitalModal(prev => ({ ...prev, open: false, amount: '', notes: '' }));
+        fetchAllData();
+      } else {
+        notify(data.error || 'Error al registrar movimiento de capital', 'error');
+      }
+    } catch (err) {
+      console.error('Error saving capital movement:', err);
+      notify('Error de red al guardar movimiento', 'error');
+    } finally {
+      setCapitalModal(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleDeleteCapitalMovement = async (id) => {
+    if (!confirm('¿Eliminar este registro de movimiento de capital? Esta acción recalculará el patrimonio neto.')) return;
+    try {
+      const resp = await fetch(`/api/capital-movements?id=${id}`, {
+        method: 'DELETE',
+        headers: {
+          'x-user-id': currentUser?.id || ''
+        }
+      });
+      const data = await resp.json();
+      if (data.success) {
+        notify('Movimiento de capital eliminado');
+        fetchAllData();
+      } else {
+        notify(data.error || 'No se pudo eliminar el movimiento', 'error');
       }
     } catch (err) {
       notify('Error al comunicarse con el servidor', 'error');
@@ -1357,7 +1376,7 @@ export default function CrediFluxApp() {
             { id: 'clients', label: 'Clientes', icon: Users },
             { id: 'products', label: 'Productos', icon: Smartphone },
             { id: 'ecommerce', label: 'E-Commerce & OCR IA', icon: ShoppingBag, badge: 'IA' },
-            { id: 'settings', label: currentUser?.role === 'admin' ? 'Ajustes Admin (CrediFlux)' : 'Mi Cuenta & Capital', icon: Lock }
+            { id: 'settings', label: currentUser?.role === 'admin' ? 'Ajustes Admin (CrediFlux)' : 'Mi Cuenta & Licencia', icon: Lock }
           ].map(tab => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
@@ -1440,25 +1459,28 @@ export default function CrediFluxApp() {
           const selectedMonthNum = (dashMonth || currentMonthKey).split('-')[1] || '01';
           const selectedMonthYear = (dashMonth || currentMonthKey).split('-')[0] || currentYearStr;
 
-          // --- Salidas / Egresos ---
+          // --- Salidas / Egresos operativos ---
+          // Auditoría contable: el capital inyectado (patrimonio) y el dinero prestado
+          // (colocación recuperable) NO son gastos operativos, por lo que se excluyen
+          // de los egresos totales y se muestran por separado como colocaciones.
           const egresoInventarioUsd = (products || []).reduce((sum, p) => sum + (Number(p.costPrice) || 0) * (Number(p.stock) || 0), 0);
-          const egresoCapitalInicialEcomUsd = Number(ecommerceData.summary?.assignedCapital) || 0;
           const egresoComprasEcomUsd = filteredEcomTxs
             .filter(t => t.type === 'compra')
             .reduce((sum, t) => sum + (Number(t.amountUSD) || 0), 0);
           const egresoComprasEcomBs = filteredEcomTxs
             .filter(t => t.type === 'compra')
             .reduce((sum, t) => sum + (Number(t.amountBs) || (bcvRate ? (Number(t.amountUSD) || 0) * bcvRate : 0)), 0);
-          const egresoPrestadoUsd = filteredLoansMoney
-            .reduce((sum, l) => sum + (Number(l.principal ?? l.financedAmount) || 0), 0);
           const egresos = [
-            { label: 'Compra de productos / inventario', usd: egresoInventarioUsd, bs: toBs(egresoInventarioUsd), note: 'Actual' },
-            { label: 'Capital inicial de e-commerce', usd: egresoCapitalInicialEcomUsd, bs: toBs(egresoCapitalInicialEcomUsd), note: 'Asignado' },
-            { label: 'Compras o inversiones operativas de e-commerce', usd: egresoComprasEcomUsd, bs: egresoComprasEcomBs, note: 'Período' },
-            { label: 'Dinero prestado / financiamientos otorgados', usd: egresoPrestadoUsd, bs: toBs(egresoPrestadoUsd), note: 'Período' }
+            { label: 'Compras de inventario (operativas)', usd: egresoInventarioUsd, bs: toBs(egresoInventarioUsd), note: 'Stock actual' },
+            { label: 'Compras operativas de e-commerce', usd: egresoComprasEcomUsd, bs: egresoComprasEcomBs, note: 'Período' }
           ];
           const totalEgresosUsd = egresos.reduce((s, i) => s + i.usd, 0);
           const totalEgresosBs = egresos.reduce((s, i) => s + i.bs, 0);
+
+          // Colocaciones: salidas recuperables que no forman parte del gasto operativo.
+          const colocacionCapitalEcomUsd = Number(ecommerceData.summary?.assignedCapital) || 0;
+          const colocacionPrestamosUsd = filteredLoansMoney
+            .reduce((sum, l) => sum + (Number(l.principal ?? l.financedAmount) || 0), 0);
 
           // --- Entradas / Ingresos (Bs) ---
           const ingresoPagosFinBs = filteredPayments.reduce((sum, p) => {
@@ -1490,6 +1512,23 @@ export default function CrediFluxApp() {
           const gananciaEcomBs = ecomVentasBsPeriodo - egresoComprasEcomBs;
           const totalGananciasUsd = gananciaFinUsd + gananciaEcomUsd;
           const totalGananciasBs = gananciaFinBs + gananciaEcomBs;
+
+          // --- KPIs principales (jerarquía financiera) ---
+          const entradasPeriodoUsd = ingresoPagosFinUsd + ecomVentasUsdPeriodo;
+          const flujoNetoUsd = entradasPeriodoUsd - totalEgresosUsd;
+          const roiGlobal = capitalSummary.netCapital > 0
+            ? (totalGananciasUsd / capitalSummary.netCapital) * 100
+            : 0;
+          const activeLoansKpi = (loans || []).filter(l => l && !l.archived && l.status !== 'completado' && l.status !== 'archivado');
+          const carteraActivaUsd = activeLoansKpi.reduce((sum, l) => sum + (Number(l.stats?.pendingAmount) || 0), 0);
+
+          // --- Datos del módulo "Gestionar Capital" ---
+          const recentCapitalMovements = (capitalMovements || []).slice(0, 6);
+          const monthNameFor = (dateLike) => {
+            const d = new Date(dateLike || 0);
+            if (Number.isNaN(d.getTime())) return '—';
+            return `${monthLabels[d.getMonth()]?.name || ''} ${d.getFullYear()}`.trim();
+          };
 
           const urgentCount = morosoLoans.length + proximoLoans.length;
           const card = `rounded-3xl border ${themeDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'} shadow-sm`;
@@ -1603,6 +1642,74 @@ export default function CrediFluxApp() {
               </div>
             )}
 
+            {/* KPIs principales: jerarquía financiera */}
+            <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+              {/* Liquidez / Capital disponible */}
+              <div className={`${card} p-5`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Liquidez / Capital disponible</p>
+                    <h3 className="mt-1 text-2xl font-extrabold text-white tabular-nums truncate">{fmtUsd(capitalSummary.netCapital)}</h3>
+                    <p className="mt-1 text-[11px] text-slate-400">Capital invertido neto (aportes − retiros)</p>
+                  </div>
+                  <span className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 shrink-0"><Landmark className="w-5 h-5" /></span>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">Aportes {fmtUsd(capitalSummary.aportes)}</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/10 text-rose-300 border border-rose-500/20">Retiros {fmtUsd(capitalSummary.retiros)}</span>
+                </div>
+              </div>
+
+              {/* Flujo del período */}
+              <div className={`${card} p-5`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Flujo del período</p>
+                    <h3 className={`mt-1 text-2xl font-extrabold tabular-nums truncate ${flujoNetoUsd >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {flujoNetoUsd >= 0 ? '+' : '−'}{fmtUsd(Math.abs(flujoNetoUsd))}
+                    </h3>
+                    <p className="mt-1 text-[11px] text-slate-400">Entradas {fmtUsd(entradasPeriodoUsd)} − Egresos {fmtUsd(totalEgresosUsd)}</p>
+                  </div>
+                  <span className={`p-2.5 rounded-xl shrink-0 ${flujoNetoUsd >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                    {flujoNetoUsd >= 0 ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownRight className="w-5 h-5" />}
+                  </span>
+                </div>
+                <p className="mt-3 text-[10px] text-slate-500">{dashPeriodLabel} • solo egresos operativos</p>
+              </div>
+
+              {/* Rendimiento / Ganancias */}
+              <div className={`${card} p-5`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Rendimiento / Ganancias</p>
+                    <h3 className={`mt-1 text-2xl font-extrabold tabular-nums truncate ${totalGananciasUsd >= 0 ? 'text-teal-400' : 'text-rose-400'}`}>{fmtUsd(totalGananciasUsd)}</h3>
+                    <p className="mt-1 text-[11px] text-slate-400">Ganancias netas del período</p>
+                  </div>
+                  <span className="p-2.5 rounded-xl bg-teal-500/10 text-teal-400 shrink-0"><TrendingUp className="w-5 h-5" /></span>
+                </div>
+                <div className="mt-3 flex items-center justify-between text-[10px] text-slate-400">
+                  <span>ROI sobre capital</span>
+                  <span className={`font-bold tabular-nums ${roiGlobal >= 0 ? 'text-teal-300' : 'text-rose-300'}`}>{roiGlobal.toFixed(2)} %</span>
+                </div>
+              </div>
+
+              {/* Cartera activa */}
+              <div className={`${card} p-5`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Cartera activa</p>
+                    <h3 className="mt-1 text-2xl font-extrabold text-white tabular-nums truncate">{fmtUsd(carteraActivaUsd)}</h3>
+                    <p className="mt-1 text-[11px] text-slate-400">Saldo por cobrar de financiamientos</p>
+                  </div>
+                  <span className="p-2.5 rounded-xl bg-amber-500/10 text-amber-400 shrink-0"><Wallet className="w-5 h-5" /></span>
+                </div>
+                <div className="mt-3 flex items-center justify-between text-[10px] text-slate-400">
+                  <span>{activeLoansKpi.length} financiamiento(s) activo(s)</span>
+                  <button onClick={() => setActiveTab('loans')} className="font-semibold text-emerald-400 hover:text-emerald-300">Ver cartera →</button>
+                </div>
+              </div>
+            </section>
+
             {/* Bloque: Resumen financiero */}
             <section className="space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
@@ -1615,7 +1722,7 @@ export default function CrediFluxApp() {
                 <div className={`${card} p-5`}>
                   <div className="flex items-center justify-between mb-3">
                     <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Total de dinero de salida</p>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Solo gastos operativos</p>
                       <h3 className="text-base font-bold text-white">Egresos totales</h3>
                     </div>
                     <span className="p-2 rounded-xl bg-rose-500/10 text-rose-400"><ArrowDownRight className="w-5 h-5" /></span>
@@ -1644,6 +1751,7 @@ export default function CrediFluxApp() {
                       </div>
                     ))}
                   </div>
+                  <p className="mt-3 text-[10px] text-slate-500 leading-relaxed">El capital invertido y los financiamientos otorgados no se incluyen: son recuperables y no representan gasto operativo.</p>
                 </div>
 
                 {/* Entradas */}
@@ -1697,91 +1805,7 @@ export default function CrediFluxApp() {
                       <p className="text-lg font-extrabold text-white tabular-nums">{fmtBs(totalGananciasBs)}</p>
                     </div>
                   </div>
-                
-
-            {/* KPIs de Capital */}
-            <section className="grid grid-cols-1 lg:grid-cols-3 gap-4 pt-4">
-              {/* Capital Invertido Neto */}
-              <div className={`${card} p-4 rounded-xl border border-slate-700/50 ${themeDark ? 'bg-slate-950' : 'bg-white'}`}>
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Capital Invertido Neto</p>
-                    <h3 className="text-lg font-bold text-white">$ {capitalSummary.netCapital.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h3>
-                  </div>
-                  <span className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400"><TrendingUp className="w-3 h-3" /></span>
-                </div>
-                <p className="text-[10px] text-slate-400">SUM(APORTE_CAPITAL) - SUM(RETIRO_CAPITAL)</p>
-              </div>
-
-              {/* Liquidez Disponible */}
-              <div className={`${card} p-4 rounded-xl border border-slate-700/50 ${themeDark ? 'bg-slate-950' : 'bg-white'}`}>
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Liquidez Disponible</p>
-                    <h3 className="text-lg font-bold text-white">$ {Number(capitalSummary.netCapital + (settings?.netProfit || 0) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h3>
-                  </div>
-                  <span className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400"><TrendingUp className="w-3 h-3" /></span>
-                </div>
-                <p className="text-[10px] text-slate-400">Capital Neto + Ganancias Netas - Capital Comprometido</p>
-              </div>
-
-              {/* ROI Global */}
-              <div className={`${card} p-4 rounded-xl border border-slate-700/50 ${themeDark ? 'bg-slate-950' : 'bg-white'}`}>
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">ROI Global</p>
-                    <h3 className="text-lg font-bold text-white">{capitalSummary.netCapital > 0 ? ((Number(settings?.netProfit || 0) || 0) / capitalSummary.netCapital * 100).toFixed(2) + ' %' : '0.00 %'}</h3>
-                  </div>
-                  <span className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400"><TrendingUp className="w-3 h-3" /></span>
-                </div>
-                <p className="text-[10px] text-slate-400">(Ganancias Netas / Capital Invertido Neto) × 100</p>
-              </div>
-            </section>
-
-            {/* Historial de Movimientos de Capital */}
-            {capitalMovements.length > 0 && (
-              <section className="p-4 rounded-xl border border-slate-700/50 ${themeDark ? 'bg-slate-950' : 'bg-white'} mb-4">
-                <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-3">Últimos Movimientos de Capital</h3>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-600/50">
-                        <th className="text-left text-slate-300">Fecha</th>
-                        <th className="text-left text-slate-300">Tipo</th>
-                        <th className="text-left text-slate-300">Monto (USD)</th>
-                        <th className="text-left text-slate-300">Moneda</th>
-                        <th className="text-left text-slate-300">Notas</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {capitalMovements
-                        .slice(0, 5)
-                        .reverse()
-                        .map((m, i) => (
-                          <tr key={m.id} className="border-b border-slate-600/50 hover:bg-slate-900/50 ${themeDark ? 'cursor-pointer' : ''}">
-                            <td className="text-slate-400">{new Date(m.createdAt || 0).toLocaleDateString()}</td>
-                            <td className={`text-slate-400 ${m.type === 'APORTE_CAPITAL' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                              {m.type}
-                            </td>
-                            <td className="text-slate-400 tabular-nums">{m.amountUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                            <td className="text-slate-400">{m.currencyOrigin}</td>
-                            <td className="text-slate-400 text-xs">{m.notes || ''}</td>
-                          </tr>
-                        ))}
-                      {capitalMovements.length <= 5 ? null : (
-                        <tr>
-                          <td colSpan={5} className="text-center text-slate-500 text-xs">
-                            Ver todos los {capitalMovements.length} movimientos
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            )}
-
-            <div className="space-y-2">
+                  <div className="space-y-2">
                     <div className="p-3 rounded-xl border border-slate-800/80 bg-slate-950/20">
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-[11px] font-medium text-slate-300">Margen de ganancia de financiamientos</p>
@@ -1807,136 +1831,292 @@ export default function CrediFluxApp() {
               </div>
             </section>
 
-            {/* Gestionar Capital */}
-            <div className="flex items-center gap-3 mb-4">
-              <button
-                onClick={() => setCapitalModal(prev => ({ ...prev, open: true }))}
-                className={`px-4 py-2 rounded-xl font-medium transition-all ${themeDark ? 'bg-emerald-600 text-slate-100 hover:bg-emerald-500' : 'bg-slate-200 text-slate-800 hover:text-slate-900'}`}
-                aria-label="Gestionar Capital"
-              >
-                <ShoppingBag className="w-4 h-4" /> Gestionar Capital
-              </button>
-            </div>
-
-            {/* Modal: Gestionar Capital */}
-            <div
-              className={`fixed inset-0 z-50 hidden items-center justify-center ${themeDark ? 'bg-slate-900/80' : 'bg-white'} opacity-80 rounded-border`}
-              onClick={e => e.currentTarget.click()}
-              role="dialog"
-              aria-modal="true"
-            >
-              <div
-                className={`rounded-2xl p-6 max-w-md w-full ${themeDark ? 'bg-slate-800' : 'bg-white'} border border-slate-600/50`}
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-bold text-white">Gestionar Capital</h2>
-                  <button
-                    onClick={() => setCapitalModal(prev => ({ ...prev, open: false }))}
-                    className="text-slate-400 hover:text-white p-1"
-                    aria-label="Cerrar modal"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+            {/* Bloque: Capital operativo */}
+            <section className={`${card} p-5`}>
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
+                <div>
+                  <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                    <Coins className="w-5 h-5 text-emerald-400" />
+                    Capital operativo
+                  </h2>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Aportes y retiros de capital. El capital es patrimonio, no un egreso operativo.</p>
                 </div>
-
-                {/* Formulario: Tipo */}
-                <div className="space-y-3 mb-4">
-                  <label className="text-[10px] font-medium text-slate-300">Tipo</label>
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => setCapitalModal(prev => ({ ...prev, type: 'APORTE_CAPITAL' }))}
-                      className={`py-1 px-2 rounded text-xs font-bold transition-all ${capitalModal.type === 'APORTE_CAPITAL' ? 'bg-emerald-600 text-slate-100' : 'text-slate-400 bg-transparent border border-emerald-500/20'}`}
-                    >
-                      Aporte
-                    </button>
-                    <button
-                      onClick={() => setCapitalModal(prev => ({ ...prev, type: 'RETIRO_CAPITAL' }))}
-                      className={`py-1 px-2 rounded text-xs font-bold transition-all ${capitalModal.type === 'RETIRO_CAPITAL' ? 'bg-rose-600 text-slate-100' : 'text-slate-400 bg-transparent border border-rose-500/20'}`}
-                    >
-                      Retiro
-                    </button>
-                  </div>
-
-                  {/* Selector de Moneda */}
-                  <label className="text-[10px] font-medium text-slate-300">Moneda</label>
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => setCapitalModal(prev => ({ ...prev, currencyOrigin: 'USD' }))}
-                      className={`py-1 px-2 rounded text-xs font-bold transition-all ${capitalModal.currencyOrigin === 'USD' ? 'bg-emerald-600 text-slate-100' : 'text-slate-400 bg-transparent border border-emerald-500/20'}`}
-                    >
-                      USD
-                    </button>
-                    <button
-                      onClick={() => setCapitalModal(prev => ({ ...prev, currencyOrigin: 'USDT' }))}
-                      className={`py-1 px-2 rounded text-xs font-bold transition-all ${capitalModal.currencyOrigin === 'USDT' ? 'bg-emerald-600 text-slate-100' : 'text-slate-400 bg-transparent border border-emerald-500/20'}`}
-                    >
-                      USDT
-                    </button>
-                    <button
-                      onClick={() => setCapitalModal(prev => ({ ...prev, currencyOrigin: 'VES' }))}
-                      className={`py-1 px-2 rounded text-xs font-bold transition-all ${capitalModal.currencyOrigin === 'VES' ? 'bg-rose-600 text-slate-100' : 'text-slate-400 bg-transparent border border-rose-500/20'}`}
-                    >
-                      VES
-                    </button>
-                  </div>
-
-                  {/* Input Monto */}
-                  <div>
-                    <label className="text-[10px] font-medium text-slate-300">Monto (USD)</label>
-                    <input
-                      type="number"
-                      value={capitalModal.amount}
-                      onChange={e => setCapitalModal(prev => ({ ...prev, amount: e.target.value }))}
-                      placeholder="0"
-                      className={`w-full px-3 py-2 rounded-xl border border-slate-600/50 bg-slate-900/50 ${themeDark} text-slate-100 placeholder-slate-400 text-sm focus-outline-none focus:ring-1 focus:ring-emerald-500/50`}
-                    />
-                  </div>
-
-                  {/* Input Tasa (solo VES) */}
-                  {capitalModal.currencyOrigin === 'VES' && (
-                    <div>
-                      <label className="text-[10px] font-medium text-slate-300">Tasa de Cambio (VES/USD)</label>
-                      <input
-                        type="number"
-                        value={capitalModal.exchangeRate}
-                        onChange={e => setCapitalModal(prev => ({ ...prev, exchangeRate: e.target.value }))}
-                        placeholder="Ej: 30.50"
-                        className={`w-full px-3 py-2 rounded-xl border border-slate-600/50 bg-slate-900/50 ${themeDark} text-slate-100 placeholder-slate-400 text-sm focus-outline-none focus:ring-1 focus:ring-emerald-500/50`}
-                      />
-                      <p className="text-[10px] text-slate-500 mt-1">El amount_usd se calculará automáticamente: amount / exchange_rate</p>
-                    </div>
-                  )}
-
-                  {/* Notas */}
-                  <div>
-                    <label className="text-[10px] font-medium text-slate-300">Notas</label>
-                    <textarea
-                      value={capitalModal.notes}
-                      onChange={e => setCapitalModal(prev => ({ ...prev, notes: e.target.value }))}
-                      placeholder="Observaciones..."
-                      className={`w-full px-3 py-2 rounded-xl border border-slate-600/50 bg-slate-900/50 ${themeDark} text-slate-100 placeholder-slate-400 text-sm focus-outline-none focus:ring-1 focus:ring-emerald-500/50 h-24 resize-y`}
-                    />
-                  </div>
-                </div>
-
-                {/* Acciones: Guardar y Cancelar */}
-                <div className="flex gap-3 pt-4 border-t border-slate-700/50">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
-                    onClick={() => setCapitalModal(prev => ({ ...prev, open: false }))}
-                    className={`flex-1 py-2 rounded-xl font-medium transition-all ${themeDark ? 'bg-slate-700 text-slate-200' : 'bg-slate-200 text-slate-800'}`}
+                    onClick={() => { if (isUserExpired) { notify(SUPPORT_CONTACT_TEXT, 'error'); return; } setCapitalModal(prev => ({ ...prev, open: true, tab: 'movimiento' })); }}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs transition-all shadow-md shadow-emerald-500/20"
+                    aria-label="Gestionar Capital"
                   >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={async () => handleCapitalMovementSave()}
-                    className={`flex-1 py-2 rounded-xl font-medium transition-all ${themeDark ? 'bg-emerald-600 text-slate-100' : 'bg-emerald-500 text-slate-900'}`}
-                    disabled={capitalModal.loading}
-                  >
-                    {capitalModal.loading ? 'Guardando...' : 'Guardar Movimiento'}
+                    <Coins className="w-4 h-4" /> Gestionar Capital
                   </button>
                 </div>
               </div>
-            </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="p-3.5 rounded-xl border border-emerald-500/20 bg-emerald-500/5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-300/80">Capital invertido neto</p>
+                  <p className="mt-1 text-xl font-extrabold text-white tabular-nums">{fmtUsd(capitalSummary.netCapital)}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">{capitalSummary.count} movimiento(s) registrado(s)</p>
+                </div>
+                <div className="p-3.5 rounded-xl border border-slate-800/80 bg-slate-950/20">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Aportes acumulados</p>
+                  <p className="mt-1 text-xl font-extrabold text-emerald-400 tabular-nums">{fmtUsd(capitalSummary.aportes)}</p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">Inyecciones de patrimonio</p>
+                </div>
+                <div className="p-3.5 rounded-xl border border-slate-800/80 bg-slate-950/20">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Retiros acumulados</p>
+                  <p className="mt-1 text-xl font-extrabold text-rose-400 tabular-nums">{fmtUsd(capitalSummary.retiros)}</p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">Desinversiones de capital</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+                <div className="lg:col-span-2 rounded-xl border border-slate-800/80 overflow-hidden">
+                  <div className="px-3 py-2 bg-slate-800/40 border-b border-slate-800 flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-200">Movimientos recientes</span>
+                    <button onClick={() => setCapitalModal(prev => ({ ...prev, open: true, tab: 'historial' }))} className="text-[11px] font-semibold text-emerald-400 hover:text-emerald-300">Ver historial completo →</button>
+                  </div>
+                  {recentCapitalMovements.length === 0 ? (
+                    <div className="px-3 py-6 text-center">
+                      <p className="text-xs text-slate-400">Aún no hay aportes ni retiros de capital registrados.</p>
+                      <button onClick={() => setCapitalModal(prev => ({ ...prev, open: true, tab: 'movimiento' }))} className="mt-2 text-[11px] font-semibold text-emerald-400 hover:text-emerald-300">Registrar el primero →</button>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead className="bg-slate-800/30 text-[10px] uppercase tracking-wider text-slate-400">
+                          <tr>
+                            <th className="text-left py-2 px-3">Fecha</th>
+                            <th className="text-left py-2 px-3">Mes</th>
+                            <th className="text-left py-2 px-3">Tipo</th>
+                            <th className="text-right py-2 px-3">Monto USD</th>
+                            <th className="text-left py-2 px-3">Moneda</th>
+                            <th className="text-left py-2 px-3">Concepto</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {recentCapitalMovements.map((m) => (
+                            <tr key={m.id} className="border-t border-slate-800/70 hover:bg-slate-800/20">
+                              <td className="py-2 px-3 text-slate-300 whitespace-nowrap">{new Date(m.createdAt || 0).toLocaleDateString('es-VE')}</td>
+                              <td className="py-2 px-3 text-slate-400 whitespace-nowrap">{monthNameFor(m.createdAt)}</td>
+                              <td className="py-2 px-3 whitespace-nowrap">
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${m.type === 'APORTE_CAPITAL' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' : 'bg-rose-500/10 text-rose-300 border-rose-500/20'}`}>
+                                  {m.type === 'APORTE_CAPITAL' ? 'Aporte' : 'Retiro'}
+                                </span>
+                              </td>
+                              <td className={`py-2 px-3 text-right font-semibold tabular-nums whitespace-nowrap ${m.type === 'APORTE_CAPITAL' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                {m.type === 'APORTE_CAPITAL' ? '+' : '−'}{fmtUsd(m.amountUsd)}
+                              </td>
+                              <td className="py-2 px-3 text-slate-400">{m.currencyOrigin || 'USD'}</td>
+                              <td className="py-2 px-3 text-slate-400 max-w-[16rem] truncate" title={m.notes || ''}>{m.notes || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3.5">
+                  <h4 className="text-xs font-bold text-amber-300 flex items-center gap-1.5"><AlertCircle className="w-4 h-4" /> No se contabilizan como egresos</h4>
+                  <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">Salidas recuperables o de patrimonio, informativas para el flujo de caja:</p>
+                  <div className="mt-2.5 space-y-2">
+                    <div className="flex items-center justify-between gap-2 text-[11px]">
+                      <span className="text-slate-300">Capital asignado a e-commerce</span>
+                      <span className="font-semibold text-amber-300 tabular-nums">{fmtUsd(colocacionCapitalEcomUsd)}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 text-[11px]">
+                      <span className="text-slate-300">Financiamientos otorgados</span>
+                      <span className="font-semibold text-amber-300 tabular-nums">{fmtUsd(colocacionPrestamosUsd)}</span>
+                    </div>
+                  </div>
+                  <p className="mt-2.5 text-[10px] text-slate-500">Se recuperan vía pagos de cuotas y ventas; no reducen la utilidad operativa.</p>
+                </div>
+              </div>
+            </section>
+
+            {/* Modal: Gestionar Capital */}
+            {capitalModal.open && (
+              <div
+                className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-3 sm:p-6"
+                onClick={(e) => { if (e.target === e.currentTarget) setCapitalModal(prev => ({ ...prev, open: false })); }}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Gestionar Capital"
+              >
+                <div className={`w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-2xl border shadow-2xl ${themeDark ? 'bg-[#0f172a] border-slate-700/80' : 'bg-white border-slate-200'}`}>
+                  <div className={`sticky top-0 z-10 flex items-center justify-between gap-3 px-5 py-4 border-b ${themeDark ? 'bg-[#0f172a] border-slate-800' : 'bg-white border-slate-200'}`}>
+                    <div>
+                      <h2 className={`text-lg font-bold flex items-center gap-2 ${themeDark ? 'text-white' : 'text-slate-900'}`}><Coins className="w-5 h-5 text-emerald-400" /> Gestionar Capital</h2>
+                      <p className="text-[11px] text-slate-400">Registra aportes y retiros, y consulta el historial cronológico del capital.</p>
+                    </div>
+                    <button
+                      onClick={() => setCapitalModal(prev => ({ ...prev, open: false }))}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60"
+                      aria-label="Cerrar modal"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="p-5 space-y-4">
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="p-2.5 rounded-xl border border-emerald-500/20 bg-emerald-500/10">
+                        <p className="text-[9px] uppercase tracking-wider text-emerald-300/80 font-semibold">Capital neto</p>
+                        <p className="text-sm font-extrabold text-white tabular-nums">{fmtUsd(capitalSummary.netCapital)}</p>
+                      </div>
+                      <div className="p-2.5 rounded-xl border border-slate-800/80 bg-slate-950/20">
+                        <p className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold">Aportes</p>
+                        <p className="text-sm font-extrabold text-emerald-400 tabular-nums">{fmtUsd(capitalSummary.aportes)}</p>
+                      </div>
+                      <div className="p-2.5 rounded-xl border border-slate-800/80 bg-slate-950/20">
+                        <p className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold">Retiros</p>
+                        <p className="text-sm font-extrabold text-rose-400 tabular-nums">{fmtUsd(capitalSummary.retiros)}</p>
+                      </div>
+                    </div>
+
+                    <div className={`flex gap-1 p-1 rounded-xl border overflow-x-auto no-scrollbar ${themeDark ? 'bg-slate-800/60 border-slate-700/70' : 'bg-slate-100 border-slate-200'}`}>
+                      {[
+                        { id: 'movimiento', label: 'Movimiento' },
+                        { id: 'historial', label: `Historial (${capitalSummary.count})` }
+                      ].map((tabItem) => (
+                        <button
+                          key={tabItem.id}
+                          onClick={() => setCapitalModal(prev => ({ ...prev, tab: tabItem.id }))}
+                          className={`flex-1 whitespace-nowrap px-3 py-2 rounded-lg text-xs font-bold transition-all ${capitalModal.tab === tabItem.id ? 'bg-emerald-500 text-slate-950 shadow-sm' : themeDark ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-900'}`}
+                        >
+                          {tabItem.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {capitalModal.tab === 'movimiento' && (
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Tipo de movimiento</label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              onClick={() => setCapitalModal(prev => ({ ...prev, type: 'APORTE_CAPITAL' }))}
+                              className={`py-2 rounded-xl text-xs font-bold transition-all border ${capitalModal.type === 'APORTE_CAPITAL' ? 'bg-emerald-500 text-slate-950 border-emerald-400' : 'bg-transparent text-slate-400 border-emerald-500/20 hover:text-emerald-300'}`}
+                            >
+                              Aporte
+                            </button>
+                            <button
+                              onClick={() => setCapitalModal(prev => ({ ...prev, type: 'RETIRO_CAPITAL' }))}
+                              className={`py-2 rounded-xl text-xs font-bold transition-all border ${capitalModal.type === 'RETIRO_CAPITAL' ? 'bg-rose-500 text-white border-rose-400' : 'bg-transparent text-slate-400 border-rose-500/20 hover:text-rose-300'}`}
+                            >
+                              Retiro
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Monto (USD)</label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-semibold">$</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="any"
+                              value={capitalModal.amount}
+                              onChange={e => setCapitalModal(prev => ({ ...prev, amount: e.target.value }))}
+                              placeholder="0.00"
+                              className="w-full h-10 pl-7 pr-3 bg-slate-950/40 border border-slate-700 rounded-xl text-sm text-white font-semibold placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Concepto / nota</label>
+                          <textarea
+                            value={capitalModal.notes}
+                            onChange={e => setCapitalModal(prev => ({ ...prev, notes: e.target.value }))}
+                            placeholder="Ej: Aporte mensual de operaciones, retiro de utilidades..."
+                            className="w-full px-3 py-2 bg-slate-950/40 border border-slate-700 rounded-xl text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 h-20 resize-y"
+                          />
+                        </div>
+
+                        {capitalModal.type === 'RETIRO_CAPITAL' && (
+                          <p className="text-[10px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                            El retiro se descuenta del capital disponible. Máximo retirable: <strong>{fmtUsd(capitalSummary.netCapital)}</strong>.
+                          </p>
+                        )}
+
+                        <div className="flex gap-3 pt-1">
+                          <button
+                            onClick={() => setCapitalModal(prev => ({ ...prev, open: false }))}
+                            className={`flex-1 py-2.5 rounded-xl font-semibold text-xs transition-all ${themeDark ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            onClick={() => handleCapitalMovementSave()}
+                            disabled={capitalModal.loading}
+                            className={`flex-1 py-2.5 rounded-xl font-bold text-xs transition-all disabled:opacity-60 ${capitalModal.type === 'APORTE_CAPITAL' ? 'bg-emerald-500 hover:bg-emerald-600 text-slate-950' : 'bg-rose-500 hover:bg-rose-600 text-white'}`}
+                          >
+                            {capitalModal.loading ? 'Guardando...' : capitalModal.type === 'APORTE_CAPITAL' ? 'Registrar aporte' : 'Registrar retiro'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {capitalModal.tab === 'historial' && (
+                      <div className="rounded-xl border border-slate-800/80 overflow-hidden">
+                        <div className="px-3 py-2 bg-slate-800/40 border-b border-slate-800 flex items-center justify-between">
+                          <span className="text-xs font-semibold text-slate-200">Historial cronológico de capital</span>
+                          <span className="text-[10px] text-slate-500">{capitalMovements.length} movimiento(s)</span>
+                        </div>
+                        <div className="max-h-[46vh] overflow-y-auto overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead className="bg-slate-800/30 text-[10px] uppercase tracking-wider text-slate-400 sticky top-0">
+                              <tr>
+                                <th className="text-left py-2 px-3">Fecha</th>
+                                <th className="text-left py-2 px-3">Mes</th>
+                                <th className="text-left py-2 px-3">Tipo</th>
+                                <th className="text-right py-2 px-3">Monto USD</th>
+                                <th className="text-left py-2 px-3">Moneda</th>
+                                <th className="text-left py-2 px-3">Concepto</th>
+                                <th className="text-right py-2 px-3"></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {capitalMovements.length === 0 ? (
+                                <tr><td colSpan="7" className="py-5 px-3 text-center text-slate-500">Sin movimientos registrados.</td></tr>
+                              ) : capitalMovements.map((m) => (
+                                <tr key={m.id} className="border-t border-slate-800/70 hover:bg-slate-800/20">
+                                  <td className="py-2 px-3 text-slate-300 whitespace-nowrap">{new Date(m.createdAt || 0).toLocaleDateString('es-VE')}</td>
+                                  <td className="py-2 px-3 text-slate-400 whitespace-nowrap">{monthNameFor(m.createdAt)}</td>
+                                  <td className="py-2 px-3 whitespace-nowrap">
+                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${m.type === 'APORTE_CAPITAL' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' : 'bg-rose-500/10 text-rose-300 border-rose-500/20'}`}>
+                                      {m.type === 'APORTE_CAPITAL' ? 'Aporte' : 'Retiro'}
+                                    </span>
+                                  </td>
+                                  <td className={`py-2 px-3 text-right font-semibold tabular-nums whitespace-nowrap ${m.type === 'APORTE_CAPITAL' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                    {m.type === 'APORTE_CAPITAL' ? '+' : '−'}{fmtUsd(m.amountUsd)}
+                                  </td>
+                                  <td className="py-2 px-3 text-slate-400">{m.currencyOrigin || 'USD'}</td>
+                                  <td className="py-2 px-3 text-slate-400 max-w-[15rem] truncate" title={m.notes || ''}>{m.notes || '—'}</td>
+                                  <td className="py-2 px-2 text-right">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteCapitalMovement(m.id)}
+                                      className="p-1 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10"
+                                      title="Eliminar movimiento"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Bloque: Cobros urgentes y accesos rápidos */}
             <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -3521,18 +3701,9 @@ export default function CrediFluxApp() {
           const calcVentasBs = calcTransactions
             .filter(t => t.type === 'venta')
             .reduce((sum, t) => sum + (Number(t.amountBs) || 0), 0);
-          // GANANCIA NETA: se descuenta el Capital inicial configurado por el usuario en Ajustes
-          // (capital mensual por mes YYYY-MM; para día se usa su mes, para año se usa el capital del mes actual como referencia)
-          const capitalMonthKey = calcPeriod === 'month'
-            ? String(calcDate || '').slice(0, 7)
-            : (calcPeriod === 'day' ? String(calcDate || '').slice(0, 7) : new Date().toISOString().slice(0, 7));
-          const capitalEntry = currentUser?.monthlyCapitals?.[capitalMonthKey];
-          const capitalInicial = Number(
-            capitalEntry && Object.prototype.hasOwnProperty.call(capitalEntry, 'capital')
-              ? capitalEntry.capital
-              : (settings?.ecommerceCapital ?? 0)
-          );
-          const calcGananciasBs = calcVentasBs - calcComprasBs - capitalInicial;
+          // GANANCIA NETA: solo ingresos operativos menos costos operativos.
+          // El capital asignado es patrimonio y no se descuenta de la utilidad.
+          const calcGananciasBs = calcVentasBs - calcComprasBs;
 
           const calcComprasUSD = calcTransactions
             .filter(t => t.type === 'compra')
@@ -3540,7 +3711,7 @@ export default function CrediFluxApp() {
           const calcVentasUSD = calcTransactions
             .filter(t => t.type === 'venta')
             .reduce((sum, t) => sum + (Number(t.amountUSD) || Number(t.amount) || 0), 0);
-          const calcGananciasUSD = calcVentasUSD - calcComprasUSD - capitalInicial;
+          const calcGananciasUSD = calcVentasUSD - calcComprasUSD;
 
           return (
             <div className="space-y-8">
@@ -3568,7 +3739,7 @@ export default function CrediFluxApp() {
                       Módulo de Cálculos & Resumen Financiero
                     </h3>
                     <p className="text-xs text-slate-400">
-                      Totales y balance expresados en Bolívares (Bs) y Dólares (USD). La Ganancia Neta se calcula como Ventas − Compras − Capital inicial configurado en Ajustes.
+                      Totales y balance expresados en Bolívares (Bs) y Dólares (USD). La Ganancia Neta se calcula como Ventas − Compras (sin descontar capital, que es patrimonio).
                     </p>
                   </div>
 
@@ -3967,215 +4138,9 @@ export default function CrediFluxApp() {
         })()}
 
         {/* ============================================================== */}
-        {/* TAB 7: AJUSTES, LICENCIAS Y GESTIÓN DE CAPITAL MENSUAL         */}
+        {/* TAB 7: AJUSTES Y LICENCIAS                                     */}
         {/* ============================================================== */}
         {activeTab === 'settings' && (() => {
-          const realCurrentMonthKey = new Date().toISOString().slice(0, 7);
-
-          // Años disponibles: año actual, siguientes y cualquier año con capital ya registrado
-          const capitalYearOptions = (() => {
-            const years = new Set([currentYear, selectedCapitalYear]);
-            const baseYear = Math.max(currentYear, 2026);
-            for (let y = baseYear; y <= baseYear + 5; y++) years.add(y);
-            Object.keys(monthlyCapitalsForm || {}).forEach(k => {
-              const y = Number(String(k).slice(0, 4));
-              if (Number.isFinite(y) && y >= 2000) years.add(y);
-            });
-            return Array.from(years).sort((a, b) => a - b);
-          })();
-
-          const selectedMonthNumber = Number(String(selectedCapitalMonth).slice(5, 7)) || (new Date().getMonth() + 1);
-          const selectedMonthMeta = monthLabels.find(m => m.num === selectedMonthNumber) || monthLabels[0];
-          const selectedMonthKey = `${selectedCapitalYear}-${String(selectedMonthMeta.num).padStart(2, '0')}`;
-          const selectedMonthValue = monthlyCapitalsForm?.[selectedMonthKey]?.capital ?? 0;
-
-          const yearMonthKeys = monthLabels.map(m => `${selectedCapitalYear}-${String(m.num).padStart(2, '0')}`);
-          const capitalTotalYear = yearMonthKeys.reduce((sum, key) => {
-            const val = Number(monthlyCapitalsForm?.[key]?.capital);
-            return sum + (Number.isFinite(val) ? val : 0);
-          }, 0);
-          const registeredCapitalMonths = yearMonthKeys
-            .map((key, idx) => ({
-              key,
-              month: monthLabels[idx],
-              year: selectedCapitalYear,
-              capital: Number(monthlyCapitalsForm?.[key]?.capital) || 0
-            }))
-            .filter(m => m.capital > 0);
-
-          const syncCapitalsFromServer = (capitals) => {
-            if (!capitals) return;
-            setMonthlyCapitalsForm(capitals);
-            setCurrentUser(prev => {
-              if (!prev) return prev;
-              const updated = { ...prev, monthlyCapitals: capitals };
-              try { localStorage.setItem('crediflux_user', JSON.stringify(updated)); } catch (e) {}
-              return updated;
-            });
-          };
-
-          const saveCapitalUpdate = async (updatedForm, successMsg) => {
-            try {
-              const res = await fetch('/api/settings', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'x-user-id': currentUser.id
-                },
-                body: JSON.stringify({ userMonthlyCapitals: updatedForm })
-              });
-              const data = await res.json();
-              if (data.success) {
-                notify(successMsg || 'Capital actualizado exitosamente');
-                syncCapitalsFromServer(data.monthlyCapitals);
-                fetchAllData();
-                return true;
-              } else {
-                notify(data.error || 'Error al guardar capital', 'error');
-                return false;
-              }
-            } catch (err) {
-              notify('Error de red al guardar capital', 'error');
-              return false;
-            }
-          };
-
-          const handleCapitalYearChange = (nextYear) => {
-            const year = Number(nextYear);
-            if (!Number.isFinite(year)) return;
-            setSelectedCapitalYear(year);
-            setSelectedCapitalMonth(`${year}-${String(selectedMonthMeta.num).padStart(2, '0')}`);
-            setCapitalMonthAmount('');
-          };
-
-          const handleAssignCapitalMonth = async (e) => {
-            e.preventDefault();
-            const amount = Number(capitalMonthAmount);
-            if (!Number.isFinite(amount) || amount < 0) {
-              notify('Ingresa un monto válido (0 o mayor)', 'error');
-              return;
-            }
-            const next = {
-              ...monthlyCapitalsForm,
-              [selectedMonthKey]: {
-                monthIndex: selectedMonthMeta.num,
-                monthName: selectedMonthMeta.name,
-                year: selectedCapitalYear,
-                capital: amount
-              }
-            };
-            setMonthlyCapitalsForm(next);
-            const ok = await saveCapitalUpdate(next, `Capital de ${selectedMonthMeta.name} ${selectedCapitalYear} actualizado`);
-            if (ok) setCapitalMonthAmount('');
-          };
-
-          const handleClearAllMonthlyCapitals = async () => {
-            if (!confirm(`¿Vaciar todo el capital asignado del año ${selectedCapitalYear}? Esta acción pondrá los 12 meses de ese año en 0.`)) return;
-            const cleared = {};
-            yearMonthKeys.forEach((key, idx) => {
-              cleared[key] = {
-                monthIndex: monthLabels[idx].num,
-                monthName: monthLabels[idx].name,
-                year: selectedCapitalYear,
-                capital: 0
-              };
-            });
-            const next = { ...monthlyCapitalsForm, ...cleared };
-            setMonthlyCapitalsForm(next);
-            await saveCapitalUpdate(next, `Todo el capital de ${selectedCapitalYear} fue reiniciado a 0`);
-          };
-
-          const handleCapitalMovementSave = async () => {
-            const { type, currencyOrigin, amount, exchangeRate, notes, loading } = capitalModal;
-            if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
-              notify('Ingresa un monto mayor a 0', 'error');
-              return;
-            }
-            let amountUsd = Number(amount);
-            if (currencyOrigin === 'VES') {
-              if (!Number.isFinite(Number(exchangeRate)) || Number(exchangeRate) <= 0) {
-                notify('La tasa de cambio es obligatoria para VES', 'error');
-                return;
-              }
-              amountUsd = Number(amount) / Number(exchangeRate);
-            }
-            const amountUsdFixed = Math.round(amountUsd * 100) / 100;
-            if (amountUsdFixed <= 0) {
-              notify('El monto equivale a 0 USD', 'error');
-              return;
-            }
-            setCapitalModal(prev => ({ ...prev, loading: true }));
-            try {
-              const resp = await fetch('/api/capital-movements', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-user-id': (localStorage.getItem('crediflux_user') || localStorage.getItem('ricardo_user') || '').replace(/"/g, '') },
-                body: JSON.stringify({ type, currencyOrigin, amount: amountUsdFixed, exchangeRate: currencyOrigin === 'VES' ? Number(exchangeRate) : undefined, notes })
-              });
-              const data = await resp.json();
-              if (data.success) {
-                notify('Movimiento de capital guardado', 'success');
-                setCapitalModal(prev => ({ ...prev, open: false, amount: '', exchangeRate: '', notes: '' }));
-                // Refrescar datos del dashboard
-                fetchAllData();
-              } else {
-                notify(data.error || 'Error al guardar', 'error');
-              }
-            } catch (err) {
-              console.error('Error saving capital movement:', err);
-              notify('Error de conexión', 'error');
-            } finally {
-              setCapitalModal(prev => ({ ...prev, loading: false }));
-            }
-          };
-
-          const handleQuickAddEcomCapital = async () => {
-            const delta = Number(ecomTestCapitalAmount);
-            if (!Number.isFinite(delta) || delta <= 0) {
-              notify('Ingresa un monto mayor a 0 para agregar', 'error');
-              return;
-            }
-            const meta = monthLabels.find(m => m.num === Number(realCurrentMonthKey.slice(5, 7))) || selectedMonthMeta;
-            const currentVal = Number(monthlyCapitalsForm?.[realCurrentMonthKey]?.capital) || 0;
-            const next = {
-              ...monthlyCapitalsForm,
-              [realCurrentMonthKey]: {
-                monthIndex: meta.num,
-                monthName: meta.name,
-                year: Number(realCurrentMonthKey.slice(0, 4)),
-                capital: Number((currentVal + delta).toFixed(2))
-              }
-            };
-            setMonthlyCapitalsForm(next);
-            const ok = await saveCapitalUpdate(next, `Capital de ${meta.name} incrementado (+$${delta.toFixed(2)})`);
-            if (ok) setEcomTestCapitalAmount('');
-          };
-
-          // Reset directo en servidor: no depende del estado local y garantiza que
-          // el capital del administrador quede realmente en 0 en la base de datos.
-          const handleQuickClearEcomCapital = async () => {
-            if (!confirm('¿Vaciar el capital asignado del mes actual para pruebas de ecommerce?')) return;
-            try {
-              const res = await fetch('/api/settings', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'x-user-id': currentUser.id
-                },
-                body: JSON.stringify({ resetCapital: { monthKeys: [realCurrentMonthKey] } })
-              });
-              const data = await res.json();
-              if (data.success) {
-                syncCapitalsFromServer(data.monthlyCapitals);
-                notify(`Capital de ${new Date().toLocaleString('es-VE', { month: 'long', year: 'numeric' })} vaciado para pruebas`);
-                fetchAllData();
-              } else {
-                notify(data.error || 'Error al vaciar el capital', 'error');
-              }
-            } catch (err) {
-              notify('Error de red al vaciar el capital', 'error');
-            }
-          };
-
           const handleExportAdminSettings = async () => {
             try {
               const res = await fetch('/api/settings', {
@@ -4326,12 +4291,6 @@ export default function CrediFluxApp() {
                     } catch (e) {}
                     return merged;
                   });
-                  if (activeAdmin.monthlyCapitals) {
-                    setMonthlyCapitalsForm(activeAdmin.monthlyCapitals);
-                  }
-                }
-                if (data.settings?.monthlyCapitals) {
-                  setMonthlyCapitalsForm(data.settings.monthlyCapitals);
                 }
                 notify(data.message || 'Snapshot importado con éxito: entorno 100% operativo');
                 await fetchAllData();
@@ -4350,133 +4309,18 @@ export default function CrediFluxApp() {
           <div className="max-w-6xl mx-auto space-y-5">
             <div>
               <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-                <span>{currentUser?.role === 'admin' ? 'Ajustes de Administrador' : 'Mi Cuenta y Capital Operativo'}</span>
+                <span>{currentUser?.role === 'admin' ? 'Ajustes de Administrador' : 'Mi Cuenta y Licencia'}</span>
                 <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">CrediFlux Core</span>
               </h2>
               <p className="text-slate-400 text-sm leading-relaxed">
                 {currentUser?.role === 'admin'
                   ? 'Panel exclusivo del administrador: registro y gestión de usuarios, supervisión de claves, licencias comerciales y configuración del motor multimodal de IA.'
-                  : 'Plataforma unificada CrediFlux: gestión mensual de capital operativo para el balance de utilidades y estado de tu licencia.'}
+                  : 'Plataforma unificada CrediFlux: administra tus credenciales y consulta el estado y vigencia de tu licencia.'}
               </p>
             </div>
 
-            {/* SECCIÓN DE USUARIO FINAL: GESTIÓN MENSUAL DE CAPITAL ASIGNADO */}
-            <div className={`grid grid-cols-1 gap-5 items-start ${currentUser?.role !== 'admin' ? 'lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]' : ''}`}>
-            {currentUser?.role !== 'admin' && (
-              <div className={`p-4 rounded-2xl border lg:row-span-2 ${settingsCardTheme}`}>
-                <div className="mb-3">
-                  <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                    <DollarSign className="w-4 h-4 text-emerald-400 shrink-0" />
-                    Gestión mensual de capital
-                  </h3>
-                  <p className="text-xs text-slate-400 leading-relaxed mt-1">Define el capital de cada mes. El total se actualiza automáticamente.</p>
-                </div>
-                <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 mb-3">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-300/80">Total {selectedCapitalYear}</span>
-                  <span className="text-sm font-bold text-emerald-400 leading-tight tabular-nums">${capitalTotalYear.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                </div>
-
-                <form onSubmit={handleAssignCapitalMonth} className="rounded-xl border border-slate-800/80 bg-slate-950/20 p-3 mb-3">
-                  <div className="space-y-2.5">
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className={settingsLabelCls}>Año</label>
-                        <select
-                          value={selectedCapitalYear}
-                          onChange={(e) => handleCapitalYearChange(e.target.value)}
-                          className={settingsInputCls}
-                        >
-                          {capitalYearOptions.map(year => (
-                            <option key={year} value={year}>{year}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className={settingsLabelCls}>Mes</label>
-                        <select
-                          value={selectedMonthKey}
-                          onChange={(e) => {
-                            setSelectedCapitalMonth(e.target.value);
-                            setCapitalMonthAmount('');
-                          }}
-                          className={settingsInputCls}
-                        >
-                          {monthLabels.map(m => {
-                            const key = `${selectedCapitalYear}-${String(m.num).padStart(2, '0')}`;
-                            return <option key={key} value={key}>{m.name}</option>;
-                          })}
-                        </select>
-                      </div>
-                    </div>
-                    <div>
-                      <label className={settingsLabelCls}>Capital a asignar (USD)</label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-semibold">$</span>
-                        <input
-                          type="number"
-                          step="any"
-                          min="0"
-                          value={capitalMonthAmount}
-                          onChange={(e) => setCapitalMonthAmount(e.target.value)}
-                          placeholder={String(selectedMonthValue)}
-                          className="w-full h-10 pl-7 pr-3 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white font-semibold placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
-                        />
-                      </div>
-                      <p className={`${settingsHelperCls} mt-1`}>Capital actual de {selectedMonthMeta.name} {selectedCapitalYear}: <span className="text-slate-300 font-medium">${Number(selectedMonthValue || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></p>
-                    </div>
-                    <button
-                      type="submit"
-                      className={`${settingsPrimaryBtnCls} w-full whitespace-nowrap`}
-                    >
-                      <Save className="w-4 h-4" />
-                      <span>Asignar / Actualizar</span>
-                    </button>
-                  </div>
-                </form>
-
-                <div className="rounded-xl border border-slate-800 overflow-hidden">
-                  <div className="px-3 py-2 bg-slate-800/40 border-b border-slate-800 flex items-center justify-between">
-                    <span className="text-xs font-semibold text-slate-300">Resumen de meses con capital</span>
-                    <span className="text-[11px] text-slate-500">{registeredCapitalMonths.length} mes(es) de {selectedCapitalYear}</span>
-                  </div>
-                  <div className="max-h-52 overflow-y-auto">
-                  <table className="w-full text-xs">
-                    <thead className="bg-slate-800/30">
-                      <tr className={settingsTableHeadCls}>
-                        <th className="text-left py-2 px-3">Mes</th>
-                        <th className="text-right py-2 px-3">Capital</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {registeredCapitalMonths.length === 0 ? (
-                        <tr>
-                          <td colSpan="2" className="py-3 px-3 text-center text-slate-500 text-xs">No hay meses con capital registrado en {selectedCapitalYear}.</td>
-                        </tr>
-                      ) : registeredCapitalMonths.map(item => (
-                        <tr key={item.key} className="border-t border-slate-800/70 hover:bg-slate-800/20">
-                          <td className="py-1.5 px-3 text-slate-200">{item.month.name} {item.year}</td>
-                          <td className="py-1.5 px-3 text-right font-semibold text-emerald-400 tabular-nums">${item.capital.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  </div>
-                </div>
-
-                <div className="mt-3">
-                  <button
-                    type="button"
-                    onClick={handleClearAllMonthlyCapitals}
-                    className={`${settingsDangerBtnCls} w-full`}
-                  >
-                    Vaciar todo el capital de {selectedCapitalYear}
-                  </button>
-                </div>
-              </div>
-            )}
-
             {/* BARRA DE CONSUMO DE LICENCIA */}
-            <div className={`${settingsCardCls} ${currentUser?.role !== 'admin' ? 'lg:col-start-2 lg:row-start-2' : ''}`}>
+            <div className={settingsCardCls}>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
                 <div>
                   <h4 className={settingsCardTitleCls}>
@@ -4544,7 +4388,7 @@ export default function CrediFluxApp() {
 
             {/* USUARIO FINAL: INGRESAR NUEVA LICENCIA Y CAMBIAR CLAVE */}
             {currentUser?.role !== 'admin' && (
-              <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${currentUser?.role !== 'admin' ? 'lg:col-start-2 lg:row-start-1' : ''}`}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className={settingsCardCls}>
                   <h4 className={`${settingsCardTitleCls} mb-2`}>
                     <Key className="w-4 h-4 text-emerald-400" />
@@ -4657,61 +4501,11 @@ export default function CrediFluxApp() {
               </div>
             )}
 
-            </div>
-
             {/* ========================================================= */}
             {/* VISTA EXCLUSIVA DE ADMINISTRADOR                          */}
             {/* ========================================================= */}
             {currentUser?.role === 'admin' && (
               <>
-                {/* HERRAMIENTA DE PRUEBAS (ECOMMERCE) */}
-                <div className={`${settingsCardCls} space-y-4`}>
-                  <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <div>
-                      <h3 className={settingsTitleCls}>
-                        <DollarSign className="w-5 h-5 text-amber-400" />
-                        Herramienta de Pruebas (Ecommerce)
-                      </h3>
-                      <p className={`${settingsDescCls} mt-1`}>Agregar o vaciar rápidamente el capital asignado del mes actual para simulaciones del módulo de ecommerce.</p>
-                    </div>
-                    <div className="text-right text-xs text-slate-400">
-                      <span>Mes actual: </span>
-                      <strong className="text-white">{new Date().toLocaleString('es-VE', { month: 'long', year: 'numeric' })}</strong>
-                      <div className="text-emerald-400 font-semibold">
-                        Capital actual: ${Number(monthlyCapitalsForm?.[new Date().toISOString().slice(0, 7)]?.capital ?? 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-end">
-                    <div className="flex-1">
-                      <label className={settingsLabelCls}>Monto a agregar ($)</label>
-                      <input
-                        type="number"
-                        step="any"
-                        min="0"
-                        value={ecomTestCapitalAmount}
-                        onChange={(e) => setEcomTestCapitalAmount(e.target.value)}
-                        placeholder="Ej: 100"
-                        className={settingsInputCls}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleQuickAddEcomCapital}
-                      className={settingsPrimaryBtnCls}
-                    >
-                      Agregar capital
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleQuickClearEcomCapital}
-                      className={settingsDangerBtnCls}
-                    >
-                      Vaciar capital
-                    </button>
-                  </div>
-                </div>
-
                 {/* RESPALDO Y MIGRACIÓN DE CONFIGURACIONES (AJUSTES ADMIN) */}
                 <div className={`${settingsCardCls} space-y-4`}>
                   <div className="flex items-center justify-between gap-3 flex-wrap">
