@@ -1814,7 +1814,7 @@ export default function CrediFluxApp() {
                 className={`px-4 py-2 rounded-xl font-medium transition-all ${themeDark ? 'bg-emerald-600 text-slate-100 hover:bg-emerald-500' : 'bg-slate-200 text-slate-800 hover:text-slate-900'}`}
                 aria-label="Gestionar Capital"
               >
-                <Bag className="w-4 h-4" /> Gestionar Capital
+                <ShoppingBag className="w-4 h-4" /> Gestionar Capital
               </button>
             </div>
 
