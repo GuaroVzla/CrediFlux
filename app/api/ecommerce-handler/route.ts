@@ -3,7 +3,7 @@ import path from 'path';
 import { checkWritePermission, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
 import { parseReceiptWithAI } from '../../../lib/ocrEngine.js';
 import { getStateForRequest, saveStateForRequest, persistenceInfo } from '../../../lib/server/supabase-store';
-import { saveUpload } from '../../../lib/storage/uploads.js';
+import { saveUpload, resolveUploadUrl, resolveUploadUrls } from '../../../lib/storage/uploads.js';
 
 // El OCR local (Tesseract.js) y las llamadas a proveedores externos pueden tardar;
 // Vercel debe permitir hasta 60 s. Límite de payload de Vercel: 4.5 MB.
@@ -28,7 +28,14 @@ export async function GET(request: Request) {
     const dateParam = searchParams.get('date'); // YYYY-MM-DD | YYYY-MM | YYYY
 
     const scopedTransactions = scopeRecords(db.ecommerce || [], currentUser);
-    const allTransactions = scopedTransactions.slice().reverse(); // chronological order (oldest first)
+    const chronological = scopedTransactions.slice().reverse(); // oldest first
+    // El bucket `receipts` es privado: convertimos las referencias `supabase://`
+    // guardadas en BD en URLs firmadas vigentes para que el navegador las abra.
+    const resolvedReceiptUrls = await resolveUploadUrls(chronological.map((t) => t.receiptUrl));
+    const allTransactions = chronological.map((t, index) => ({
+      ...t,
+      receiptUrl: resolvedReceiptUrls[index] || t.receiptUrl
+    }));
 
     // Filter transactions by period
     let transactions = allTransactions;
@@ -168,7 +175,8 @@ export async function POST(request: Request) {
         const uploaded = await (saveUpload as any)(buffer, {
           filename: cleanFileName,
           folder: 'uploads',
-          contentType: file.type || undefined
+          contentType: file.type || undefined,
+          userId: currentUser.id,
         });
         receiptUrl = uploaded.url;
       } catch (uploadError: any) {
@@ -253,10 +261,17 @@ export async function POST(request: Request) {
       }, { status: 500 });
     }
 
+    // En BD se guarda la referencia `supabase://`; al cliente se le devuelve
+    // una URL firmada que puede abrir directamente.
+    const responseTransaction = {
+      ...newTransaction,
+      receiptUrl: await resolveUploadUrl(newTransaction.receiptUrl)
+    };
+
     return NextResponse.json({
       success: true,
       message: 'Transacción y comprobante procesados exitosamente',
-      transaction: newTransaction,
+      transaction: responseTransaction,
       ocr: ocrResult,
       persistence: persistenceInfo(),
     });

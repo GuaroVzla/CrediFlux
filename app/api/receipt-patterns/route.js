@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getStateForRequest, saveStateForRequest, persistenceInfo } from '../../../lib/server/supabase-store';
 import { syncAdminStateToNormalized, logAudit, ensureAdminConfigSeed, hasDatabase } from '../../../lib/server/admin-config.js';
-import { saveUpload, deleteUpload } from '../../../lib/storage/uploads.js';
+import { saveUpload, deleteUpload, resolveUploadUrl, resolveUploadUrls } from '../../../lib/storage/uploads.js';
 import { checkWritePermission, getRequestUser } from '../../../lib/db.js';
 
 function findUser(db, request) {
@@ -20,9 +20,14 @@ export async function GET(request) {
       return NextResponse.json({ success: false, error: 'Acceso restringido: Solo el administrador puede gestionar patrones' }, { status: 403 });
     }
     const patterns = Array.isArray(db.receiptPatterns) ? db.receiptPatterns : [];
+    const resolvedImageUrls = await resolveUploadUrls(patterns.map((p) => p.imageUrl));
+    const responsePatterns = patterns.map((pattern, index) => ({
+      ...pattern,
+      imageUrl: resolvedImageUrls[index] || pattern.imageUrl
+    }));
     return NextResponse.json({
       success: true,
-      patterns,
+      patterns: responsePatterns,
       persistence: persistenceInfo(),
     });
   } catch (error) {
@@ -65,7 +70,12 @@ export async function POST(request) {
       const ext = (file.name && file.name.includes('.')) ? `.${file.name.split('.').pop().toLowerCase().replace(/[^a-z0-9]/g, '')}` : '.png';
       const safeBank = bankName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'bank';
       const filename = `pattern_${Date.now()}_${safeBank}${ext || '.png'}`;
-      const uploaded = await saveUpload(buffer, { filename, folder: 'uploads/patterns', contentType: file.type || undefined });
+      const uploaded = await saveUpload(buffer, {
+        filename,
+        folder: 'uploads/patterns',
+        contentType: file.type || undefined,
+        userId: currentUser?.id
+      });
       imageUrl = uploaded.url;
       imageKey = uploaded.key || null;
       imageMime = file.type || null;
@@ -101,11 +111,12 @@ export async function POST(request) {
       await logAudit({ entity: 'ReceiptPattern', entityId: newPattern.id, action: 'CREATE', before: null, after: newPattern, actorLegacyId: currentUser?.id }).catch(() => {});
     }
 
+    const responsePattern = { ...newPattern, imageUrl: await resolveUploadUrl(newPattern.imageUrl) };
     return NextResponse.json({
       success: true,
       message: 'Patrón de comprobante registrado exitosamente',
-      pattern: newPattern,
-      patterns: db.receiptPatterns,
+      pattern: responsePattern,
+      patterns: db.receiptPatterns.map((p) => p.id === newPattern.id ? responsePattern : p),
       persistence: persistenceInfo(),
     });
   } catch (error) {

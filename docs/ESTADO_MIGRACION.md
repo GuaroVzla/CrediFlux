@@ -1,6 +1,6 @@
 # Estado de la migración a Supabase
 
-> Punto de guardado para retomar el trabajo. Última actualización: 2026-11-17.
+> Punto de guardado para retomar el trabajo. Última actualización: 2026-11-18.
 > Repo: `https://github.com/GuaroVzla/CrediFlux` — rama `main`.
 > Proyecto Supabase: `vcsfrmmntmljeikidbkh` (región `us-east-1`).
 
@@ -215,3 +215,45 @@ Ejecutada contra la API REST con el JWT de cada usuario:
 | `RICARDO` → `GET /products` | 1 fila (el producto importado) |
 | `RICARDO` inserta cliente con `user_id` del admin | `403` `new row violates row-level security policy` |
 | `RICARDO` lee el perfil del admin por `id` | 0 filas |
+
+---
+
+## 18. Almacenamiento de imágenes en Supabase Storage (2026-11-18)
+
+Las imágenes de comprobantes y patrones OCR **ya no dependen de Vercel Blob**
+(`BLOB_READ_WRITE_TOKEN` no es necesario). Se guardan en el bucket privado
+`receipts` de Supabase Storage (10 MB por archivo, ya creado por la migración
+`20261116000100`).
+
+### Diseño
+
+- `lib/storage/uploads.js` usa `@supabase/supabase-js` con
+  `SUPABASE_SERVICE_ROLE_KEY` y sube a `receipts/{userId}/{folder}/{filename}`.
+  El primer segmento coincide con `auth.uid()`, tal como exigen las políticas
+  RLS del bucket.
+- En BD (`ecommerce_transactions.receipt_url`, `receipt_patterns.image_url`) se
+  guarda una referencia `supabase://receipts/{path}`, **no** una URL pública.
+- Las rutas API convierten esa referencia en **URL firmada** (7 días) antes de
+  responder: `resolveUploadUrl()` / `resolveUploadUrls()` (esta última agrupa
+  por bucket en una sola llamada `createSignedUrls`).
+- Proveedores de respaldo: Vercel Blob y, solo en desarrollo, FS local.
+- `persistenceInfo()` reporta `storageProvider: 'supabase-storage'` y
+  `storageConfigured: true`.
+
+### Rutas afectadas
+
+- `app/api/ecommerce-handler/route.ts` (GET y POST): pasa `userId` a `saveUpload`
+  y resuelve `receiptUrl`.
+- `app/api/receipt-patterns/route.js` (GET y POST): ídem para `imageUrl`; DELETE
+  usa `deleteUpload`, que ahora borra también en Supabase Storage.
+
+### Validación local (next start :3101, sesión admin)
+
+| Prueba | Resultado |
+| --- | --- |
+| Upload + OCR + transacción | ✅ 200, `receiptUrl` firmado |
+| Descarga de la URL firmada | ✅ 200, 67.796 bytes (idénticos al original) |
+| `GET /api/ecommerce` | ✅ devuelve URL firmada vigente |
+| Objeto en `storage.buckets` / `storage.objects` | ✅ `receipts/{userId}/uploads/...` |
+| Limpieza del objeto de prueba | ✅ eliminado |
+| `npm run build` | ✅ sin errores |

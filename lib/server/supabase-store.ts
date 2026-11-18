@@ -851,11 +851,15 @@ export function persistenceInfo() {
     supabaseConfigured: true,
     databaseConfigured: true,
     blobConfigured: Boolean(process.env.BLOB_READ_WRITE_TOKEN),
+    storageProvider: process.env.SUPABASE_SERVICE_ROLE_KEY
+      ? 'supabase-storage'
+      : process.env.BLOB_READ_WRITE_TOKEN ? 'vercel-blob' : 'local-fs',
+    storageConfigured: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.BLOB_READ_WRITE_TOKEN),
     serverless: Boolean(process.env.VERCEL),
     localWritable: false,
     encryptionAtRest: Boolean(process.env.SETTINGS_ENCRYPTION_KEY),
     issues: [],
-    guidance: 'Persistencia relacional en Supabase con RLS activo.',
+    guidance: 'Datos y comprobantes persistidos en Supabase (Storage privado con URLs firmadas).',
   };
 }
 
