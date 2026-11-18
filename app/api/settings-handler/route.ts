@@ -122,7 +122,15 @@ async function testProviderConnection(provider: string, apiKey: string | undefin
           details: { extractedChars: textLen, confidence: Number.isFinite(conf) ? conf : null, engine: 'tesseract.js' }
         };
       } catch (err: any) {
-        return { success: false, error: `No se pudo completar la prueba del motor local Tesseract.js: ${err?.message || 'error desconocido'}`, responseTimeMs: elapsed(), internalLicense: getInternalLicenseStatus(provider) };
+        return {
+          success: false,
+          error: `No se pudo completar la prueba del motor local Tesseract.js: ${err?.message || 'error desconocido'}`,
+          responseTimeMs: elapsed(),
+          internalLicense: getInternalLicenseStatus(provider),
+          // Diagnóstico por fases: permite ver en producción si el worker no
+          // arrancó, si faltan traineddata o si el reconocimiento se colgó.
+          details: err?.diagnostics || null
+        };
       }
     }
 

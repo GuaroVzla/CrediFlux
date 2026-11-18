@@ -59,13 +59,45 @@ export async function runTesseractRecognition(imageBuffer, langs = 'spa+eng', op
     options.timeoutMs || process.env.OCR_TESSERACT_TIMEOUT_MS || DEFAULT_TESSERACT_TIMEOUT_MS
   );
 
+  const diagnostics = {
+    phase: 'init',
+    cwd: process.cwd(),
+    langs,
+    localLangPath: null,
+    workerPath: null,
+    workerExists: null,
+    progress: []
+  };
+
+  const baseLogger = options.logger || (() => {});
   const workerOptions = {
-    logger: options.logger || (() => {}),
     cacheMethod: 'none',
     ...(options.workerOptions || {})
   };
 
+  // Worker propio: fuerza las variantes .wasm.js autocontenidas de tesseract.js-core
+  // para no depender de sidecars .wasm en el filesystem serverless.
+  const customWorkerPath = path.join(process.cwd(), 'lib', 'ocr', 'tesseract-worker.cjs');
+  if (!workerOptions.workerPath && fs.existsSync(customWorkerPath)) {
+    workerOptions.workerPath = customWorkerPath;
+  }
+  diagnostics.workerPath = workerOptions.workerPath || '(default de tesseract.js)';
+  diagnostics.workerExists = workerOptions.workerPath === '(default de tesseract.js)'
+    ? null
+    : fs.existsSync(workerOptions.workerPath);
+
+  workerOptions.logger = (event) => {
+    try {
+      const status = String(event?.status || 'progress');
+      const pct = Number.isFinite(Number(event?.progress)) ? Math.round(Number(event.progress) * 100) : null;
+      diagnostics.progress.push(pct === null ? status : `${status} ${pct}%`);
+      if (diagnostics.progress.length > 20) diagnostics.progress.shift();
+    } catch {}
+    try { baseLogger(event); } catch {}
+  };
+
   const localLangPath = options.langPath || resolveLocalTrainedDataPath();
+  diagnostics.localLangPath = localLangPath;
   if (localLangPath) {
     workerOptions.langPath = localLangPath;
     workerOptions.gzip = false;
@@ -75,6 +107,12 @@ export async function runTesseractRecognition(imageBuffer, langs = 'spa+eng', op
     if (workerOptions.gzip === undefined) workerOptions.gzip = true;
   }
 
+  const buildError = (message) => {
+    const error = new Error(message);
+    error.diagnostics = diagnostics;
+    return error;
+  };
+
   let worker = null;
   let timedOut = false;
   let timer = null;
@@ -82,28 +120,36 @@ export async function runTesseractRecognition(imageBuffer, langs = 'spa+eng', op
   const timeoutPromise = new Promise((_, reject) => {
     timer = setTimeout(() => {
       timedOut = true;
-      reject(new Error(`Tesseract.js no respondió en ${Math.round(timeoutMs / 1000)} s`));
+      reject(buildError(`Tesseract.js no respondió en ${Math.round(timeoutMs / 1000)} s`));
     }, timeoutMs);
     if (typeof timer.unref === 'function') timer.unref();
   });
 
+  diagnostics.phase = 'createWorker';
   const createWorkerPromise = Tesseract.createWorker(langs, 1, workerOptions).then((createdWorker) => {
     worker = createdWorker;
+    diagnostics.phase = 'workerReady';
     if (timedOut) {
       // Si el timeout ganó la carrera, liberar el worker en cuanto exista.
       createdWorker.terminate().catch(() => {});
     }
     return createdWorker;
+  }).catch((err) => {
+    diagnostics.phase = 'createWorkerFailed';
+    diagnostics.lastError = String(err?.message || err || 'error desconocido');
+    throw err;
   });
 
   const run = (async () => {
     const activeWorker = await createWorkerPromise;
-    if (timedOut) throw new Error('Tesseract.js cancelado por timeout antes de reconocer');
+    if (timedOut) throw buildError('Tesseract.js cancelado por timeout antes de reconocer');
+    diagnostics.phase = 'recognize';
     const { data } = await activeWorker.recognize(
       imageBuffer,
       options.recognizeOptions || undefined,
       options.output || undefined
     );
+    diagnostics.phase = 'done';
     const rawText = String(data?.text || '');
     return {
       success: true,
@@ -112,19 +158,23 @@ export async function runTesseractRecognition(imageBuffer, langs = 'spa+eng', op
       data,
       responseTimeMs: Date.now() - startedAt,
       engine: 'Tesseract.js',
-      langs
+      langs,
+      diagnostics
     };
   })();
 
   try {
     return await Promise.race([run, timeoutPromise]);
   } catch (err) {
+    const lastProgress = diagnostics.progress.slice(-3).join(' → ') || 'sin eventos de progreso';
     if (timedOut) {
-      throw new Error(
-        `Tesseract.js excedió el tiempo límite de ${Math.round(timeoutMs / 1000)} s. ` +
+      throw buildError(
+        `Tesseract.js excedió el tiempo límite de ${Math.round(timeoutMs / 1000)} s ` +
+        `(fase: ${diagnostics.phase}; último estado: ${lastProgress}). ` +
         'Verifica que el worker, los .wasm de tesseract.js-core y los .traineddata estén incluidos en el bundle del API route.'
       );
     }
+    if (err && typeof err === 'object' && !err.diagnostics) err.diagnostics = diagnostics;
     throw err;
   } finally {
     clearTimeout(timer);

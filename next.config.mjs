@@ -1,5 +1,6 @@
 const OCR_TRACE_GLOBS = [
   './*.traineddata',
+  './lib/ocr/**/*',
   './node_modules/tesseract.js/**/*',
   './node_modules/tesseract.js-core/**/*',
   './node_modules/wasm-feature-detect/**/*',
