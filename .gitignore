@@ -70,3 +70,6 @@ app/neighbor2.js
 Thumbs.db
 [Dd]esktop.ini
 .DS_Store
+
+.vercel
+.env*
