@@ -2,6 +2,17 @@
 const nextConfig = {
   // distDir: '.next-run',
 
+  // Redirección de rutas de acceso al dashboard / pantalla de login en la raíz
+  async redirects() {
+    return [
+      {
+        source: '/login',
+        destination: '/',
+        permanent: false,
+      },
+    ];
+  },
+
   // Los handlers de /api/ecommerce y /api/settings viven en carpetas "-handler"
   // porque el antivirus bloquea permanentemente los archivos
   // app/api/ecommerce/route.js y app/api/settings/route.js.
