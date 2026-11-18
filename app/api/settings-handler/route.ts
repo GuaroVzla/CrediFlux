@@ -16,6 +16,7 @@ import {
   enrichReceiptPattern
 } from '../../../lib/server/admin-config.js';
 import { hashPassword } from '../../../lib/server/security.js';
+import { setLegacyPasswordPreview, storePasswordPreview } from '../../../lib/server/password-preview.js';
 import { getSupabaseAdminClientOrNull } from '../../../lib/supabase/admin';
 import { isSupabaseConfigured } from '../../../lib/supabase/env';
 import { resolveRequestAuth } from '../../../lib/server/request-auth';
@@ -54,6 +55,11 @@ function getStoredOcrKeys(db: any) {
     ocrspace: typeof map.ocrspace === 'string' && map.ocrspace ? map.ocrspace : legacyOcr,
     tesseract: ''
   } as Record<string, string>;
+}
+
+function auditUserSnapshot(user: any) {
+  const { password, passwordHash, passwordLegacy, passwordEncrypted, ...rest } = user || {};
+  return rest;
 }
 
 function getInternalLicenseStatus(provider: string) {
@@ -242,7 +248,7 @@ export async function GET(request: Request) {
           permissions: Array.isArray(u.permissions) && u.permissions.length > 0 ? u.permissions : defaultPermissions,
           address: u.address || '',
           phone: u.phone || '',
-          hasPassword: Boolean(u.passwordHash || u.password || u.passwordLegacy),
+          hasPassword: Boolean(u.passwordHash || u.password || u.passwordLegacy || u.passwordEncrypted),
           licenseKey: u.licenseKey || (role === 'admin' ? 'N/A (Admin)' : ''),
           licenseAssignedAt: u.licenseAssignedAt || null,
           licenseExpiresAt: u.licenseExpiresAt || null,
@@ -468,7 +474,7 @@ export async function POST(request: Request) {
 
       if (updateUserAction === 'delete') {
         if (target.role === 'admin') return NextResponse.json({ success: false, error: 'No se puede eliminar el usuario administrador maestro' }, { status: 400 });
-        const before = { ...target };
+        const before = auditUserSnapshot(target);
         db.users = db.users.filter((u: any) => u.id !== targetUserId);
         await saveStateForRequest(request, db);
         if (hasDatabase()) { await syncAdminStateToNormalized(db).catch(() => {}); await logAudit({ entity: 'User', entityId: targetUserId, action: 'DELETE', before, after: null, actorLegacyId: currentUser?.id }).catch(() => {}); }
@@ -476,7 +482,7 @@ export async function POST(request: Request) {
       }
 
       if (updateUserAction === 'edit') {
-        const before = { ...target };
+        const before = auditUserSnapshot(target);
         if (updatedName) target.name = String(updatedName).trim();
         if (updatedCompanyName !== undefined) target.companyName = String(updatedCompanyName || '').trim();
         if (updatedAddress !== undefined) target.address = String(updatedAddress || '').trim();
@@ -497,6 +503,7 @@ export async function POST(request: Request) {
           target.passwordHash = await hashPassword(String(updatedPassword).trim());
           delete target.password;
           delete target.passwordLegacy;
+          if (!isSupabaseConfigured()) setLegacyPasswordPreview(target, String(updatedPassword).trim());
         }
         if (updatedLicenseKey) target.licenseKey = String(updatedLicenseKey).trim().toUpperCase();
         if (updatedMonths) {
@@ -509,11 +516,22 @@ export async function POST(request: Request) {
           if (!target.licenseAssignedAt) target.licenseAssignedAt = now.toISOString();
         }
         await saveStateForRequest(request, db);
-        if (hasDatabase()) { await syncAdminStateToNormalized(db).catch(() => {}); await logAudit({ entity: 'User', entityId: targetUserId, action: 'UPDATE', before, after: { ...target }, actorLegacyId: currentUser?.id }).catch(() => {}); }
+        if (hasDatabase()) { await syncAdminStateToNormalized(db).catch(() => {}); await logAudit({ entity: 'User', entityId: targetUserId, action: 'UPDATE', before, after: auditUserSnapshot(target), actorLegacyId: currentUser?.id }).catch(() => {}); }
+
+        if (updatedPassword) {
+          const plainPassword = String(updatedPassword).trim();
+          if (isSupabaseConfigured()) {
+            await storePasswordPreview(targetUserId, plainPassword).catch((previewError: any) => {
+              console.warn('[settings] No se pudo guardar la vista previa de la clave:', previewError?.message || previewError);
+            });
+          }
+        }
+
         const safeUser = { ...target };
         delete safeUser.password;
         delete safeUser.passwordHash;
         delete safeUser.passwordLegacy;
+        delete safeUser.passwordEncrypted;
         return NextResponse.json({ success: true, message: 'Usuario y licencia actualizados correctamente', user: safeUser, persistence: persistenceInfo() });
       }
     }
@@ -607,6 +625,7 @@ export async function POST(request: Request) {
       db.settings.trustLevelConfig = normalizeTrustConfig(trustLevelConfig);
     }
 
+    let adminPasswordPreview: string | null = null;
     if (adminPassword && String(adminPassword).length >= 4) {
       if (isSupabaseConfigured() && currentUser?.id) {
         const admin = getSupabaseAdminClientOrNull();
@@ -629,7 +648,9 @@ export async function POST(request: Request) {
         adminUser.passwordHash = adminHash;
         delete adminUser.password;
         delete adminUser.passwordLegacy;
+        if (!isSupabaseConfigured()) setLegacyPasswordPreview(adminUser, String(adminPassword).trim());
       }
+      adminPasswordPreview = String(adminPassword).trim();
     }
 
     const saveResult = await saveStateForRequestWithResult(request, db);
@@ -641,6 +662,12 @@ export async function POST(request: Request) {
         persistence: (saveResult as any).diagnostics || persistenceInfo(),
       }, { status: 500 });
     }
+    if (adminPasswordPreview && isSupabaseConfigured() && currentUser?.id) {
+      await storePasswordPreview(currentUser.id, adminPasswordPreview).catch((previewError: any) => {
+        console.warn('[settings] No se pudo guardar la vista previa de la clave admin:', previewError?.message || previewError);
+      });
+    }
+
     if (hasDatabase()) {
       await ensureAdminConfigSeed().catch(() => {});
       await syncAdminStateToNormalized(db).catch(() => {});

@@ -6,6 +6,7 @@ import { createSupabaseServerClient, createSupabaseRouteClient } from '../../../
 import { getSupabaseAdminClientOrNull } from '../../../lib/supabase/admin';
 import { isSupabaseConfigured, usernameToEmail } from '../../../lib/supabase/env';
 import { profileToLegacyUser, resolveRequestAuth } from '../../../lib/server/request-auth';
+import { setLegacyPasswordPreview, storePasswordPreview } from '../../../lib/server/password-preview.js';
 
 function supabaseUnavailable() {
   return NextResponse.json({
@@ -202,6 +203,11 @@ async function supabaseRegister({ requester, username, password, name, address, 
     return NextResponse.json({ success: false, error: `No se pudo guardar el perfil: ${error.message}` }, { status: 500 });
   }
 
+  // Copia reversible únicamente para claves nuevas; el login sigue usando Auth.
+  await storePasswordPreview(authUser.id, password).catch((previewError) => {
+    console.warn('[auth] No se pudo guardar la vista previa de la clave:', previewError?.message || previewError);
+  });
+
   return NextResponse.json({
     success: true,
     message: `Usuario final ${profile.full_name} registrado con éxito en CrediFlux.`,
@@ -376,6 +382,7 @@ export async function POST(request) {
         createdAt: new Date().toISOString()
       };
 
+      setLegacyPasswordPreview(newUser, password);
       db.users.push(newUser);
       const saved = await saveStateForRequest(request, db);
       if (!saved) {
@@ -413,6 +420,9 @@ export async function POST(request) {
         if (error) {
           return NextResponse.json({ success: false, error: error.message }, { status: 400 });
         }
+        await storePasswordPreview(targetId, newPassword).catch((previewError) => {
+          console.warn('[auth] No se pudo actualizar la vista previa de la clave:', previewError?.message || previewError);
+        });
         return NextResponse.json({
           success: true,
           message: 'Contraseña actualizada con éxito',
@@ -437,6 +447,7 @@ export async function POST(request) {
       user.passwordHash = newHash;
       delete user.password;
       delete user.passwordLegacy;
+      setLegacyPasswordPreview(user, newPassword);
       if (user.role === 'admin') {
         db.settings.adminPasswordHash = newHash;
         delete db.settings.adminPassword;

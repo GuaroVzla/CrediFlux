@@ -568,15 +568,18 @@ async function syncAdminProfiles(auth: RequestAuth, users: AnyRecord[]) {
   const admin = getSupabaseAdminClientOrNull();
   if (!admin) return;
 
-  const { data: existing, error } = await admin.from('profiles').select('id, role, username');
+  const { data: existing, error } = await admin.from('profiles').select('id, role, username, metadata');
   badRequest(error, 'No se pudieron leer los perfiles administrados');
 
   const desiredIds = new Set(users.map((u) => String(u.id)));
   for (const user of users) {
     if (!user?.id || !isUuid(user.id)) continue;
+    // Conservar metadata existente: allí se guarda la copia cifrada de la clave
+    // que habilita la vista previa "mantener presionado para ver".
+    const fallback = (existing || []).find((p) => String(p.id) === String(user.id)) || null;
     const { error: upsertError } = await admin
       .from('profiles')
-      .upsert(profileRow(user, null), { onConflict: 'id' });
+      .upsert(profileRow(user, fallback as ProfileRow | null), { onConflict: 'id' });
     if (upsertError) console.error('[supabase-store] Perfil no sincronizado:', user.id, upsertError.message);
   }
 
