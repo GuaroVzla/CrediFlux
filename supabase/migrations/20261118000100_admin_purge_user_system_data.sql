@@ -1,7 +1,13 @@
 -- Purga granular por usuario para el modal "Vaciar datos del sistema" (Admin).
--- Todas las sentencias viven en UNA función: una sola llamada = una sola
--- transacción de PostgreSQL (no puede quedar un estado parcial).
+--
+-- APLICAR en el proyecto remoto antes de usar el modal:
+--   supabase db push --remote
+-- (o ejecutar este archivo en Supabase SQL Editor).
+--
+-- PostgreSQL ejecuta cada llamada a esta función en UNA ÚNICA transacción:
+-- no se usan TRUNCATE globales y cualquier error hace ROLLBACK de todo.
 -- Cada DELETE lleva user_id = p_target_user_id: jamás toca otros usuarios.
+-- El borrado va de hijos a padres (pagos -> financiamientos -> clientes/productos).
 
 create or replace function public.admin_purge_user_system_data(
   p_target_user_id uuid,
@@ -19,19 +25,27 @@ security definer
 set search_path = public
 as $$
 declare
-  v_payments  integer := 0;
-  v_loans     integer := 0;
-  v_clients   integer := 0;
-  v_products  integer := 0;
-  v_ecommerce integer := 0;
-  v_capital   integer := 0;
+  v_payments   integer := 0;
+  v_loans      integer := 0;
+  v_clients    integer := 0;
+  v_products   integer := 0;
+  v_ecommerce  integer := 0;
+  v_capital    integer := 0;
+  -- Con API keys nuevas (sb_secret_*) PostgREST expone el rol en
+  -- request.jwt.claims; con JWTs legacy también puede venir en claim.role.
+  v_jwt_claims jsonb := nullif(current_setting('request.jwt.claims', true), '')::jsonb;
+  v_jwt_role   text := coalesce(
+    v_jwt_claims ->> 'role',
+    nullif(current_setting('request.jwt.claim.role', true), ''),
+    nullif(current_setting('request.jwt', true), '')::jsonb ->> 'role'
+  );
 begin
   if p_target_user_id is null then
     raise exception 'Usuario destino requerido';
   end if;
 
   -- La ruta ya valida rol admin; aquí se refuerza la defensa en profundidad.
-  if coalesce(current_setting('request.jwt.claim.role', true), '') not in ('service_role', 'admin')
+  if coalesce(v_jwt_role, '') not in ('service_role', 'admin')
      and not public.is_admin() then
     raise exception 'No autorizado para purgar datos del sistema';
   end if;

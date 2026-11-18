@@ -1,25 +1,50 @@
 import { NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import { checkWritePermission } from '../../../../lib/db.js';
 import { getStateForRequest } from '../../../../lib/server/supabase-store';
+import { resolveRequestAuth } from '../../../../lib/server/request-auth';
 import { isSupabaseConfigured, isSupabaseAdminConfigured } from '../../../../lib/supabase/env';
 import {
   executePurge,
   hasSelectedPurgeTargets,
   normalizePurgeTargets,
+  publicPurgeError,
+  PurgeUnavailableError,
+  PurgeTransactionError,
 } from '../../../../lib/server/admin-purge';
 
+/**
+ * Purga atómica y aislada por usuario.
+ * La sesión y el rol se validan en servidor antes de cualquier consulta:
+ * en modo Supabase se exige un usuario autenticado con perfil admin activo.
+ */
 export async function POST(request) {
   try {
+    const auth = await resolveRequestAuth(request);
+    if (isSupabaseConfigured() && (!auth.userId || !auth.supabase)) {
+      return NextResponse.json(
+        { success: false, error: 'Sesión activa requerida' },
+        { status: 403 }
+      );
+    }
+
     const db = await getStateForRequest(request);
     const perm = checkWritePermission(request, db);
     if (!perm.allowed) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
     }
 
-    // Solo el administrador autenticado puede vaciar datos y debe indicar
-    // explícitamente el usuario destino (nunca una limpieza global).
-    if (perm.user?.role !== 'admin') {
-      return NextResponse.json({ success: false, error: 'Solo el administrador puede vaciar datos' }, { status: 403 });
+    const sessionUser = isSupabaseConfigured() ? db.__currentUser : perm.user;
+    const isActiveAdmin =
+      Boolean(sessionUser) &&
+      sessionUser.role === 'admin' &&
+      sessionUser.isActive !== false &&
+      (!isSupabaseConfigured() || String(sessionUser.id) === String(auth.userId));
+    if (!isActiveAdmin) {
+      return NextResponse.json(
+        { success: false, error: 'Solo un administrador activo puede vaciar datos' },
+        { status: 403 }
+      );
     }
 
     const body = await request.json().catch(() => ({}));
@@ -42,13 +67,19 @@ export async function POST(request) {
 
     if (isSupabaseConfigured() && !isSupabaseAdminConfigured()) {
       return NextResponse.json(
-        { success: false, error: 'Supabase admin no configurado: se requiere service_role para purgar por usuario' },
+        {
+          success: false,
+          error: 'SUPABASE_SERVICE_ROLE_KEY no configurada. Se requiere service_role para purgar por usuario.',
+          code: 'PURGE_MECHANISM_UNAVAILABLE',
+        },
         { status: 503 }
       );
     }
 
     const filter = body.filter && typeof body.filter === 'object' ? body.filter : { period: 'all' };
     const summary = await executePurge({ request, db, targetUserId, targets, filter });
+
+    revalidatePath('/');
 
     return NextResponse.json({
       success: true,
@@ -59,8 +90,27 @@ export async function POST(request) {
     });
   } catch (error) {
     console.error('Admin purge error:', error);
+
+    if (error instanceof PurgeUnavailableError) {
+      return NextResponse.json(
+        { success: false, error: error.message, code: error.code },
+        { status: 503 }
+      );
+    }
+    if (error instanceof PurgeTransactionError) {
+      return NextResponse.json(
+        { success: false, error: error.message, detail: error.detail, code: error.code },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json(
-      { success: false, error: error?.message || 'Error al vaciar datos' },
+      {
+        success: false,
+        error: 'Error al vaciar datos',
+        detail: publicPurgeError(error),
+        code: 'PURGE_FAILED',
+      },
       { status: 500 }
     );
   }
