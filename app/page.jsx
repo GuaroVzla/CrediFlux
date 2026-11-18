@@ -4253,7 +4253,7 @@ export default function CrediFluxApp() {
               const json = JSON.stringify(data.export, null, 2);
               const blob = new Blob([json], { type: 'application/json' });
               const url = URL.createObjectURL(blob);
-              const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+              const stamp = (data.export?.exportedAt || new Date().toISOString()).replace(/[:.]/g, '-');
               const a = document.createElement('a');
               a.href = url;
               a.download = `crediflux-snapshot-ajustes-admin-${stamp}.json`;
@@ -4262,11 +4262,14 @@ export default function CrediFluxApp() {
               a.remove();
               URL.revokeObjectURL(url);
 
-              const summary = data.export?.system?.summary;
-              const summaryText = summary
-                ? `Snapshot completo exportado (${summary.usersCount} perfiles de usuarios/operadores, motor OCR [${summary.activeOcrProvider}] y ${summary.receiptPatternsCount} patrones de comprobantes).`
-                : 'Configuraciones exportadas correctamente';
-              notify(summaryText);
+              const meta = data.export || {};
+              const moduleCount = Object.keys(meta.modules || {}).length;
+              const tableCount = meta.tableCount ?? Object.keys(meta.summary || {}).length;
+              const recordCount = meta.recordCount ?? 0;
+              notify(
+                `Respaldo exportado: ${moduleCount} módulos, ${tableCount} tablas y ${recordCount} registros ` +
+                `(esquema ${meta.schemaVersion || 'actual'}).`
+              );
             } catch (err) {
               notify('Error de red al exportar configuraciones', 'error');
             }
@@ -4296,15 +4299,25 @@ export default function CrediFluxApp() {
               const targetData = (parsed.data && typeof parsed.data === 'object' && !Array.isArray(parsed.data))
                 ? parsed.data
                 : parsed;
-              const usersCount = Array.isArray(targetData?.users) ? targetData.users.length : 0;
-              const patternsCount = Array.isArray(targetData?.receiptPatterns) ? targetData.receiptPatterns.length : 0;
-              const ocrActive = targetData?.motorOcr?.activeProvider || targetData?.settings?.aiProvider || 'Automático';
+              const isDynamicBackup = targetData?.format === 'crediflux.system-backup';
+              const modules = targetData?.modules && typeof targetData.modules === 'object' ? targetData.modules : {};
+              const moduleLines = Object.entries(modules)
+                .map(([name, info]) => `• ${name}: ${(info?.tables || []).length} tabla(s), ${info?.recordCount || 0} registros`)
+                .join('\n');
+              const tableCount = targetData?.tableCount ?? Object.keys(targetData?.summary || {}).length;
+              const recordCount = targetData?.recordCount ?? 0;
 
-              const confirmMessage = `¿Importar e inyectar este Snapshot Integral de Ajustes Admin?\n\n` +
-                `• Cuentas de Usuarios & Operadores: ${usersCount} perfiles (roles, permisos, estados y accesos)\n` +
-                `• Motor OCR y Licencias: ${ocrActive} (claves, endpoints, modelos y umbrales)\n` +
-                `• Base de Patrones Bancarios: ${patternsCount} comprobantes (firmas visuales y reglas)\n\n` +
-                `Se procesarán e inyectarán todos los componentes dejando el entorno u hosting operativo al 100% sin requerir configuraciones manuales posteriores. ¿Deseas continuar?`;
+              const details = isDynamicBackup
+                ? `Módulos detectados (${Object.keys(modules).length}):${moduleLines ? '\n' + moduleLines : ' ninguno'}\n\n` +
+                  `Tablas: ${tableCount} · Registros: ${recordCount}\nEsquema de origen: ${targetData.schemaVersion || 'desconocido'}`
+                : `Respaldo de formato anterior.\n` +
+                  `Usuarios: ${Array.isArray(targetData?.users) ? targetData.users.length : 0} · ` +
+                  `Patrones: ${Array.isArray(targetData?.receiptPatterns) ? targetData.receiptPatterns.length : 0}`;
+
+              const confirmMessage = `¿Restaurar este respaldo del sistema?\n\n${details}\n\n` +
+                `Se reemplazarán únicamente las tablas incluidas en el archivo; las tablas nuevas se conservarán ` +
+                `con sus valores actuales. La restauración es atómica: cualquier fallo revierte todos los cambios. ` +
+                `¿Deseas continuar?`;
 
               if (!confirm(confirmMessage)) {
                 return;
@@ -4386,7 +4399,15 @@ export default function CrediFluxApp() {
                     return merged;
                   });
                 }
-                notify(data.message || 'Snapshot importado con éxito: entorno 100% operativo');
+                const importedInfo = data.imported || {};
+                const warningSuffix = Array.isArray(importedInfo.warnings) && importedInfo.warnings.length
+                  ? ` (${importedInfo.warnings.length} avisos)`
+                  : '';
+                notify(
+                  data.message ||
+                  `Respaldo restaurado: ${importedInfo.tableCount || 0} tablas, ` +
+                  `${importedInfo.skippedRows || 0} filas omitidas${warningSuffix}.`
+                );
                 await fetchAllData();
               } else {
                 notify(data?.error || 'No se pudo importar la configuración', 'error');
@@ -4600,16 +4621,16 @@ export default function CrediFluxApp() {
             {/* ========================================================= */}
             {currentUser?.role === 'admin' && (
               <>
-                {/* RESPALDO Y MIGRACIÓN DE CONFIGURACIONES (AJUSTES ADMIN) */}
+                {/* RESPALDO Y MIGRACIÓN DINÁMICA DEL SISTEMA */}
                 <div className={`${settingsCardCls} space-y-4`}>
                   <div className="flex items-center justify-between gap-3 flex-wrap">
                     <div>
                       <h3 className={settingsTitleCls}>
                         <FileText className="w-5 h-5 text-sky-400" />
-                        Respaldo y Migración de Ajustes (Snapshot Completo)
+                        Respaldo y Migración del Sistema (Snapshot Integral)
                       </h3>
                       <p className={`${settingsDescCls} mt-1`}>
-                        Exporta o importa un snapshot integral de Ajustes Admin para migrar o respaldar el sistema entre entornos y proveedores de hosting. Incluye perfiles de usuarios y operadores (roles, permisos, estados y credenciales), motor OCR completo (proveedor, claves API, endpoints, modelos y umbrales) y la base completa de patrones bancarios (firmas visuales y reglas).
+                        El snapshot descubre automáticamente todas las tablas y configuraciones activas al momento de exportar. Incluye versión de esquema, timestamp y metadatos por módulo; los módulos futuros se incorporan sin cambios en el código.
                       </p>
                     </div>
                   </div>
@@ -4618,22 +4639,22 @@ export default function CrediFluxApp() {
                     <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs text-slate-300 flex items-start gap-2">
                       <Users className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                       <div>
-                        <span className="font-semibold text-white block">Usuarios & Operadores</span>
-                        <span className="text-[11px] text-slate-400">Cuentas, roles, permisos, estados, licencias y accesos sincronizados.</span>
+                        <span className="font-semibold text-white block">Descubrimiento dinámico</span>
+                        <span className="text-[11px] text-slate-400">Tablas, columnas y relaciones se leen del catálogo de PostgreSQL.</span>
                       </div>
                     </div>
                     <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs text-slate-300 flex items-start gap-2">
                       <Sparkles className="w-4 h-4 text-teal-400 shrink-0 mt-0.5" />
                       <div>
-                        <span className="font-semibold text-white block">Motor OCR & Licencias</span>
-                        <span className="text-[11px] text-slate-400">Proveedor activo, API keys descifradas, endpoints, modelos y umbrales.</span>
+                        <span className="font-semibold text-white block">Restauración ordenada</span>
+                        <span className="text-[11px] text-slate-400">Dependencias resueltas por llaves foráneas; padres antes que hijos.</span>
                       </div>
                     </div>
                     <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs text-slate-300 flex items-start gap-2">
                       <CheckCircle className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
                       <div>
-                        <span className="font-semibold text-white block">Patrones de Comprobantes</span>
-                        <span className="text-[11px] text-slate-400">Firmas visuales, reglas de análisis regex y ajustes personalizados.</span>
+                        <span className="font-semibold text-white block">Transacción atómica</span>
+                        <span className="text-[11px] text-slate-400">Cualquier fallo revierte todos los cambios; módulos nuevos se conservan.</span>
                       </div>
                     </div>
                   </div>
@@ -4644,14 +4665,14 @@ export default function CrediFluxApp() {
                       onClick={handleExportAdminSettings}
                       className={settingsSecondaryBtnCls}
                     >
-                      Exportar Ajustes (.json)
+                      Exportar Respaldo (.json)
                     </button>
                     <button
                       type="button"
                       onClick={() => importSettingsInputRef.current?.click()}
                       className={settingsPrimaryBtnCls}
                     >
-                      Importar Ajustes (.json)
+                      Importar Respaldo (.json)
                     </button>
                     <input
                       ref={importSettingsInputRef}
@@ -4662,7 +4683,7 @@ export default function CrediFluxApp() {
                     />
                   </div>
                   <p className={settingsHelperCls}>
-                    La importación valida la integridad del archivo y procesa e inyecta inmediatamente todos los componentes en el nuevo hosting o entorno limpio, dejando el sistema operativo al 100% sin requerir configuraciones manuales posteriores (no altera registros de transacciones ni clientes).
+                    La importación valida versión y estructura, ignora tablas obsoletas, conserva los valores actuales de los módulos nuevos y aplica todos los cambios en una sola transacción con rollback completo ante cualquier error.
                   </p>
                 </div>
 
