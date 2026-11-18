@@ -1,9 +1,14 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs';
 import path from 'path';
 import { checkWritePermission, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
 import { parseReceiptWithAI } from '../../../lib/ocrEngine.js';
 import { getStateForRequest, saveStateForRequest, persistenceInfo } from '../../../lib/server/supabase-store';
+import { saveUpload } from '../../../lib/storage/uploads.js';
+
+// El OCR local (Tesseract.js) y las llamadas a proveedores externos pueden tardar;
+// Vercel debe permitir hasta 60 s. Límite de payload de Vercel: 4.5 MB.
+export const maxDuration = 60;
+const MAX_RECEIPT_BYTES = 4 * 1024 * 1024; // 4 MB (margen bajo el límite de Vercel)
 
 export async function GET(request: Request) {
   try {
@@ -128,7 +133,7 @@ export async function POST(request: Request) {
     const manualDate = formData.get('date');
     const file = formData.get('receiptFile');
 
-    let receiptUrl = '/uploads/sample-voucher.png';
+    let receiptUrl: string | null = null;
     let ocrResult = null;
 
     // Patrones de comprobantes registrados por el Admin para validación cruzada
@@ -136,18 +141,39 @@ export async function POST(request: Request) {
 
     // If a file was uploaded, run OCR with pattern cross-validation
     if (file && typeof file === 'object' && file.size > 0) {
-      const buffer = Buffer.from(await file.arrayBuffer());
-      const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
-      if (!fs.existsSync(uploadsDir)) {
-        fs.mkdirSync(uploadsDir, { recursive: true });
+      // Validar tamaño antes de leer el buffer: Vercel corta bodies > 4.5 MB.
+      if (file.size > MAX_RECEIPT_BYTES) {
+        return NextResponse.json({
+          success: false,
+          error: `El comprobante pesa ${(file.size / (1024 * 1024)).toFixed(1)} MB y supera el máximo de 4 MB. Comprime o reduce la imagen e inténtalo de nuevo.`,
+          code: 'PAYLOAD_TOO_LARGE'
+        }, { status: 413 });
       }
 
-      const extension = path.extname(file.name) || '.png';
-      const cleanFileName = `voucher_${Date.now()}_${Math.random().toString(36).substring(7)}${extension}`;
-      const filePath = path.join(uploadsDir, cleanFileName);
+      if (file.type && !String(file.type).startsWith('image/')) {
+        return NextResponse.json({
+          success: false,
+          error: 'El archivo debe ser una imagen (PNG, JPG o JPEG) del comprobante.',
+          code: 'INVALID_FILE_TYPE'
+        }, { status: 415 });
+      }
 
-      fs.writeFileSync(filePath, buffer);
-      receiptUrl = `/uploads/${cleanFileName}`;
+      const buffer = Buffer.from(await file.arrayBuffer());
+
+      // Persistencia best-effort: Vercel Blob si está configurado; en Vercel sin Blob
+      // el FS es de solo lectura, así que un fallo de guardado NO debe romper el OCR.
+      try {
+        const extension = path.extname(file.name || '') || '.png';
+        const cleanFileName = `voucher_${Date.now()}_${Math.random().toString(36).substring(7)}${extension}`;
+        const uploaded = await (saveUpload as any)(buffer, {
+          filename: cleanFileName,
+          folder: 'uploads',
+          contentType: file.type || undefined
+        });
+        receiptUrl = uploaded.url;
+      } catch (uploadError: any) {
+        console.warn('No se pudo almacenar el comprobante (se continúa solo con OCR):', uploadError?.message || uploadError);
+      }
 
       // Regla de Asignación Automática de IA con validación cruzada de patrones
       // Autenticación dinámica: cada proveedor usa su propia clave/configuración guardada
@@ -184,7 +210,9 @@ export async function POST(request: Request) {
       return NextResponse.json({
         success: false,
         error: ocrResult?.error ||
-          'No se pudo identificar el monto del comprobante. Sube una foto más nítida, configura el lector OCR en Ajustes o regístralo manualmente.'
+          'No se pudo identificar el monto del comprobante. Sube una foto más nítida, configura el lector OCR en Ajustes o regístralo manualmente.',
+        code: 'OCR_EXTRACTION_FAILED',
+        ocr: ocrResult // incluye provider, data y rawOcrText cuando existan
       }, { status: 422 });
     }
 

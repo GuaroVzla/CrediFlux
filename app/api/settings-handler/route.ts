@@ -18,6 +18,10 @@ import { hashPassword } from '../../../lib/server/security.js';
 import { getSupabaseAdminClientOrNull } from '../../../lib/supabase/admin';
 import { isSupabaseConfigured } from '../../../lib/supabase/env';
 
+// Tesseract.js necesita tiempo para iniciar el worker y cargar wasm/traineddata.
+// Vercel debe permitir hasta 60 s; el timeout interno responde antes del corte.
+export const maxDuration = 60;
+
 const ALLOWED_PROVIDERS = ['openai', 'gemini', 'ocrspace', 'tesseract'];
 
 function maskKey(key: string | undefined | null) {
@@ -101,10 +105,12 @@ async function testProviderConnection(provider: string, apiKey: string | undefin
     if (provider === 'tesseract') {
       try {
         const testImage = createTestReceiptPngBuffer();
-        const rec = await Promise.race([
-          runTesseractRecognition(testImage, 'eng', { logger: () => {} }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Tiempo de espera agotado inicializando/procesando con Tesseract.js (carga de worker/core/traineddata)')), 45000))
-        ]) as any;
+        // El propio motor aplica timeout + terminación del worker; 40 s deja margen
+        // frente al maxDuration de 60 s de la función en Vercel.
+        const rec = await runTesseractRecognition(testImage, 'eng', {
+          logger: () => {},
+          timeoutMs: 40000
+        }) as any;
         const textLen = String(rec?.rawText || '').trim().length;
         const conf = Number(rec?.confidence);
         const confTxt = Number.isFinite(conf) ? `, confianza ${Math.round(conf)}%` : '';

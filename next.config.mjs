@@ -1,3 +1,12 @@
+const OCR_TRACE_GLOBS = [
+  './*.traineddata',
+  './node_modules/tesseract.js/**/*',
+  './node_modules/tesseract.js-core/**/*',
+  './node_modules/wasm-feature-detect/**/*',
+  './node_modules/is-url/**/*',
+  './node_modules/regenerator-runtime/**/*'
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // distDir: '.next-run',
@@ -27,7 +36,16 @@ const nextConfig = {
 
   // Tesseract.js usa workers/wasm y rutas de archivos en runtime Node; se excluye del bundling
   // para que resuelva correctamente worker/core/lang desde node_modules en server/API routes.
-  serverExternalPackages: ['tesseract.js', 'tesseract.js-core']
+  serverExternalPackages: ['tesseract.js', 'tesseract.js-core'],
+
+  // Vercel elimina archivos no rastreados del bundle serverless. Forzamos la inclusión
+  // del worker, los .wasm de tesseract.js-core y los .traineddata locales en las rutas OCR.
+  outputFileTracingIncludes: {
+    '/api/settings-handler': OCR_TRACE_GLOBS,
+    '/api/ecommerce-handler': OCR_TRACE_GLOBS,
+    '/api/settings': OCR_TRACE_GLOBS,
+    '/api/ecommerce': OCR_TRACE_GLOBS
+  }
 };
 
 export default nextConfig;

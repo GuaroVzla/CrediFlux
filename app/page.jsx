@@ -807,15 +807,35 @@ export default function CrediFluxApp() {
   const morosoDebtorsCount = new Set(morosoLoans.map(l => l.clientId)).size;
 
   // File Upload & OCR Handler
+  const MAX_OCR_FILE_BYTES = 4 * 1024 * 1024; // Vercel limita el body a 4.5 MB
+
   const handleFileSelect = (e) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setOcrForm(prev => ({
+    if (!file) return;
+
+    if (!String(file.type || '').startsWith('image/')) {
+      notify('Selecciona una imagen válida (PNG, JPG o JPEG) del comprobante.', 'error');
+      e.target.value = '';
+      return;
+    }
+
+    if (file.size > MAX_OCR_FILE_BYTES) {
+      notify(`La imagen pesa ${(file.size / (1024 * 1024)).toFixed(1)} MB y supera el máximo de 4 MB. Comprímela o recórtala antes de subirla.`, 'error');
+      e.target.value = '';
+      return;
+    }
+
+    setOcrForm(prev => {
+      if (prev.filePreview) {
+        try { URL.revokeObjectURL(prev.filePreview); } catch {}
+      }
+      return {
         ...prev,
         file,
-        filePreview: URL.createObjectURL(file)
-      }));
-    }
+        filePreview: URL.createObjectURL(file),
+        ocrExtracted: null
+      };
+    });
   };
 
   const handleProcessOcrAndSave = async (e) => {
@@ -833,6 +853,12 @@ export default function CrediFluxApp() {
     }
 
     setOcrForm(prev => ({ ...prev, processing: true }));
+
+    // Evita que el botón quede en "Analizando..." indefinidamente si Vercel
+    // corta la función (504) o la red se estanca.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 75000);
+
     try {
       const formData = new FormData();
       formData.append('type', ocrForm.type); // 'venta_usdt' | 'compra_usdt'
@@ -848,13 +874,31 @@ export default function CrediFluxApp() {
         headers: {
           'x-user-id': currentUser.id
         },
-        body: formData
+        body: formData,
+        signal: controller.signal
       });
-      const data = await res.json();
+
+      // Vercel puede devolver HTML/texto plano en 413/504; no asumir JSON.
+      const rawBody = await res.text();
+      let data = null;
+      try {
+        data = rawBody ? JSON.parse(rawBody) : null;
+      } catch {
+        data = null;
+      }
+
+      if (!data) {
+        const fallback = res.status === 413
+          ? 'El comprobante supera el tamaño máximo permitido por el servidor (4 MB). Reduce la imagen e inténtalo de nuevo.'
+          : res.status === 504
+            ? 'El servidor tardó demasiado en procesar el comprobante. Intenta con una imagen más ligera o cambia el proveedor OCR en Ajustes.'
+            : `El servidor no devolvió una respuesta válida (HTTP ${res.status}). Inténtalo de nuevo.`;
+        notify(fallback, 'error');
+        return;
+      }
 
       if (data.licenseExpired) {
         notify(SUPPORT_CONTACT_TEXT, 'error');
-        setOcrForm(prev => ({ ...prev, processing: false }));
         return;
       }
 
@@ -873,11 +917,19 @@ export default function CrediFluxApp() {
         fetchAllData();
       } else {
         notify(data.error || 'Error al procesar el comprobante', 'error');
-        setOcrForm(prev => ({ ...prev, processing: false }));
+        if (data.ocr?.data) {
+          setOcrForm(prev => ({ ...prev, ocrExtracted: data.ocr.data }));
+        }
       }
     } catch (err) {
       console.error(err);
-      notify('Error al comunicarse con el servidor', 'error');
+      if (err?.name === 'AbortError') {
+        notify('El escaneo OCR superó el tiempo máximo de espera. Intenta con una imagen más ligera o cambia el proveedor OCR en Ajustes.', 'error');
+      } else {
+        notify('Error de red al procesar el comprobante. Revisa tu conexión e inténtalo de nuevo.', 'error');
+      }
+    } finally {
+      clearTimeout(timeoutId);
       setOcrForm(prev => ({ ...prev, processing: false }));
     }
   };
@@ -3975,6 +4027,17 @@ export default function CrediFluxApp() {
                       <p>• Detección automática del Banco Emisor y Banco Receptor.</p>
                     </div>
 
+                    {ocrForm.ocrExtracted && (
+                      <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-[11px] text-emerald-100 space-y-1">
+                        <p className="font-semibold text-emerald-300">✓ Datos extraídos por OCR</p>
+                        <p>Monto: <span className="font-semibold">Bs {Number(ocrForm.ocrExtracted.monto || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></p>
+                        <p>Banco origen: <span className="font-semibold">{ocrForm.ocrExtracted.bancoOrigen || 'Desconocido'}</span></p>
+                        <p>Banco destino: <span className="font-semibold">{ocrForm.ocrExtracted.bancoDestino || 'Desconocido'}</span></p>
+                        <p>Referencia: <span className="font-semibold">{ocrForm.ocrExtracted.referencia || 'N/A'}</span></p>
+                        {ocrForm.ocrExtracted.confianza && <p>Confianza: <span className="font-semibold">{ocrForm.ocrExtracted.confianza}</span></p>}
+                      </div>
+                    )}
+
                     <button
                       type="submit"
                       disabled={ocrForm.processing}
@@ -4843,6 +4906,8 @@ export default function CrediFluxApp() {
                                   setTestingConnection(true);
                                   setOcrConnectionTest({ status: 'testing', message: 'Probando conexión...' });
                                   const started = performance.now();
+                                  const controller = new AbortController();
+                                  const timeoutId = setTimeout(() => controller.abort(), 55000);
                                   try {
                                     const res = await fetch('/api/settings', {
                                       method: 'POST',
@@ -4853,10 +4918,24 @@ export default function CrediFluxApp() {
                                       body: JSON.stringify({
                                         testProviderConnection: provider,
                                         testApiKey: providerNeedsEditableKey ? String(ocrProviderKeys?.[provider] || '').trim() : ''
-                                      })
+                                      }),
+                                      signal: controller.signal
                                     });
-                                    const d = await res.json();
+                                    const rawBody = await res.text();
+                                    let d = null;
+                                    try {
+                                      d = rawBody ? JSON.parse(rawBody) : null;
+                                    } catch {
+                                      d = null;
+                                    }
                                     const clientMs = Math.round(performance.now() - started);
+                                    if (!d) {
+                                      const fallback = res.status === 504
+                                        ? 'El servidor agotó el tiempo de ejecución (timeout de Vercel). Verifica el worker y los traineddata de Tesseract.js.'
+                                        : `Respuesta inválida del servidor (HTTP ${res.status})`;
+                                      setOcrConnectionTest({ status: 'error', message: `${fallback} • ${clientMs} ms` });
+                                      return;
+                                    }
                                     const responseMs = Number.isFinite(d.responseTimeMs) ? d.responseTimeMs : clientMs;
                                     const baseMsg = d.success ? (d.message || `Conexión exitosa con ${provider}`) : (d.error || 'Fallo de conexión');
                                     setOcrConnectionTest({
@@ -4865,8 +4944,12 @@ export default function CrediFluxApp() {
                                     });
                                   } catch (err) {
                                     const clientMs = Math.round(performance.now() - started);
-                                    setOcrConnectionTest({ status: 'error', message: `Error de red al probar la conexión • ${clientMs} ms` });
+                                    const msg = err?.name === 'AbortError'
+                                      ? 'La prueba superó 55 s sin respuesta del servidor (posible bloqueo del worker OCR)'
+                                      : 'Error de red al probar la conexión';
+                                    setOcrConnectionTest({ status: 'error', message: `${msg} • ${clientMs} ms` });
                                   } finally {
+                                    clearTimeout(timeoutId);
                                     setTestingConnection(false);
                                   }
                                 }}
