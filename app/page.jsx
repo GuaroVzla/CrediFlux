@@ -15,6 +15,19 @@ import { getTrustLevelConfig, computeClientTrust } from '../lib/trust';
 
 const PATTERN_FALLBACK_IMAGE = '/uploads/sample-voucher.svg';
 
+/** Estado inicial del modal de registro manual (creación o edición). */
+const createEmptyManualRecord = () => ({
+  open: false,
+  saving: false,
+  mode: 'create',
+  id: null,
+  type: 'compra',
+  bankOrigin: '',
+  reference: '',
+  amountBs: '',
+  date: new Date().toISOString().split('T')[0]
+});
+
 /** Imagen de patrón con sustitución automática si la URL falla o expira. */
 function PatternImage({ src, alt, className = '', wrapperClassName = '' }) {
   const [displaySrc, setDisplaySrc] = useState(src || PATTERN_FALLBACK_IMAGE);
@@ -203,13 +216,15 @@ export default function CrediFluxApp() {
   // E-Commerce OCR Upload Form State
   const [ocrForm, setOcrForm] = useState({
     type: 'venta_usdt',
-    reference: '',
     date: new Date().toISOString().split('T')[0],
     file: null,
     filePreview: null,
     processing: false,
     ocrExtracted: null
   });
+
+  // Registro manual de transacciones (creación y edición, sin comprobante OCR)
+  const [manualRecord, setManualRecord] = useState(createEmptyManualRecord);
 
   // Transactions table filters & sort
   const [txSearch, setTxSearch] = useState('');
@@ -1007,7 +1022,6 @@ export default function CrediFluxApp() {
       if (dolarRates?.oficial) {
         formData.append('bcvRate', dolarRates.oficial.toString());
       }
-      if (ocrForm.reference) formData.append('reference', ocrForm.reference);
       if (ocrForm.date) formData.append('date', ocrForm.date);
       if (ocrForm.file) formData.append('receiptFile', ocrForm.file);
 
@@ -1048,7 +1062,6 @@ export default function CrediFluxApp() {
         notify('¡Comprobante procesado y registrado con éxito!');
         setOcrForm({
           type: 'venta_usdt',
-          reference: '',
           date: new Date().toISOString().split('T')[0],
           file: null,
           filePreview: null,
@@ -1073,6 +1086,119 @@ export default function CrediFluxApp() {
     } finally {
       clearTimeout(timeoutId);
       setOcrForm(prev => ({ ...prev, processing: false }));
+    }
+  };
+
+  // Registro manual: abre el modal en modo creación.
+  const openManualRecord = () => {
+    setManualRecord({ ...createEmptyManualRecord(), open: true });
+  };
+
+  // Edita únicamente registros creados manualmente.
+  const openEditManualRecord = (tx) => {
+    const bcvRateUsed = Number(tx.bcvRate) || Number(dolarRates?.oficial) || 0;
+    const amountBsValue = tx.amountBs !== undefined
+      ? Number(tx.amountBs)
+      : (Number(tx.amount || 0) * bcvRateUsed);
+    setManualRecord({
+      ...createEmptyManualRecord(),
+      open: true,
+      mode: 'edit',
+      id: tx.id,
+      type: tx.type === 'venta' ? 'venta' : 'compra',
+      bankOrigin: tx.bankOrigin || tx.bank || '',
+      reference: tx.reference || '',
+      amountBs: Number.isFinite(amountBsValue) ? String(Number(amountBsValue.toFixed(2))) : '',
+      date: String(tx.date || '').slice(0, 10) || new Date().toISOString().split('T')[0]
+    });
+  };
+
+  const closeManualRecord = () => {
+    setManualRecord(prev => ({ ...prev, open: false, saving: false }));
+  };
+
+  // Guarda (crea o edita) un registro manual usando el flujo de persistencia del módulo.
+  // El monto USD lo calcula el servidor con la tasa BCV; luego se refrescan los totales.
+  const handleManualRecordSubmit = async (e) => {
+    e.preventDefault();
+    if (!currentUser) return;
+
+    if (checkIsExpired(currentUser)) {
+      notify(SUPPORT_CONTACT_TEXT, 'error');
+      return;
+    }
+
+    const bcvRate = Number(dolarRates?.oficial) || 0;
+    if (!(bcvRate > 0)) {
+      notify('La tasa BCV aún no está disponible. Espera a que cargue e inténtalo de nuevo.', 'error');
+      return;
+    }
+
+    const amountBs = Number(manualRecord.amountBs);
+    if (!Number.isFinite(amountBs) || amountBs <= 0) {
+      notify('Ingresa un monto en Bs válido mayor a cero.', 'error');
+      return;
+    }
+
+    const isEdit = manualRecord.mode === 'edit';
+    if (isEdit && !manualRecord.date) {
+      notify('Selecciona la fecha del registro.', 'error');
+      return;
+    }
+
+    setManualRecord(prev => ({ ...prev, saving: true }));
+
+    const payload = {
+      type: manualRecord.type,
+      bankOrigin: manualRecord.bankOrigin.trim(),
+      reference: manualRecord.reference.trim(),
+      amountBs,
+      bcvRate,
+      date: isEdit ? manualRecord.date : new Date().toISOString().split('T')[0]
+    };
+
+    try {
+      let res;
+      if (isEdit) {
+        res = await fetch('/api/ecommerce', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-id': currentUser.id
+          },
+          body: JSON.stringify({ id: manualRecord.id, ...payload })
+        });
+      } else {
+        const formData = new FormData();
+        formData.append('manual', 'true');
+        Object.entries(payload).forEach(([key, value]) => formData.append(key, String(value)));
+        res = await fetch('/api/ecommerce', {
+          method: 'POST',
+          headers: {
+            'x-user-id': currentUser.id
+          },
+          body: formData
+        });
+      }
+
+      const data = await res.json().catch(() => null);
+      if (data?.licenseExpired) {
+        notify(SUPPORT_CONTACT_TEXT, 'error');
+        return;
+      }
+      if (!data?.success) {
+        notify(data?.error || (isEdit ? 'No se pudo actualizar el registro manual.' : 'No se pudo guardar el registro manual.'), 'error');
+        return;
+      }
+
+      notify(isEdit ? 'Registro manual actualizado correctamente.' : 'Registro manual guardado correctamente.');
+      setManualRecord(createEmptyManualRecord());
+      fetchAllData();
+    } catch (err) {
+      console.error(err);
+      notify('Error de red al guardar el registro manual. Inténtalo de nuevo.', 'error');
+    } finally {
+      setManualRecord(prev => ({ ...prev, saving: false }));
     }
   };
 
@@ -1445,6 +1571,13 @@ export default function CrediFluxApp() {
   const settingsDescCls = 'text-xs text-slate-400 leading-relaxed';
   const settingsLabelCls = 'block text-xs font-medium text-slate-300 mb-1.5';
   const settingsInputCls = 'w-full h-10 px-3 bg-[#0b1120] border border-slate-700 rounded-lg text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50';
+
+  // Vista previa del cálculo automático del registro manual (mismo divisor BCV del OCR).
+  const manualBcvRate = Number(dolarRates?.oficial) || 0;
+  const manualAmountBsNumber = Number(manualRecord.amountBs);
+  const manualUsdPreview = manualBcvRate > 0 && Number.isFinite(manualAmountBsNumber) && manualAmountBsNumber > 0
+    ? (manualAmountBsNumber / manualBcvRate).toFixed(2)
+    : null;
   const settingsTextareaCls = 'w-full px-3 py-2 bg-[#0b1120] border border-slate-700 rounded-lg text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 resize-none';
   const settingsPrimaryBtnCls = 'h-10 px-4 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-lg text-sm transition-colors shadow-sm inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed';
   const settingsSecondaryBtnCls = 'h-10 px-4 bg-[#1f2937] hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold rounded-lg text-sm transition-colors inline-flex items-center justify-center gap-1.5';
@@ -3957,7 +4090,7 @@ export default function CrediFluxApp() {
 
               {/* Módulo de Cálculos Financieros (Día, Mes, Año) */}
               <div className={`p-6 rounded-3xl border ${themeDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200'}`}>
-                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6">
+                <div className="flex flex-col items-stretch gap-4 mb-6 md:flex-row md:items-center md:justify-between">
                   <div>
                     <h3 className="font-bold text-lg text-white flex items-center gap-2">
                       <PieChart className="w-5 h-5 text-emerald-400" />
@@ -3968,9 +4101,9 @@ export default function CrediFluxApp() {
                     </p>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-start gap-2 md:flex-nowrap md:justify-end">
                     {/* Botones de filtro: Día, Mes, Año */}
-                    <div className="flex bg-slate-800 p-1 rounded-2xl border border-slate-700">
+                    <div className="flex shrink-0 bg-slate-800 p-1 rounded-2xl border border-slate-700">
                       <button
                         type="button"
                         onClick={() => {
@@ -4012,7 +4145,7 @@ export default function CrediFluxApp() {
                         type="date"
                         value={calcDate}
                         onChange={(e) => setCalcDate(e.target.value)}
-                        className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white"
+                        className="min-w-0 flex-1 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white"
                       />
                     )}
                     {calcPeriod === 'month' && (
@@ -4020,7 +4153,7 @@ export default function CrediFluxApp() {
                         type="month"
                         value={calcDate}
                         onChange={(e) => setCalcDate(e.target.value)}
-                        className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white"
+                        className="min-w-0 flex-1 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white"
                       />
                     )}
                     {calcPeriod === 'year' && (
@@ -4166,9 +4299,9 @@ export default function CrediFluxApp() {
                       </div>
                     </div>
 
-                    {/* Fecha y Referencia opcional (monto, banco y descripción eliminados para extracción automática) */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
+                    {/* Fecha y acceso al registro manual (sin extracción OCR) */}
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                      <div className="flex-1">
                         <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1">
                           Fecha
                         </label>
@@ -4179,25 +4312,14 @@ export default function CrediFluxApp() {
                           className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white"
                         />
                       </div>
-                      <div>
-                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1">
-                          Referencia (Opcional)
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="Detectada por IA"
-                          value={ocrForm.reference}
-                          onChange={(e) => setOcrForm({ ...ocrForm, reference: e.target.value })}
-                          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="p-3 bg-slate-800/40 rounded-xl border border-slate-700/60 text-[11px] text-slate-400 space-y-1">
-                      <p className="font-semibold text-slate-300">💡 Extracción inteligente automática:</p>
-                      <p>• Monto en Bolívares extraído del capture.</p>
-                      <p>• Conversión automática a USD dividiendo entre la tasa BCV ({dolarRates?.oficial ? `${dolarRates.oficial} Bs` : 'Cargando...'}).</p>
-                      <p>• Detección automática del Banco Emisor y Banco Receptor.</p>
+                      <button
+                        type="button"
+                        onClick={openManualRecord}
+                        className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-xs font-bold transition-colors whitespace-nowrap"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Registro manual
+                      </button>
                     </div>
 
                     {ocrForm.ocrExtracted && (
@@ -4205,9 +4327,7 @@ export default function CrediFluxApp() {
                         <p className="font-semibold text-emerald-300">✓ Datos extraídos por OCR</p>
                         <p>Monto: <span className="font-semibold">Bs {Number(ocrForm.ocrExtracted.monto || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></p>
                         <p>Banco origen: <span className="font-semibold">{ocrForm.ocrExtracted.bancoOrigen || 'Desconocido'}</span></p>
-                        <p>Banco destino: <span className="font-semibold">{ocrForm.ocrExtracted.bancoDestino || 'Desconocido'}</span></p>
                         <p>Referencia: <span className="font-semibold">{ocrForm.ocrExtracted.referencia || 'N/A'}</span></p>
-                        {ocrForm.ocrExtracted.confianza && <p>Confianza: <span className="font-semibold">{ocrForm.ocrExtracted.confianza}</span></p>}
                       </div>
                     )}
 
@@ -4300,6 +4420,7 @@ export default function CrediFluxApp() {
                           ) : (
                             sortedTxs.map(tx => {
                               const isVenta = tx.type === 'venta';
+                              const isManualTx = tx.manual === true || tx.ocrProvider === 'Manual';
                               const bcvRateUsed = tx.bcvRate || dolarRates?.oficial || 1;
                               const displayBs = tx.amountBs !== undefined
                                 ? Number(tx.amountBs)
@@ -4345,14 +4466,26 @@ export default function CrediFluxApp() {
                                     )}
                                   </td>
                                   <td className="py-3 px-3 text-center whitespace-nowrap">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteEcommerceTransaction(tx.id)}
-                                      title="Eliminar registro"
-                                      className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition-colors"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
+                                    <div className="inline-flex items-center gap-1.5">
+                                      {isManualTx && (
+                                        <button
+                                          type="button"
+                                          onClick={() => openEditManualRecord(tx)}
+                                          title="Editar registro manual"
+                                          className="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 transition-colors"
+                                        >
+                                          <Edit3 className="w-3.5 h-3.5" />
+                                        </button>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteEcommerceTransaction(tx.id)}
+                                        title="Eliminar registro"
+                                        className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition-colors"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
                                   </td>
                                 </tr>
                               );
@@ -7339,6 +7472,166 @@ export default function CrediFluxApp() {
                 ))
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL: REGISTRO MANUAL DE TRANSACCIÓN (SIN OCR)                 */}
+      {/* ============================================================== */}
+      {manualRecord.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div>
+                <h3 className="text-base font-semibold text-white">
+                  {manualRecord.mode === 'edit' ? 'Editar registro manual' : 'Registro manual'}
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  {manualRecord.mode === 'edit'
+                    ? 'Modifica los datos del registro. El monto USD se recalcula con la tasa BCV vigente.'
+                    : 'La fecha se asigna automáticamente y el monto USD se calcula con la tasa BCV vigente.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeManualRecord}
+                disabled={manualRecord.saving}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white disabled:opacity-40"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleManualRecordSubmit} className="space-y-4 mt-4">
+              {manualRecord.mode === 'edit' && (
+                <div>
+                  <label className={settingsLabelCls}>Fecha *</label>
+                  <input
+                    type="date"
+                    required
+                    value={manualRecord.date}
+                    onChange={(e) => setManualRecord(prev => ({ ...prev, date: e.target.value }))}
+                    className={settingsInputCls}
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className={settingsLabelCls}>Tipo de operación *</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setManualRecord(prev => ({ ...prev, type: 'compra' }))}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold transition-all ${manualRecord.type === 'compra'
+                        ? 'bg-rose-500 text-white shadow-md'
+                        : 'bg-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                  >
+                    Compra
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setManualRecord(prev => ({ ...prev, type: 'venta' }))}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold transition-all ${manualRecord.type === 'venta'
+                        ? 'bg-emerald-500 text-slate-950 shadow-md'
+                        : 'bg-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                  >
+                    Venta
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className={settingsLabelCls}>Banco emisor *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej. Banesco, Banco de Venezuela, Mercantil..."
+                  value={manualRecord.bankOrigin}
+                  onChange={(e) => setManualRecord(prev => ({ ...prev, bankOrigin: e.target.value }))}
+                  className={`${settingsInputCls} font-medium`}
+                />
+              </div>
+
+              <div>
+                <label className={settingsLabelCls}>Referencia *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Número de referencia de la operación"
+                  value={manualRecord.reference}
+                  onChange={(e) => setManualRecord(prev => ({ ...prev, reference: e.target.value }))}
+                  className={`${settingsInputCls} font-mono`}
+                />
+              </div>
+
+              <div>
+                <label className={settingsLabelCls}>Monto en Bs *</label>
+                <input
+                  type="number"
+                  required
+                  min="0.01"
+                  step="0.01"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={manualRecord.amountBs}
+                  onChange={(e) => setManualRecord(prev => ({ ...prev, amountBs: e.target.value }))}
+                  className={`${settingsInputCls} font-mono`}
+                />
+              </div>
+
+              <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-3 space-y-1">
+                {manualRecord.mode === 'create' && (
+                  <p className="text-[11px] text-slate-400">
+                    Fecha automática: <span className="text-slate-200 font-semibold">{new Date().toISOString().split('T')[0]}</span>
+                  </p>
+                )}
+                <p className="text-[11px] text-slate-400">
+                  Tasa BCV: <span className="text-emerald-300 font-semibold">
+                    {manualBcvRate > 0
+                      ? `${manualBcvRate.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} Bs/USD`
+                      : 'Cargando...'}
+                  </span>
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  Monto USD estimado: <span className="text-white font-semibold">
+                    {manualUsdPreview !== null
+                      ? `$${Number(manualUsdPreview).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : '—'}
+                  </span>
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={closeManualRecord}
+                  disabled={manualRecord.saving}
+                  className="px-4 py-2 rounded-lg border border-slate-700 text-slate-300 text-xs font-semibold hover:bg-slate-800 disabled:opacity-40"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={manualRecord.saving}
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-slate-950 text-xs font-bold disabled:opacity-50"
+                >
+                  {manualRecord.saving ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Guardando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>{manualRecord.mode === 'edit' ? 'Guardar cambios' : 'Guardar registro'}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

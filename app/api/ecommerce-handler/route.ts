@@ -138,6 +138,9 @@ export async function POST(request: Request) {
 
     const manualRef = formData.get('reference');
     const manualDate = formData.get('date');
+    const isManual = String(formData.get('manual') || '') === 'true';
+    const manualBankOrigin = String(formData.get('bankOrigin') || '').trim();
+    const manualReference = String(formData.get('reference') || '').trim();
     const file = formData.get('receiptFile');
 
     let receiptUrl: string | null = null;
@@ -206,15 +209,41 @@ export async function POST(request: Request) {
       });
     }
 
-    // Extract fields from OCR
+    // Extract fields from OCR (en registro manual no hay comprobante ni OCR)
     const ocrData = ocrResult?.data || {};
 
     // Monto en Bs exacto adaptado a bancos VE (2 decimales)
-    const amountBs = Number(Number(ocrData.monto || 0).toFixed(2));
+    const amountBs = isManual
+      ? Number(Number(formData.get('amountBs') || 0).toFixed(2))
+      : Number(Number(ocrData.monto || 0).toFixed(2));
 
-    // REGLA DE INTEGRIDAD FINANCIERA: nunca persistir una transacción con monto
-    // ilegible o inválido (0, negativo o absurdo). Se informa al operador.
-    if (!ocrResult?.success || amountBs <= 0) {
+    if (isManual) {
+      // El registro manual captura todos los datos en el modal; se validan aquí
+      // antes de persistir para no crear transacciones incompletas.
+      if (!manualBankOrigin || !manualReference) {
+        return NextResponse.json({
+          success: false,
+          error: 'El banco emisor y la referencia son obligatorios en el registro manual.',
+          code: 'MISSING_MANUAL_FIELDS'
+        }, { status: 400 });
+      }
+      if (!Number.isFinite(amountBs) || amountBs <= 0) {
+        return NextResponse.json({
+          success: false,
+          error: 'El monto en Bs debe ser un número mayor a cero.',
+          code: 'INVALID_AMOUNT'
+        }, { status: 400 });
+      }
+      if (!(bcvRate > 0)) {
+        return NextResponse.json({
+          success: false,
+          error: 'No hay una tasa BCV disponible para calcular el monto en USD. Inténtalo de nuevo en unos instantes.',
+          code: 'MISSING_BCV_RATE'
+        }, { status: 400 });
+      }
+    } else if (!ocrResult?.success || amountBs <= 0) {
+      // REGLA DE INTEGRIDAD FINANCIERA: nunca persistir una transacción con monto
+      // ilegible o inválido (0, negativo o absurdo). Se informa al operador.
       return NextResponse.json({
         success: false,
         error: ocrResult?.error ||
@@ -224,12 +253,13 @@ export async function POST(request: Request) {
       }, { status: 422 });
     }
 
-
-    // Monto en USD: estrictamente 2 decimales
+    // Monto en USD: estrictamente 2 decimales (misma lógica para OCR y registro manual)
     const amountUSD = bcvRate > 0 ? Number((amountBs / bcvRate).toFixed(2)) : 0;
 
-    const bankOrigin = ocrData.bancoOrigen || 'Desconocido';
-    const bankDestination = ocrData.bancoDestino || 'Desconocido';
+    const bankOrigin = isManual
+      ? (manualBankOrigin || 'Desconocido')
+      : (ocrData.bancoOrigen || 'Desconocido');
+    const bankDestination = isManual ? 'Desconocido' : (ocrData.bancoDestino || 'Desconocido');
     const finalRef = manualRef || ocrData.referencia || ('REF-' + Date.now().toString().slice(-6));
     const finalDate = manualDate || ocrData.fecha || new Date().toISOString().split('T')[0];
 
@@ -246,6 +276,7 @@ export async function POST(request: Request) {
       amountUSD,                 // solo 2 decimales en $
       bcvRate,
       receiptUrl,
+      manual: isManual,
       rawOcr: ocrResult ? ocrResult.data : null,
       ocrProvider: ocrResult ? ocrResult.provider : 'Manual',
       createdAt: new Date().toISOString()
@@ -278,6 +309,116 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('Ecommerce POST error:', error);
     return NextResponse.json({ success: false, error: 'Error al procesar comprobante' }, { status: 500 });
+  }
+}
+
+// Edición exclusiva de registros creados manualmente (sin comprobante OCR).
+// Recalcula amountUSD con la tasa BCV vigente; los totales se derivan en GET.
+export async function PATCH(request: Request) {
+  try {
+    const db = await getStateForRequest(request);
+    const perm = checkWritePermission(request, db);
+    if (!perm.allowed) {
+      return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
+    }
+    const user = perm.user || getRequestUser(request, db);
+    if (!user) {
+      return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+    }
+
+    const payload = await request.json().catch(() => null);
+    const id = String(payload?.id || '');
+    if (!id) {
+      return NextResponse.json({ success: false, error: 'ID requerido' }, { status: 400 });
+    }
+
+    const existing = (db.ecommerce || []).find((t: any) => t.id === id);
+    if (!existing) {
+      return NextResponse.json({ success: false, error: 'Transacción no encontrada' }, { status: 404 });
+    }
+    if (!canAccessRecord(user, existing)) {
+      return NextResponse.json({ success: false, error: 'No autorizado para editar esta transacción' }, { status: 403 });
+    }
+    // Los registros provenientes de OCR no se editan desde este flujo.
+    if (existing.manual !== true && existing.ocrProvider !== 'Manual') {
+      return NextResponse.json({
+        success: false,
+        error: 'Solo los registros manuales pueden ser editados.',
+        code: 'NOT_MANUAL_RECORD'
+      }, { status: 403 });
+    }
+
+    const typeRaw = String(payload.type || existing.type || '').toLowerCase();
+    const type = typeRaw === 'venta' || typeRaw === 'venta_usdt'
+      ? 'venta'
+      : typeRaw === 'compra' || typeRaw === 'compra_usdt'
+        ? 'compra'
+        : '';
+    if (type !== 'venta' && type !== 'compra') {
+      return NextResponse.json({ success: false, error: 'Tipo de operación inválido.', code: 'INVALID_TYPE' }, { status: 400 });
+    }
+
+    const bankOrigin = String(payload.bankOrigin || '').trim();
+    const reference = String(payload.reference || '').trim();
+    const date = String(payload.date || '').trim() || new Date().toISOString().split('T')[0];
+    if (!bankOrigin || !reference) {
+      return NextResponse.json({
+        success: false,
+        error: 'El banco emisor y la referencia son obligatorios.',
+        code: 'MISSING_MANUAL_FIELDS'
+      }, { status: 400 });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return NextResponse.json({ success: false, error: 'La fecha debe tener formato YYYY-MM-DD.', code: 'INVALID_DATE' }, { status: 400 });
+    }
+
+    const amountBs = Number(Number(payload.amountBs || 0).toFixed(2));
+    if (!Number.isFinite(amountBs) || amountBs <= 0) {
+      return NextResponse.json({ success: false, error: 'El monto en Bs debe ser un número mayor a cero.', code: 'INVALID_AMOUNT' }, { status: 400 });
+    }
+
+    const bcvRate = Number(payload.bcvRate) || Number(existing.bcvRate) || 0;
+    if (!(bcvRate > 0)) {
+      return NextResponse.json({
+        success: false,
+        error: 'No hay una tasa BCV disponible para recalcular el monto en USD.',
+        code: 'MISSING_BCV_RATE'
+      }, { status: 400 });
+    }
+    const amountUSD = Number((amountBs / bcvRate).toFixed(2));
+
+    Object.assign(existing, {
+      type,
+      date,
+      bankOrigin,
+      reference,
+      amountBs,
+      amountUSD,
+      bcvRate,
+      manual: true,
+      updatedAt: new Date().toISOString()
+    });
+
+    const saved = await saveStateForRequest(request, db);
+    if (!saved) {
+      return NextResponse.json({
+        success: false,
+        error: 'No se pudo guardar el cambio en la base de datos. Verifica la configuración de persistencia (DATABASE_URL).'
+      }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Registro manual actualizado exitosamente',
+      transaction: {
+        ...existing,
+        receiptUrl: await resolveUploadUrl(existing.receiptUrl)
+      },
+      persistence: persistenceInfo()
+    });
+  } catch (error) {
+    console.error('Ecommerce PATCH error:', error);
+    return NextResponse.json({ success: false, error: 'Error al editar transacción' }, { status: 500 });
   }
 }
 
