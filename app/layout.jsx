@@ -24,7 +24,7 @@ export default function RootLayout({ children }) {
       <head>
         <style>{fontSmoothingStyle}</style>
       </head>
-      <body className="min-h-screen bg-[#0b1120] text-slate-100 selection:bg-emerald-200 selection:text-emerald-950">
+      <body className="min-h-screen bg-[var(--background)] text-[var(--foreground)] selection:bg-emerald-200 selection:text-emerald-950">
         {children}
       </body>
     </html>

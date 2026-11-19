@@ -2,14 +2,37 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Tokens de tema. Superficies menos extremas que antes (#0b1120 -> #101827)
+ * para reducir el contraste excesivo y la fatiga visual con gafas.
+ * Se mantienen los nombres para no tocar la lógica ni los componentes.
+ */
 :root {
   --background: #f8fafc;
   --foreground: #0f172a;
+  --surface: #ffffff;
+  --surface-subtle: #f1f5f9;
+  --border-subtle: #cbd5e1;
+  --text-muted: #334155;
+  --accent-emerald: #047857;
+  --accent-amber: #b45309;
+  --accent-rose: #be123c;
+  --accent-teal: #0f766e;
+  --accent-purple: #7e22ce;
 }
 
 .dark {
-  --background: #0b1120;
-  --foreground: #f8fafc;
+  --background: #101827;
+  --foreground: #f1f5f9;
+  --surface: #162033;
+  --surface-subtle: #1e293b;
+  --border-subtle: #334155;
+  --text-muted: #cbd5e1;
+  --accent-emerald: #10b981;
+  --accent-amber: #f59e0b;
+  --accent-rose: #f43f5e;
+  --accent-teal: #14b8a6;
+  --accent-purple: #a855f7;
 }
 
 body {
@@ -45,6 +68,24 @@ body {
 }
 
 /*
+ * Superficies hardcodeadas en modo oscuro: las suavizamos con tokens
+ * para bajar el contraste excesivo del tema anterior (#0b1120).
+ * El login usa las mismas clases, así que también se beneficia.
+ */
+:root.dark [class~="bg-[#0b1120]"],
+:root.dark [class~="bg-[#0f172a]"],
+:root.dark [class~="bg-[#111827]"],
+:root.dark .bg-slate-900,
+:root.dark .bg-slate-950 { background-color: var(--background) !important; }
+:root.dark .bg-slate-800 { background-color: var(--surface-subtle) !important; }
+:root.dark .bg-slate-900\/60,
+:root.dark .bg-slate-900\/80 { background-color: var(--surface) !important; }
+:root.dark .bg-slate-950\/20,
+:root.dark .bg-slate-800\/30,
+:root.dark .bg-slate-800\/40,
+:root.dark .bg-slate-800\/50 { background-color: var(--surface-subtle) !important; }
+
+/*
  * Modo claro: la app usa cientos de clases oscuras hardcodeadas
  * (bg-slate-900/800, border-slate-800/700, text-white...). Al quitar `.dark`
  * del <html> las remapeamos a superficies claras y textos legibles.
@@ -57,7 +98,7 @@ body {
 :root:not(.dark) .bg-slate-800,
 :root:not(.dark) [class~="bg-[#0b1120]"],
 :root:not(.dark) [class~="bg-[#0f172a]"],
-:root:not(.dark) [class~="bg-[#111827]"] { background-color: #ffffff !important; }
+:root:not(.dark) [class~="bg-[#111827]"] { background-color: var(--surface) !important; }
 
 :root:not(.dark) .bg-slate-950\/20,
 :root:not(.dark) .bg-slate-950\/40,
@@ -70,7 +111,7 @@ body {
 :root:not(.dark) .bg-slate-800\/60,
 :root:not(.dark) .bg-slate-800\/70,
 :root:not(.dark) .bg-slate-800\/80,
-:root:not(.dark) .bg-slate-800\/90 { background-color: #f1f5f9 !important; }
+:root:not(.dark) .bg-slate-800\/90 { background-color: var(--surface-subtle) !important; }
 
 :root:not(.dark) .hover\:bg-slate-800:hover,
 :root:not(.dark) .hover\:bg-slate-700:hover { background-color: #e2e8f0 !important; }
@@ -82,27 +123,43 @@ body {
 :root:not(.dark) .border-slate-700\/50,
 :root:not(.dark) .border-slate-700\/60,
 :root:not(.dark) .border-slate-700\/70,
-:root:not(.dark) .border-slate-700\/80 { border-color: #cbd5e1 !important; }
+:root:not(.dark) .border-slate-700\/80 { border-color: var(--border-subtle) !important; }
 
-/* Textos base */
-:root:not(.dark) .text-slate-100 { color: #0f172a !important; }
-:root:not(.dark) .text-slate-200 { color: #0f172a !important; }
-:root:not(.dark) .text-slate-300 { color: #334155 !important; }
+/* Textos base: usan tokens para que claro y oscuro compartan jerarquía. */
+:root:not(.dark) .text-slate-100,
+:root:not(.dark) .text-slate-200 { color: var(--foreground) !important; }
+:root:not(.dark) .text-slate-300 { color: var(--text-muted) !important; }
 :root:not(.dark) .text-slate-400,
-:root:not(.dark) .text-slate-500 { color: #475569 !important; }
+:root:not(.dark) .text-slate-500 { color: var(--text-muted) !important; }
 
-/* Acentos: se oscurecen para no perder contraste sobre tarjetas claras. */
+/* Acentos oscurecidos sobre superficies claras. */
 :root:not(.dark) .text-emerald-300,
-:root:not(.dark) .text-emerald-400 { color: #047857 !important; }
+:root:not(.dark) .text-emerald-400 { color: var(--accent-emerald) !important; }
 :root:not(.dark) .text-amber-300,
 :root:not(.dark) .text-amber-400,
-:root:not(.dark) .text-amber-500 { color: #b45309 !important; }
+:root:not(.dark) .text-amber-500 { color: var(--accent-amber) !important; }
 :root:not(.dark) .text-rose-300,
-:root:not(.dark) .text-rose-400 { color: #be123c !important; }
+:root:not(.dark) .text-rose-400 { color: var(--accent-rose) !important; }
 :root:not(.dark) .text-teal-300,
-:root:not(.dark) .text-teal-400 { color: #0f766e !important; }
+:root:not(.dark) .text-teal-400 { color: var(--accent-teal) !important; }
 :root:not(.dark) .text-purple-300,
-:root:not(.dark) .text-purple-400 { color: #7e22ce !important; }
+:root:not(.dark) .text-purple-400 { color: var(--accent-purple) !important; }
+
+/*
+ * Modo oscuro: bajamos un escalón los acentos brillantes para evitar
+ * halation (brillo alrededor de las letras) en textos pequeños.
+ */
+:root.dark .text-emerald-300 { color: var(--accent-emerald) !important; }
+:root.dark .text-emerald-400 { color: var(--accent-emerald) !important; }
+:root.dark .text-amber-300,
+:root.dark .text-amber-400 { color: var(--accent-amber) !important; }
+:root.dark .text-rose-300,
+:root.dark .text-rose-400 { color: var(--accent-rose) !important; }
+:root.dark .text-teal-300,
+:root.dark .text-teal-400 { color: var(--accent-teal) !important; }
+:root.dark .text-purple-300,
+:root.dark .text-purple-400 { color: var(--accent-purple) !important; }
+:root.dark .text-slate-500 { color: var(--text-muted) !important; }
 
 /*
  * text-white suele ser el valor de una KPI o botón sobre fondo propio.
