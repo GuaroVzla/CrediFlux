@@ -6,9 +6,14 @@ const OCR_TRACE_GLOBS = [
   './lib/ocr/**/*',
   './node_modules/tesseract.js/**/*',
   './node_modules/tesseract.js-core/**/*',
+  // Dependencias transitivas que el worker carga con require() en runtime.
+  './node_modules/bmp-js/**/*',
+  './node_modules/idb-keyval/**/*',
+  './node_modules/node-fetch/**/*',
   './node_modules/wasm-feature-detect/**/*',
   './node_modules/is-url/**/*',
-  './node_modules/regenerator-runtime/**/*'
+  './node_modules/regenerator-runtime/**/*',
+  './node_modules/zlibjs/**/*'
 ];
 
 // Aplica tanto a las rutas públicas como a los handlers internos detrás de los rewrites.
