@@ -15,6 +15,15 @@ import { getTrustLevelConfig, computeClientTrust } from '../lib/trust';
 
 const PATTERN_FALLBACK_IMAGE = '/uploads/sample-voucher.svg';
 
+/** Estado inicial del modal de baja de financiamientos (selección de motivo + confirmación). */
+const emptyDeleteLoanModal = () => ({
+  open: false,
+  loan: null,
+  processing: false,
+  step: 'choose',
+  reason: null
+});
+
 /** Estado inicial del modal de registro manual (creación o edición). */
 const createEmptyManualRecord = () => ({
   open: false,
@@ -252,7 +261,7 @@ export default function CrediFluxApp() {
     const today = now.toISOString().slice(0, 10);
     return { mode: 'month', day: today, month: ym, year: String(now.getFullYear()), from: today, to: today };
   });
-  const [deleteLoanModal, setDeleteLoanModal] = useState({ open: false, loan: null, processing: false });
+  const [deleteLoanModal, setDeleteLoanModal] = useState(emptyDeleteLoanModal);
   const [blacklist, setBlacklist] = useState([]);
   const [blacklistModal, setBlacklistModal] = useState(false);
   const [blacklistSearch, setBlacklistSearch] = useState('');
@@ -737,15 +746,17 @@ export default function CrediFluxApp() {
     }
   };
 
-  // Da de baja un financiamiento por incumplimiento y envía al cliente a Lista Negra
+  // Ejecuta la baja ya confirmada. El motivo define si se hace una eliminación
+  // limpia (error de registro) o la baja por incumplimiento con lista negra.
   const confirmDeleteLoan = async () => {
-    const loan = deleteLoanModal.loan;
+    const { loan, reason } = deleteLoanModal;
     if (isUserExpired) { notify(SUPPORT_CONTACT_TEXT, 'error'); return; }
-    if (!loan?.id) return;
+    if (!loan?.id || !reason) return;
 
+    const modeParam = reason === 'registro_error' ? '&mode=error' : '';
     setDeleteLoanModal(prev => ({ ...prev, processing: true }));
     try {
-      const res = await fetch(`/api/loans?id=${encodeURIComponent(loan.id)}`, {
+      const res = await fetch(`/api/loans?id=${encodeURIComponent(loan.id)}${modeParam}`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
@@ -759,12 +770,14 @@ export default function CrediFluxApp() {
         return;
       }
       if (d.success) {
-        notify(d.message || 'Financiamiento dado de baja');
-        setDeleteLoanModal({ open: false, loan: null, processing: false });
+        notify(d.message || (reason === 'registro_error'
+          ? 'Financiamiento eliminado por error de registro'
+          : 'Financiamiento dado de baja'));
+        setDeleteLoanModal(emptyDeleteLoanModal());
         if (expandedLoanId === loan.id) setExpandedLoanId(null);
         fetchAllData();
       } else {
-        notify(d.error || 'Error al dar de baja el financiamiento', 'error');
+        notify(d.error || 'Error al eliminar el financiamiento', 'error');
         setDeleteLoanModal(prev => ({ ...prev, processing: false }));
       }
     } catch (err) {
@@ -3134,10 +3147,10 @@ export default function CrediFluxApp() {
                                     type="button"
                                     onClick={() => {
                                       if (isUserExpired) { notify(SUPPORT_CONTACT_TEXT, 'error'); return; }
-                                      setDeleteLoanModal({ open: true, loan, processing: false });
+                                      setDeleteLoanModal({ ...emptyDeleteLoanModal(), open: true, loan });
                                     }}
-                                    title="Dar de baja por incumplimiento"
-                                    aria-label="Dar de baja por incumplimiento"
+                                    title="Eliminar financiamiento"
+                                    aria-label="Eliminar financiamiento"
                                     className="p-2 rounded-lg text-rose-400 hover:text-rose-300 hover:bg-slate-800 transition-colors"
                                   >
                                     <Trash2 className="w-4 h-4" />
@@ -6185,72 +6198,143 @@ export default function CrediFluxApp() {
       {/* ============================================================== */}
       {/* MODAL: CONFIRMAR BAJA DE FINANCIAMIENTO (INCUMPLIMIENTO)       */}
       {/* ============================================================== */}
-      {deleteLoanModal.open && deleteLoanModal.loan && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden">
-            <div className="px-6 py-5 border-b border-slate-800 flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 flex items-center justify-center shrink-0">
-                  <AlertTriangle className="w-5 h-5" />
+      {deleteLoanModal.open && deleteLoanModal.loan && (() => {
+        const isConfirm = deleteLoanModal.step === 'confirm';
+        const isErrorReason = deleteLoanModal.reason === 'registro_error';
+        const closeDeleteModal = () => setDeleteLoanModal(emptyDeleteLoanModal());
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+            <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden">
+              <div className="px-6 py-5 border-b border-slate-800 flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${isConfirm && !isErrorReason
+                      ? 'bg-rose-500/15 border-rose-500/30 text-rose-400'
+                      : 'bg-amber-500/15 border-amber-500/30 text-amber-300'
+                    }`}>
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-base text-white">
+                      {!isConfirm
+                        ? 'Eliminar financiamiento'
+                        : isErrorReason
+                          ? 'Eliminar por error en registro'
+                          : 'Dar de baja por incumplimiento'}
+                    </h3>
+                    <p className="mt-0.5 text-[11px] text-slate-400">
+                      {!isConfirm
+                        ? 'Selecciona el motivo de la eliminación para continuar.'
+                        : 'Confirma la acción seleccionada para evitar eliminaciones accidentales.'}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-bold text-base text-white">Dar de baja financiamiento</h3>
+                <button
+                  type="button"
+                  onClick={closeDeleteModal}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white disabled:opacity-40"
+                  disabled={deleteLoanModal.processing}
+                  title="Cerrar"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="px-6 py-5 space-y-4">
+                <div className="p-3.5 rounded-2xl bg-slate-800/50 border border-slate-700/60">
+                  <p className="text-xs font-semibold text-white">{deleteLoanModal.loan.clientName}</p>
                   <p className="mt-0.5 text-[11px] text-slate-400">
-                    Esta acción es irreversible y se registrará como incumplimiento.
+                    {deleteLoanModal.loan.productName} • ${(Number(deleteLoanModal.loan.totalAmount) || 0).toFixed(2)} total • Saldo pendiente ${(Number(deleteLoanModal.loan.stats?.pendingAmount) || 0).toFixed(2)}
                   </p>
                 </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => !deleteLoanModal.processing && setDeleteLoanModal({ open: false, loan: null, processing: false })}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white disabled:opacity-40"
-                disabled={deleteLoanModal.processing}
-                title="Cerrar"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
 
-            <div className="px-6 py-5 space-y-4">
-              <div className="p-3.5 rounded-2xl bg-slate-800/50 border border-slate-700/60">
-                <p className="text-xs font-semibold text-white">{deleteLoanModal.loan.clientName}</p>
-                <p className="mt-0.5 text-[11px] text-slate-400">
-                  {deleteLoanModal.loan.productName} • ${(Number(deleteLoanModal.loan.totalAmount) || 0).toFixed(2)} total • Saldo pendiente ${(Number(deleteLoanModal.loan.stats?.pendingAmount) || 0).toFixed(2)}
-                </p>
+                {!isConfirm ? (
+                  <div className="space-y-2.5">
+                    <button
+                      type="button"
+                      disabled={deleteLoanModal.processing}
+                      onClick={() => setDeleteLoanModal(prev => ({ ...prev, step: 'confirm', reason: 'registro_error' }))}
+                      className="w-full text-left p-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 transition-colors disabled:opacity-50"
+                    >
+                      <span className="block text-xs font-bold text-amber-200">Eliminar por error en registro</span>
+                      <span className="block mt-1 text-[11px] text-amber-100/80">
+                        Borra únicamente este financiamiento. El cliente no va a la lista negra y su historial o reputación no se modifican por incumplimiento.
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={deleteLoanModal.processing}
+                      onClick={() => setDeleteLoanModal(prev => ({ ...prev, step: 'confirm', reason: 'incumplimiento' }))}
+                      className="w-full text-left p-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 transition-colors disabled:opacity-50"
+                    >
+                      <span className="block text-xs font-bold text-rose-200">Eliminar por incumplimiento</span>
+                      <span className="block mt-1 text-[11px] text-rose-100/80">
+                        Da de baja y archiva los financiamientos del cliente, lo remueve de la cartera activa y lo envía a la Lista Negra.
+                      </span>
+                    </button>
+                  </div>
+                ) : isErrorReason ? (
+                  <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+                    <p className="text-[11px] font-bold text-amber-200 mb-2">Eliminación limpia</p>
+                    <ul className="space-y-1.5 text-[11px] text-amber-100/90">
+                      <li>• Se eliminará únicamente este financiamiento del módulo.</li>
+                      <li>• El cliente <strong>NO</strong> será enviado a la Lista Negra.</li>
+                      <li>• Su historial crediticio y su reputación no se marcarán como incumplimiento.</li>
+                    </ul>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4">
+                    <p className="text-[11px] font-bold text-rose-200 mb-2">Consecuencias operativas</p>
+                    <ul className="space-y-1.5 text-[11px] text-rose-100/90">
+                      <li>• El financiamiento se dará de baja por <strong>incumplimiento</strong> y se archivará automáticamente en el <strong>Historial</strong>.</li>
+                      <li>• El cliente cambiará su estatus a <strong>Eliminado</strong> y será removido de la tabla activa de clientes y del módulo de financiamientos.</li>
+                      <li>• Los datos del cliente se trasladarán de forma persistente a la <strong>Lista Negra</strong>, bloqueando futuros registros con la misma cédula.</li>
+                    </ul>
+                  </div>
+                )}
               </div>
 
-              <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4">
-                <p className="text-[11px] font-bold text-rose-200 mb-2">Consecuencias operativas</p>
-                <ul className="space-y-1.5 text-[11px] text-rose-100/90">
-                  <li>• El financiamiento se dará de baja por <strong>incumplimiento</strong> y se archivará automáticamente en el <strong>Historial</strong>.</li>
-                  <li>• El cliente cambiará su estatus a <strong>Eliminado</strong> y será removido de la tabla activa de clientes y del módulo de financiamientos.</li>
-                  <li>• Los datos del cliente se trasladarán de forma persistente a la <strong>Lista Negra</strong>, bloqueando futuros registros con la misma cédula.</li>
-                </ul>
+              <div className="px-6 py-4 border-t border-slate-800 flex items-center justify-end gap-2.5 bg-slate-900/60">
+                <button
+                  type="button"
+                  onClick={closeDeleteModal}
+                  disabled={deleteLoanModal.processing}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                {isConfirm && (
+                  <button
+                    type="button"
+                    onClick={() => setDeleteLoanModal(prev => ({ ...prev, step: 'choose', reason: null }))}
+                    disabled={deleteLoanModal.processing}
+                    className="px-4 py-2 rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 font-semibold text-xs disabled:opacity-50"
+                  >
+                    Volver
+                  </button>
+                )}
+                {isConfirm && (
+                  <button
+                    type="button"
+                    onClick={confirmDeleteLoan}
+                    disabled={deleteLoanModal.processing}
+                    className={`px-4 py-2 rounded-xl font-bold text-xs inline-flex items-center gap-1.5 disabled:opacity-60 ${isErrorReason
+                        ? 'bg-amber-500 hover:bg-amber-600 text-slate-950'
+                        : 'bg-rose-500 hover:bg-rose-600 text-white'
+                      }`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {deleteLoanModal.processing
+                      ? 'Procesando...'
+                      : isErrorReason
+                        ? 'Confirmar eliminación limpia'
+                        : 'Confirmar baja e incumplimiento'}
+                  </button>
+                )}
               </div>
-            </div>
-
-            <div className="px-6 py-4 border-t border-slate-800 flex items-center justify-end gap-2.5 bg-slate-900/60">
-              <button
-                type="button"
-                onClick={() => setDeleteLoanModal({ open: false, loan: null, processing: false })}
-                disabled={deleteLoanModal.processing}
-                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={confirmDeleteLoan}
-                disabled={deleteLoanModal.processing}
-                className="px-4 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs inline-flex items-center gap-1.5 disabled:opacity-60"
-              >
-                <Trash2 className="w-4 h-4" />
-                {deleteLoanModal.processing ? 'Procesando...' : 'Confirmar baja e incumplimiento'}
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ============================================================== */}
       {/* MODAL: LISTA NEGRA (CLIENTES RESTRINGIDOS)                     */}

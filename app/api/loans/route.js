@@ -202,12 +202,32 @@ export async function DELETE(request) {
     const id = searchParams.get('id');
     if (!id) return NextResponse.json({ success: false, error: 'ID requerido' }, { status: 400 });
 
+    // mode=error -> baja limpia por error de registro; por defecto se mantiene
+    // el comportamiento histórico de baja por incumplimiento.
+    const mode = searchParams.get('mode') || 'incumplimiento';
+    const isRegistrationError = mode === 'error';
+
     const loan = (db.loans || []).find(l => l.id === id);
     if (!loan) {
       return NextResponse.json({ success: false, error: 'Financiamiento no encontrado' }, { status: 404 });
     }
     if (!canAccessRecord(user, loan)) {
       return NextResponse.json({ success: false, error: 'No autorizado para dar de baja este financiamiento' }, { status: 403 });
+    }
+
+    // Error de registro: se elimina solo el financiamiento seleccionado.
+    // No se archiva, no se toca la lista negra y no se altera la reputación
+    // ni el historial crediticio del cliente por incumplimiento.
+    if (isRegistrationError) {
+      db.loans = (db.loans || []).filter(l => l.id !== id);
+      await saveStateForRequest(request, db);
+      return NextResponse.json({
+        success: true,
+        message: 'Financiamiento eliminado por error de registro. El cliente conserva su historial y no fue enviado a la Lista Negra.',
+        deleted: true,
+        archivedLoans: 0,
+        blacklisted: false
+      });
     }
 
     // Datos del cliente antes de retirarlo de la cartera activa
