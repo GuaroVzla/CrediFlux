@@ -8,11 +8,13 @@
  * Se mantienen los nombres para no tocar la lógica ni los componentes.
  */
 :root {
-  --background: #f8fafc;
+  --background: #eef2f7;
   --foreground: #0f172a;
   --surface: #ffffff;
-  --surface-subtle: #f1f5f9;
-  --border-subtle: #cbd5e1;
+  --surface-subtle: #e8eef5;
+  --border-subtle: #94a3b8;
+  --border-divider: #b8c4d2;
+  --border-strong: #64748b;
   --text-muted: #334155;
   --accent-emerald: #047857;
   --accent-amber: #b45309;
@@ -114,8 +116,18 @@ body {
 :root:not(.dark) .bg-slate-800\/90 { background-color: var(--surface-subtle) !important; }
 
 :root:not(.dark) .hover\:bg-slate-800:hover,
-:root:not(.dark) .hover\:bg-slate-700:hover { background-color: #e2e8f0 !important; }
+:root:not(.dark) .hover\:bg-slate-700:hover { background-color: #dbe4ee !important; }
 
+/*
+ * Jerarquía de superficies en claro:
+ * fondo de página (#eef2f7) < sub-tarjetas (#e8eef5) < bandas de tabla (#e2e8f0) < tarjeta (#ffffff).
+ * El wrapper del dashboard fija bg-[#f8fafc] en claro, por eso se remapea al token.
+ */
+:root:not(.dark) [class~="bg-[#f8fafc]"] { background-color: var(--background) !important; }
+:root:not(.dark) .bg-slate-50 { background-color: #f1f5f9 !important; }
+:root:not(.dark) .bg-slate-100 { background-color: #e2e8f0 !important; }
+
+/* Bordes hardcodeados oscuros y gris claro de Tailwind (KPIs, inputs, modal). */
 :root:not(.dark) .border-slate-800,
 :root:not(.dark) .border-slate-700,
 :root:not(.dark) .border-slate-800\/70,
@@ -123,7 +135,17 @@ body {
 :root:not(.dark) .border-slate-700\/50,
 :root:not(.dark) .border-slate-700\/60,
 :root:not(.dark) .border-slate-700\/70,
-:root:not(.dark) .border-slate-700\/80 { border-color: var(--border-subtle) !important; }
+:root:not(.dark) .border-slate-700\/80,
+:root:not(.dark) .border-slate-200,
+:root:not(.dark) .border-slate-300 { border-color: var(--border-subtle) !important; }
+
+/* Divisores de filas de tabla: visibles pero más suaves que el borde de la tarjeta. */
+:root:not(.dark) .divide-slate-800 > :not([hidden]) ~ :not([hidden]),
+:root:not(.dark) .divide-slate-800\/50 > :not([hidden]) ~ :not([hidden]),
+:root:not(.dark) .divide-slate-800\/60 > :not([hidden]) ~ :not([hidden]) { border-color: var(--border-divider) !important; }
+
+/* Línea inferior del encabezado de tabla: la más marcada de la jerarquía. */
+:root:not(.dark) thead { border-color: var(--border-strong) !important; }
 
 /* Textos base: usan tokens para que claro y oscuro compartan jerarquía. */
 :root:not(.dark) .text-slate-100,
@@ -182,7 +204,7 @@ body {
 :root:not(.dark) select.bg-slate-800 {
   background-color: #ffffff !important;
   color: #0f172a !important;
-  border-color: #cbd5e1 !important;
+  border-color: var(--border-subtle) !important;
 }
 :root:not(.dark) input::placeholder,
 :root:not(.dark) textarea::placeholder { color: #64748b !important; }
