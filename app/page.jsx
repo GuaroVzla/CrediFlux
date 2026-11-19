@@ -1849,9 +1849,26 @@ export default function CrediFluxApp() {
           const totalEgresosBs = egresos.reduce((s, i) => s + i.bs, 0);
 
           // Colocaciones: salidas recuperables que no forman parte del gasto operativo.
-          const colocacionCapitalEcomUsd = Number(ecommerceData.summary?.assignedCapital) || 0;
+          // El efectivo realmente entregado al cliente es `financedAmount` (base menos
+          // enganche/initial). `principal` es el precio/base del producto y, si hay
+          // enganche, sobreestima la colocación. Para registros legacy sin
+          // `financedAmount` se deriva de `principal - downPayment`.
+          const loanDisbursedUsd = (loan) => {
+            if (!loan) return 0;
+            const financedRaw = loan.financedAmount;
+            if (financedRaw !== null && financedRaw !== undefined && Number.isFinite(Number(financedRaw))) {
+              return Math.max(0, Number(financedRaw));
+            }
+            const principal = Number(loan.principal);
+            const downPayment = Number(loan.downPayment) || 0;
+            return Number.isFinite(principal) ? Math.max(0, principal - downPayment) : 0;
+          };
+          // Capital real de patrimonio: misma fuente que el KPI "Capital invertido neto".
+          // No se usa ecommerceData.summary.assignedCapital porque históricamente tenía
+          // un default de $5.000 que no corresponde a ningún aporte registrado.
+          const colocacionCapitalEcomUsd = Number(capitalSummary.netCapital) || 0;
           const colocacionPrestamosUsd = filteredLoansMoney
-            .reduce((sum, l) => sum + (Number(l.principal ?? l.financedAmount) || 0), 0);
+            .reduce((sum, l) => sum + loanDisbursedUsd(l), 0);
 
           // --- Entradas / Ingresos (Bs) ---
           const ingresoPagosFinBs = filteredPayments.reduce((sum, p) => {
@@ -1878,11 +1895,11 @@ export default function CrediFluxApp() {
             const loan = loansById[p.loanId];
             if (!loan || loan.type !== 'dinero') return;
             const total = Number(loan.totalAmount) || 0;
-            const principal = Number(loan.principal ?? loan.financedAmount) || 0;
-            if (total <= 0 || principal <= 0) return;
-            const capitalPart = (Number(p.amount) || 0) * (principal / total);
+            const disbursed = loanDisbursedUsd(loan);
+            if (total <= 0 || disbursed <= 0) return;
+            const capitalPart = (Number(p.amount) || 0) * (disbursed / total);
             const previous = recoveredCapitalByLoan[loan.id] || 0;
-            recoveredCapitalByLoan[loan.id] = Math.min(principal, previous + capitalPart);
+            recoveredCapitalByLoan[loan.id] = Math.min(disbursed, previous + capitalPart);
           });
           const capitalPrestamosRecuperadoUsd = Object.values(recoveredCapitalByLoan)
             .reduce((sum, value) => sum + value, 0);
@@ -2319,7 +2336,7 @@ export default function CrediFluxApp() {
                   <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">Salidas recuperables o de patrimonio, informativas para el flujo de caja:</p>
                   <div className="mt-2.5 space-y-2">
                     <div className="flex items-center justify-between gap-2 text-[11px]">
-                      <span className="text-slate-300">Capital asignado a e-commerce</span>
+                      <span className="text-slate-300">Capital invertido (aportes − retiros)</span>
                       <span className="font-semibold text-amber-300 tabular-nums">{fmtUsd(colocacionCapitalEcomUsd)}</span>
                     </div>
                     <div className="flex items-center justify-between gap-2 text-[11px]">

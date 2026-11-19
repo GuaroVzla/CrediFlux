@@ -18,9 +18,14 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
     }
 
-    // Obtener capital mensual asignado del usuario correspondiente al mes en curso (YYYY-MM)
+    // Obtener capital mensual asignado del usuario correspondiente al mes en curso (YYYY-MM).
+    // No se inventa un capital por defecto: si el usuario no tiene un valor configurado,
+    // el capital asignado es 0. Evita reportar $5.000 que no existen en ningún lado.
     const currentMonthKey = new Date().toISOString().slice(0, 7);
-    const assignedCapital = currentUser?.monthlyCapitals?.[currentMonthKey]?.capital ?? 5000;
+    const configuredCapital = currentUser?.monthlyCapitals?.[currentMonthKey]?.capital;
+    const assignedCapital = Number.isFinite(Number(configuredCapital))
+      ? Math.max(0, Number(configuredCapital))
+      : 0;
 
     // Query params for period filtering
     const { searchParams } = new URL(request.url);
