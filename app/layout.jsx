@@ -9,13 +9,12 @@ export const metadata = {
   description: 'Plataforma SaaS financiera de alta gama para la administración de créditos, financiamientos, préstamos personales y control de transacciones con OCR IA multimodal.',
 };
 
-// Style para anular propiedades CSS de Firefox obsoletas y evitar warnings en consola
+// Estilo para anular propiedades CSS obsoletas y evitar warnings en consola.
+// No forzamos antialiasing: en fondos oscuros adelgaza la letra y dificulta la lectura.
 const fontSmoothingStyle = `
   @font-face {
     font-family: 'Segoe UI';
     -moz-osx-font-smoothing: auto;
-    -webkit-font-smoothing: antialiased;
-    font-smoothing: antialiased;
   }
 `;
 
@@ -25,7 +24,7 @@ export default function RootLayout({ children }) {
       <head>
         <style>{fontSmoothingStyle}</style>
       </head>
-      <body className="min-h-screen bg-[#0b1120] text-slate-100 antialiased selection:bg-emerald-500 selection:text-white">
+      <body className="min-h-screen bg-[#0b1120] text-slate-100 selection:bg-emerald-200 selection:text-emerald-950">
         {children}
       </body>
     </html>
