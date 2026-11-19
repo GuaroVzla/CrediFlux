@@ -20,6 +20,7 @@ import { setLegacyPasswordPreview, storePasswordPreview } from '../../../lib/ser
 import { getSupabaseAdminClientOrNull } from '../../../lib/supabase/admin';
 import { isSupabaseConfigured } from '../../../lib/supabase/env';
 import { resolveRequestAuth } from '../../../lib/server/request-auth';
+import { resolveUploadUrls } from '../../../lib/storage/uploads.js';
 import {
   exportSystemBackup,
   importSystemBackup,
@@ -31,8 +32,8 @@ import {
 } from '../../../lib/server/system-backup';
 
 // Tesseract.js necesita tiempo para iniciar el worker y cargar wasm/traineddata.
-// Vercel debe permitir hasta 60 s; el timeout interno responde antes del corte.
-export const maxDuration = 60;
+// 300 s es el máximo de Hobby; el timeout interno responde mucho antes del corte.
+export const maxDuration = 300;
 
 const ALLOWED_PROVIDERS = ['openai', 'gemini', 'ocrspace', 'tesseract'];
 
@@ -226,9 +227,7 @@ export async function GET(request: Request) {
         ocrspace: maskKey(ocrKeys.ocrspace),
         tesseract: ''
       };
-      // No exponer secretos en claro: contraseñas se almacenan hasheadas (hashing aplicado)
-      safeSettings.adminPassword = '';
-      safeSettings.hasAdminPassword = Boolean(db.settings?.adminPasswordHash || db.settings?.adminPassword || db.settings?.adminPasswordLegacy);
+      // No exponer secretos en claro: las claves se gestionan en Usuarios del sistema / /api/auth.
       safeSettings.monthlyCapitals = currentUser?.monthlyCapitals || {};
 
       const allUsers = (db.users || []).map((u: any, i: number) => {
@@ -260,13 +259,20 @@ export async function GET(request: Request) {
       });
 
       const enrichedPatterns = (db.receiptPatterns || []).map((p: any) => enrichReceiptPattern(p));
+      // La UI consume este endpoint (no /api/receipt-patterns), así que aquí
+      // deben resolverse las referencias `supabase://` a URLs firmadas.
+      const resolvedPatternUrls = await resolveUploadUrls(enrichedPatterns.map((p: any) => p.imageUrl));
+      const responsePatterns = enrichedPatterns.map((p: any, index: number) => ({
+        ...p,
+        imageUrl: resolvedPatternUrls[index] || p.imageUrl,
+      }));
 
       return NextResponse.json({
         success: true,
         isAdmin: true,
         settings: safeSettings,
         users: allUsers,
-        receiptPatterns: enrichedPatterns,
+        receiptPatterns: responsePatterns,
         persistence: persistenceInfo(),
       });
     }
@@ -304,7 +310,6 @@ export async function POST(request: Request) {
       companyName,
       timezone,
       currency,
-      adminPassword,
       aiProvider,
       aiApiKey,
       ocrSpaceApiKey,
@@ -477,33 +482,55 @@ export async function POST(request: Request) {
         const before = auditUserSnapshot(target);
         db.users = db.users.filter((u: any) => u.id !== targetUserId);
         await saveStateForRequest(request, db);
-        if (hasDatabase()) { await syncAdminStateToNormalized(db).catch(() => {}); await logAudit({ entity: 'User', entityId: targetUserId, action: 'DELETE', before, after: null, actorLegacyId: currentUser?.id }).catch(() => {}); }
+        if (hasDatabase()) await syncAdminStateToNormalized(db).catch(() => {});
+        await logAudit({ entity: 'User', entityId: targetUserId, action: 'DELETE', before, after: null, actorLegacyId: currentUser?.id }).catch(() => {});
         return NextResponse.json({ success: true, message: 'Usuario eliminado exitosamente', persistence: persistenceInfo() });
       }
 
       if (updateUserAction === 'edit') {
+        // Un admin nunca debe poder cambiar la clave de otro admin: evita lockouts
+        // y mantiene una sola credencial administrativa bajo su control.
+        if (target.role === 'admin' && String(target.id) !== String(currentUser.id)) {
+          return NextResponse.json(
+            { success: false, error: 'Un administrador solo puede cambiar su propia clave.' },
+            { status: 403 }
+          );
+        }
+
         const before = auditUserSnapshot(target);
         if (updatedName) target.name = String(updatedName).trim();
         if (updatedCompanyName !== undefined) target.companyName = String(updatedCompanyName || '').trim();
         if (updatedAddress !== undefined) target.address = String(updatedAddress || '').trim();
         if (updatedPhone !== undefined) target.phone = String(updatedPhone || '').trim();
-        if (updatedPassword) {
+
+        // Una sola normalización para Auth, hash y vista previa.
+        const plainPassword =
+          updatedPassword === undefined || updatedPassword === null || updatedPassword === ''
+            ? null
+            : String(updatedPassword).trim();
+        if (plainPassword !== null) {
+          if (plainPassword.length < 4) {
+            return NextResponse.json(
+              { success: false, error: 'La clave debe tener al menos 4 caracteres' },
+              { status: 400 }
+            );
+          }
           if (isSupabaseConfigured()) {
             const admin = getSupabaseAdminClientOrNull();
             if (!admin) {
               return NextResponse.json({ success: false, error: 'Supabase admin no configurado' }, { status: 503 });
             }
             const { error: passwordError } = await admin.auth.admin.updateUserById(targetUserId, {
-              password: String(updatedPassword).trim(),
+              password: plainPassword,
             });
             if (passwordError) {
               return NextResponse.json({ success: false, error: passwordError.message }, { status: 400 });
             }
           }
-          target.passwordHash = await hashPassword(String(updatedPassword).trim());
+          target.passwordHash = await hashPassword(plainPassword);
           delete target.password;
           delete target.passwordLegacy;
-          if (!isSupabaseConfigured()) setLegacyPasswordPreview(target, String(updatedPassword).trim());
+          if (!isSupabaseConfigured()) setLegacyPasswordPreview(target, plainPassword);
         }
         if (updatedLicenseKey) target.licenseKey = String(updatedLicenseKey).trim().toUpperCase();
         if (updatedMonths) {
@@ -516,15 +543,13 @@ export async function POST(request: Request) {
           if (!target.licenseAssignedAt) target.licenseAssignedAt = now.toISOString();
         }
         await saveStateForRequest(request, db);
-        if (hasDatabase()) { await syncAdminStateToNormalized(db).catch(() => {}); await logAudit({ entity: 'User', entityId: targetUserId, action: 'UPDATE', before, after: auditUserSnapshot(target), actorLegacyId: currentUser?.id }).catch(() => {}); }
+        if (hasDatabase()) await syncAdminStateToNormalized(db).catch(() => {});
+        await logAudit({ entity: 'User', entityId: targetUserId, action: 'UPDATE', before, after: auditUserSnapshot(target), actorLegacyId: currentUser?.id }).catch(() => {});
 
-        if (updatedPassword) {
-          const plainPassword = String(updatedPassword).trim();
-          if (isSupabaseConfigured()) {
-            await storePasswordPreview(targetUserId, plainPassword).catch((previewError: any) => {
-              console.warn('[settings] No se pudo guardar la vista previa de la clave:', previewError?.message || previewError);
-            });
-          }
+        if (plainPassword && isSupabaseConfigured()) {
+          await storePasswordPreview(targetUserId, plainPassword).catch((previewError: any) => {
+            console.warn('[settings] No se pudo guardar la vista previa de la clave:', previewError?.message || previewError);
+          });
         }
 
         const safeUser = { ...target };
@@ -536,7 +561,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // PARÁMETROS GENERALES DEL ADMINISTRADOR (Solo Administrador Maestro)
+    // PARÁMETROS GENERALES DEL ADMINISTRADOR (solo rol admin activo)
     if (currentUser?.role !== 'admin') {
       return NextResponse.json({ success: false, error: 'Acceso restringido: Solo el administrador puede modificar parámetros del sistema' }, { status: 403 });
     }
@@ -625,34 +650,6 @@ export async function POST(request: Request) {
       db.settings.trustLevelConfig = normalizeTrustConfig(trustLevelConfig);
     }
 
-    let adminPasswordPreview: string | null = null;
-    if (adminPassword && String(adminPassword).length >= 4) {
-      if (isSupabaseConfigured() && currentUser?.id) {
-        const admin = getSupabaseAdminClientOrNull();
-        if (!admin) {
-          return NextResponse.json({ success: false, error: 'Supabase admin no configurado' }, { status: 503 });
-        }
-        const { error: adminPasswordError } = await admin.auth.admin.updateUserById(currentUser.id, {
-          password: String(adminPassword),
-        });
-        if (adminPasswordError) {
-          return NextResponse.json({ success: false, error: adminPasswordError.message }, { status: 400 });
-        }
-      }
-      const adminHash = await hashPassword(String(adminPassword));
-      db.settings.adminPasswordHash = adminHash;
-      delete db.settings.adminPassword;
-      delete db.settings.adminPasswordLegacy;
-      const adminUser: any = db.users.find((u: any) => u.role === 'admin');
-      if (adminUser) {
-        adminUser.passwordHash = adminHash;
-        delete adminUser.password;
-        delete adminUser.passwordLegacy;
-        if (!isSupabaseConfigured()) setLegacyPasswordPreview(adminUser, String(adminPassword).trim());
-      }
-      adminPasswordPreview = String(adminPassword).trim();
-    }
-
     const saveResult = await saveStateForRequestWithResult(request, db);
     if (!saveResult.ok) {
       console.error('[settings] Error al persistir configuración general:', saveResult.error || saveResult);
@@ -662,17 +659,12 @@ export async function POST(request: Request) {
         persistence: (saveResult as any).diagnostics || persistenceInfo(),
       }, { status: 500 });
     }
-    if (adminPasswordPreview && isSupabaseConfigured() && currentUser?.id) {
-      await storePasswordPreview(currentUser.id, adminPasswordPreview).catch((previewError: any) => {
-        console.warn('[settings] No se pudo guardar la vista previa de la clave admin:', previewError?.message || previewError);
-      });
-    }
 
     if (hasDatabase()) {
       await ensureAdminConfigSeed().catch(() => {});
       await syncAdminStateToNormalized(db).catch(() => {});
-      await logAudit({ entity: 'AdminSetting', entityId: 'main', action: 'UPDATE', before: beforeSettings, after: db.settings, actorLegacyId: currentUser?.id }).catch(() => {});
     }
+    await logAudit({ entity: 'AdminSetting', entityId: 'main', action: 'UPDATE', before: beforeSettings, after: db.settings, actorLegacyId: currentUser?.id }).catch(() => {});
 
     return NextResponse.json({
       success: true,

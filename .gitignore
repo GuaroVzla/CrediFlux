@@ -40,6 +40,8 @@ pnpm-debug.log*
 
 # 5. Modelos Pesados de OCR / IA (Tesseract / Visión)
 *.traineddata
+# Los modelos distribuidos con la app son necesarios en local y en Vercel.
+!public/tessdata/*.traineddata
 
 # 6. Variables de Entorno y Secretos
 .env

@@ -6,8 +6,8 @@ import { getStateForRequest, saveStateForRequest, persistenceInfo } from '../../
 import { saveUpload, resolveUploadUrl, resolveUploadUrls } from '../../../lib/storage/uploads.js';
 
 // El OCR local (Tesseract.js) y las llamadas a proveedores externos pueden tardar;
-// Vercel debe permitir hasta 60 s. Límite de payload de Vercel: 4.5 MB.
-export const maxDuration = 60;
+// 300 s es el máximo de Hobby. Límite de payload de Vercel: 4.5 MB.
+export const maxDuration = 300;
 const MAX_RECEIPT_BYTES = 4 * 1024 * 1024; // 4 MB (margen bajo el límite de Vercel)
 
 export async function GET(request: Request) {
@@ -143,8 +143,8 @@ export async function POST(request: Request) {
     let receiptUrl: string | null = null;
     let ocrResult = null;
 
-    // Patrones de comprobantes registrados por el Admin para validación cruzada
-    const registeredPatterns = db.receiptPatterns || [];
+    // Patrones activos registrados por el Admin para validación cruzada.
+    const registeredPatterns = (db.receiptPatterns || []).filter((p: any) => p && p.isActive !== false);
 
     // If a file was uploaded, run OCR with pattern cross-validation
     if (file && typeof file === 'object' && file.size > 0) {

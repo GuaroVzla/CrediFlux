@@ -1,4 +1,7 @@
 const OCR_TRACE_GLOBS = [
+  // Modelos empaquetados: se sirven desde /tessdata y se leen como archivos locales.
+  './public/tessdata/*.traineddata',
+  // Compatibilidad con instalaciones antiguas que guardaban los modelos en la raíz.
   './*.traineddata',
   './lib/ocr/**/*',
   './node_modules/tesseract.js/**/*',
@@ -7,6 +10,12 @@ const OCR_TRACE_GLOBS = [
   './node_modules/is-url/**/*',
   './node_modules/regenerator-runtime/**/*'
 ];
+
+// Aplica tanto a las rutas públicas como a los handlers internos detrás de los rewrites.
+const OCR_ROUTE_GLOBS = ['/api/settings*', '/api/ecommerce*'];
+const OCR_INCLUDES = Object.fromEntries(
+  OCR_ROUTE_GLOBS.map((route) => [route, OCR_TRACE_GLOBS])
+);
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -40,13 +49,8 @@ const nextConfig = {
   serverExternalPackages: ['tesseract.js', 'tesseract.js-core'],
 
   // Vercel elimina archivos no rastreados del bundle serverless. Forzamos la inclusión
-  // del worker, los .wasm de tesseract.js-core y los .traineddata locales en las rutas OCR.
-  outputFileTracingIncludes: {
-    '/api/settings-handler': OCR_TRACE_GLOBS,
-    '/api/ecommerce-handler': OCR_TRACE_GLOBS,
-    '/api/settings': OCR_TRACE_GLOBS,
-    '/api/ecommerce': OCR_TRACE_GLOBS
-  }
+  // del worker, el core embebido (.wasm.js) y los .traineddata de public/tessdata.
+  outputFileTracingIncludes: OCR_INCLUDES
 };
 
 export default nextConfig;

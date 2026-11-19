@@ -13,6 +13,40 @@ import {
 } from 'lucide-react';
 import { getTrustLevelConfig, computeClientTrust } from '../lib/trust';
 
+const PATTERN_FALLBACK_IMAGE = '/uploads/sample-voucher.svg';
+
+/** Imagen de patrón con sustitución automática si la URL falla o expira. */
+function PatternImage({ src, alt, className = '', wrapperClassName = '' }) {
+  const [displaySrc, setDisplaySrc] = useState(src || PATTERN_FALLBACK_IMAGE);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setDisplaySrc(src || PATTERN_FALLBACK_IMAGE);
+    setFailed(false);
+  }, [src]);
+
+  return (
+    <div className={`relative ${wrapperClassName}`}>
+      <img
+        src={displaySrc}
+        alt={alt}
+        className={className}
+        onError={() => {
+          if (!failed && displaySrc !== PATTERN_FALLBACK_IMAGE) {
+            setFailed(true);
+            setDisplaySrc(PATTERN_FALLBACK_IMAGE);
+          }
+        }}
+      />
+      {failed && (
+        <span className="absolute bottom-1 left-1 rounded bg-slate-950/85 px-1.5 py-0.5 text-[10px] text-amber-300 border border-amber-500/30">
+          Imagen no disponible
+        </span>
+      )}
+    </div>
+  );
+}
+
 const PURGE_TARGET_KEYS = [
   'payments',
   'loans',
@@ -73,13 +107,15 @@ export default function CrediFluxApp() {
   const hidePasswordRef = useRef(null);
   const [receiptPatterns, setReceiptPatterns] = useState([]);
 
-  // Modal para Cargar Patrón de Comprobante (Admin)
+  // Modal para Cargar/Editar Patrón de Comprobante (Admin)
   const [patternModal, setPatternModal] = useState(false);
+  const [editingPatternId, setEditingPatternId] = useState(null);
   const [patternForm, setPatternForm] = useState({
     bankName: '',
     referenceFormat: '',
     keywords: '',
     notes: '',
+    isActive: true,
     file: null,
     filePreview: null,
     processing: false
@@ -1142,7 +1178,40 @@ export default function CrediFluxApp() {
     }
   };
 
-  // Crear o guardar patrón de comprobante (Admin)
+  const emptyPatternForm = () => ({
+    bankName: '',
+    referenceFormat: '',
+    keywords: '',
+    notes: '',
+    isActive: true,
+    file: null,
+    filePreview: null,
+    processing: false
+  });
+
+  const resetPatternForm = () => {
+    if (patternForm.filePreview?.startsWith('blob:')) URL.revokeObjectURL(patternForm.filePreview);
+    setPatternForm(emptyPatternForm());
+    setEditingPatternId(null);
+    if (patternFileInputRef.current) patternFileInputRef.current.value = '';
+  };
+
+  const openPatternModal = (pattern = null) => {
+    setEditingPatternId(pattern?.id || null);
+    setPatternForm({
+      ...emptyPatternForm(),
+      bankName: pattern?.bankName || '',
+      referenceFormat: pattern?.referenceFormat || '',
+      keywords: Array.isArray(pattern?.keywords) ? pattern.keywords.join(', ') : '',
+      notes: pattern?.notes || '',
+      isActive: pattern ? pattern.isActive !== false : true,
+      filePreview: pattern?.imageUrl || null
+    });
+    if (patternFileInputRef.current) patternFileInputRef.current.value = '';
+    setPatternModal(true);
+  };
+
+  // Crear o actualizar patrón de comprobante (Admin)
   const handleSaveReceiptPattern = async (e) => {
     e.preventDefault();
     if (!currentUser || currentUser.role !== 'admin') return;
@@ -1151,36 +1220,34 @@ export default function CrediFluxApp() {
       return;
     }
 
+    const isEditing = Boolean(editingPatternId);
     setPatternForm(prev => ({ ...prev, processing: true }));
     try {
       const fd = new FormData();
       fd.append('bankName', patternForm.bankName);
+      fd.append('isActive', String(patternForm.isActive));
       if (patternForm.referenceFormat) fd.append('referenceFormat', patternForm.referenceFormat);
       if (patternForm.keywords) fd.append('keywords', patternForm.keywords);
       if (patternForm.notes) fd.append('notes', patternForm.notes);
       if (patternForm.file) fd.append('patternImage', patternForm.file);
 
-      const res = await fetch('/api/receipt-patterns', {
-        method: 'POST',
-        headers: {
-          'x-user-id': currentUser.id
-        },
-        body: fd
-      });
+      const res = await fetch(
+        isEditing ? `/api/receipt-patterns?id=${encodeURIComponent(editingPatternId)}` : '/api/receipt-patterns',
+        {
+          method: isEditing ? 'PATCH' : 'POST',
+          headers: {
+            'x-user-id': currentUser.id
+          },
+          body: fd
+        }
+      );
       const data = await res.json();
       if (data.success) {
-        notify('Patrón de comprobante registrado para validación cruzada');
+        notify(isEditing
+          ? 'Patrón de comprobante actualizado'
+          : 'Patrón de comprobante registrado para validación cruzada');
         setPatternModal(false);
-        setPatternForm({
-          bankName: '',
-          referenceFormat: '',
-          keywords: '',
-          notes: '',
-          file: null,
-          filePreview: null,
-          processing: false
-        });
-        if (patternFileInputRef.current) patternFileInputRef.current.value = '';
+        resetPatternForm();
         fetchAllData();
       } else {
         notify(data.error || 'Error al guardar patrón', 'error');
@@ -4932,7 +4999,6 @@ export default function CrediFluxApp() {
                       const selectedProvider = String(fd.get('aiProvider') || ocrProvider);
                       // Se envían todas las credenciales por proveedor para persistencia independiente
                       const payload = {
-                        adminPassword: fd.get('adminPassword') || undefined,
                         aiProvider: selectedProvider,
                         ocrKeys: {
                           openai: String(ocrProviderKeys.openai || '').trim(),
@@ -4968,16 +5034,6 @@ export default function CrediFluxApp() {
                     }}
                     className="space-y-4"
                   >
-                    <div>
-                      <label className={settingsLabelCls}>Cambiar Clave de Administrador Maestro</label>
-                      <input
-                        type="password"
-                        name="adminPassword"
-                        placeholder="Dejar en blanco para conservar la actual"
-                        className={settingsInputCls}
-                      />
-                    </div>
-
                     {/* MOTOR OCR (Asignación centralizada exclusiva del Admin) */}
                     <div className="p-4 rounded-xl bg-teal-500/5 border border-teal-500/20 space-y-3">
                       <div className="flex items-center gap-2">
@@ -5429,7 +5485,7 @@ export default function CrediFluxApp() {
 
                     <button
                       type="button"
-                      onClick={() => setPatternModal(true)}
+                      onClick={() => openPatternModal()}
                       className={settingsPrimaryBtnCls}
                     >
                       <Plus className="w-4 h-4" />
@@ -5454,32 +5510,48 @@ export default function CrediFluxApp() {
                                 {pat.bankName.slice(0, 2).toUpperCase()}
                               </div>
                               <div>
-                                <h4 className="text-sm font-semibold text-white">{pat.bankName}</h4>
+                                <div className="flex items-center gap-1.5">
+                                  <h4 className="text-sm font-semibold text-white">{pat.bankName}</h4>
+                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border ${
+                                    pat.isActive !== false
+                                      ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/25'
+                                      : 'bg-slate-700/40 text-slate-400 border-slate-600'
+                                  }`}>
+                                    {pat.isActive !== false ? 'ACTIVO' : 'INACTIVO'}
+                                  </span>
+                                </div>
                                 <span className="text-[11px] text-slate-400 block font-mono">
                                   Ref: {pat.referenceFormat || '6-12 dígitos'}
                                 </span>
                               </div>
                             </div>
 
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteReceiptPattern(pat.id)}
-                              title="Eliminar patrón"
-                              className="p-1 rounded-lg hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => openPatternModal(pat)}
+                                title="Editar patrón"
+                                className="p-1 rounded-lg hover:bg-sky-500/20 text-slate-400 hover:text-sky-300 transition-colors"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteReceiptPattern(pat.id)}
+                                title="Eliminar patrón"
+                                className="p-1 rounded-lg hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </div>
 
-                          {pat.imageUrl && (
-                            <div className="rounded-xl overflow-hidden border border-slate-700 max-h-32 bg-slate-900/60 flex items-center justify-center">
-                              <img
-                                src={pat.imageUrl}
-                                alt={pat.bankName}
-                                className="max-h-32 object-contain"
-                              />
-                            </div>
-                          )}
+                          <PatternImage
+                            src={pat.imageUrl}
+                            alt={`Comprobante patrón ${pat.bankName}`}
+                            className="max-h-32 object-contain"
+                            wrapperClassName="rounded-xl overflow-hidden border border-slate-700 min-h-[3rem] bg-slate-900/60 flex items-center justify-center"
+                          />
 
                           <div className="space-y-1 text-xs text-slate-400">
                             {pat.notes && <p className="italic text-slate-300">"{pat.notes}"</p>}
@@ -5707,14 +5779,14 @@ export default function CrediFluxApp() {
                 <div>
                   <label className={settingsLabelCls}>Nueva Clave de Acceso</label>
                   <input
-                    type="text"
+                    type="password"
                     name="password"
-                    defaultValue={editUserModal.user.password}
+                    autoComplete="new-password"
                     required
                     minLength={4}
                     className={`${settingsInputCls} font-mono`}
                   />
-                  <p className={`${settingsHelperCls} mt-1`}>Mínimo 4 caracteres. Esta clave también se aplica a los Parámetros Generales.</p>
+                  <p className={`${settingsHelperCls} mt-1`}>Mínimo 4 caracteres. La clave se aplica de inmediato y podrá revelarse desde la tabla de usuarios.</p>
                 </div>
               ) : (
                 <>
@@ -5732,10 +5804,11 @@ export default function CrediFluxApp() {
               <div>
                 <label className={settingsLabelCls}>Clave de Acceso</label>
                 <input
-                  type="text"
+                  type="password"
                   name="password"
-                  defaultValue={editUserModal.user.password}
+                  autoComplete="new-password"
                   required
+                  minLength={4}
                   className={`${settingsInputCls} font-mono`}
                 />
               </div>
@@ -6909,14 +6982,18 @@ export default function CrediFluxApp() {
           <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div>
-                <h3 className="text-base font-semibold text-white">Cargar Patrón de Comprobante Oficial</h3>
+                <h3 className="text-base font-semibold text-white">
+                  {editingPatternId ? 'Editar Patrón de Comprobante' : 'Cargar Patrón de Comprobante Oficial'}
+                </h3>
                 <p className={`${settingsDescCls} mt-1`}>
-                  Registra un modelo de comprobante y banco emisor para validación cruzada precisa del OCR.
+                  {editingPatternId
+                    ? 'Actualiza el modelo, la imagen o el estado activo del patrón usado por el OCR.'
+                    : 'Registra un modelo de comprobante y banco emisor para validación cruzada precisa del OCR.'}
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => setPatternModal(false)}
+                onClick={() => { resetPatternForm(); setPatternModal(false); }}
                 className="p-1.5 rounded-lg text-slate-400 hover:text-white"
               >
                 <X className="w-5 h-5" />
@@ -6953,24 +7030,28 @@ export default function CrediFluxApp() {
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (file) {
-                        setPatternForm(prev => ({
-                          ...prev,
-                          file,
-                          filePreview: URL.createObjectURL(file)
-                        }));
+                        setPatternForm(prev => {
+                          if (prev.filePreview?.startsWith('blob:')) URL.revokeObjectURL(prev.filePreview);
+                          return {
+                            ...prev,
+                            file,
+                            filePreview: URL.createObjectURL(file)
+                          };
+                        });
                       }
                     }}
                     className="hidden"
                   />
                   {patternForm.filePreview ? (
                     <div className="space-y-2">
-                      <img
+                      <PatternImage
                         src={patternForm.filePreview}
                         alt="Preview Patrón"
                         className="max-h-36 mx-auto rounded-xl object-contain border border-slate-700"
+                        wrapperClassName="flex items-center justify-center"
                       />
                       <p className="text-xs text-emerald-400 font-semibold truncate">
-                        {patternForm.file?.name}
+                        {patternForm.file?.name || 'Imagen actual del patrón'}
                       </p>
                       <span className="text-[11px] text-slate-400">Click para sustituir imagen patrón</span>
                     </div>
@@ -7026,10 +7107,20 @@ export default function CrediFluxApp() {
                 />
               </div>
 
+              <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={patternForm.isActive}
+                  onChange={(e) => setPatternForm(prev => ({ ...prev, isActive: e.target.checked }))}
+                  className="w-4 h-4 accent-emerald-500"
+                />
+                Usar este patrón en el reconocimiento de comprobantes
+              </label>
+
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setPatternModal(false)}
+                  onClick={() => { resetPatternForm(); setPatternModal(false); }}
                   className={`${settingsSecondaryBtnCls} flex-1`}
                 >
                   Cancelar
@@ -7047,7 +7138,7 @@ export default function CrediFluxApp() {
                   ) : (
                     <>
                       <Save className="w-4 h-4" />
-                      <span>Guardar Patrón</span>
+                      <span>{editingPatternId ? 'Actualizar Patrón' : 'Guardar Patrón'}</span>
                     </>
                   )}
                 </button>
