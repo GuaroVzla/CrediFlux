@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /*
- * Tokens de tema. Superficies menos extremas que antes (#0b1120 -> #101827)
+ * Tokens de tema. Superficies menos extremas que antes (#0b1120 -> #152033)
  * para reducir el contraste excesivo y la fatiga visual con gafas.
  * Se mantienen los nombres para no tocar la lógica ni los componentes.
  */
@@ -22,15 +22,15 @@
 }
 
 .dark {
-  --background: #101827;
-  --foreground: #f1f5f9;
-  --surface: #162033;
-  --surface-subtle: #1e293b;
-  --border-subtle: #334155;
+  --background: #152033;
+  --foreground: #f8fafc;
+  --surface: #1e293b;
+  --surface-subtle: #293548;
+  --border-subtle: #475569;
   --text-muted: #cbd5e1;
   --accent-emerald: #10b981;
   --accent-amber: #f59e0b;
-  --accent-rose: #f43f5e;
+  --accent-rose: #fb7185;
   --accent-teal: #14b8a6;
   --accent-purple: #a855f7;
 }
