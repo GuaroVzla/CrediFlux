@@ -1868,6 +1868,25 @@ export default function CrediFluxApp() {
 
           // --- Ganancias netas ---
           const loansById = (loans || []).reduce((acc, l) => { acc[l.id] = l; return acc; }, {});
+
+          // El capital devuelto por los préstamos en efectivo no es ingreso nuevo:
+          // es la recuperación del efectivo prestado. Se descuenta del flujo del
+          // período para no inflarlo, usando la misma proporción capital/total
+          // que ya se aplica para aislar la ganancia financiera.
+          const recoveredCapitalByLoan = {};
+          filteredPayments.forEach((p) => {
+            const loan = loansById[p.loanId];
+            if (!loan || loan.type !== 'dinero') return;
+            const total = Number(loan.totalAmount) || 0;
+            const principal = Number(loan.principal ?? loan.financedAmount) || 0;
+            if (total <= 0 || principal <= 0) return;
+            const capitalPart = (Number(p.amount) || 0) * (principal / total);
+            const previous = recoveredCapitalByLoan[loan.id] || 0;
+            recoveredCapitalByLoan[loan.id] = Math.min(principal, previous + capitalPart);
+          });
+          const capitalPrestamosRecuperadoUsd = Object.values(recoveredCapitalByLoan)
+            .reduce((sum, value) => sum + value, 0);
+
           const gananciaFinUsd = filteredPayments.reduce((sum, p) => {
             const loan = loansById[p.loanId];
             if (!loan) return sum;
@@ -1886,7 +1905,10 @@ export default function CrediFluxApp() {
 
           // --- KPIs principales (jerarquía financiera) ---
           const entradasPeriodoUsd = ingresoPagosFinUsd + ecomVentasUsdPeriodo;
-          const flujoNetoUsd = entradasPeriodoUsd - totalEgresosUsd;
+          // Las entradas incluyen capital + utilidad de los préstamos. Para que
+          // el flujo no cuente dos veces el efectivo prestado, se descuenta solo
+          // el capital recuperado en el período (la utilidad sí permanece).
+          const flujoNetoUsd = entradasPeriodoUsd - capitalPrestamosRecuperadoUsd - totalEgresosUsd;
           const roiGlobal = capitalSummary.netCapital > 0
             ? (totalGananciasUsd / capitalSummary.netCapital) * 100
             : 0;
@@ -2039,13 +2061,17 @@ export default function CrediFluxApp() {
                     <h3 className={`mt-1 text-2xl font-extrabold tabular-nums truncate ${flujoNetoUsd >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                       {flujoNetoUsd >= 0 ? '+' : '−'}{fmtUsd(Math.abs(flujoNetoUsd))}
                     </h3>
-                    <p className="mt-1 text-[11px] text-slate-400">Entradas {fmtUsd(entradasPeriodoUsd)} − Egresos {fmtUsd(totalEgresosUsd)}</p>
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      Entradas {fmtUsd(entradasPeriodoUsd)} − Capital recuperado {fmtUsd(capitalPrestamosRecuperadoUsd)} − Egresos {fmtUsd(totalEgresosUsd)}
+                    </p>
                   </div>
                   <span className={`p-2.5 rounded-xl shrink-0 ${flujoNetoUsd >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
                     {flujoNetoUsd >= 0 ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownRight className="w-5 h-5" />}
                   </span>
                 </div>
-                <p className="mt-3 text-[10px] text-slate-500">{dashPeriodLabel} • solo egresos operativos</p>
+                <p className="mt-3 text-[10px] text-slate-500">
+                  {dashPeriodLabel} • el capital devuelto por préstamos en efectivo no se cuenta como ingreso; los egresos siguen siendo solo operativos
+                </p>
               </div>
 
               {/* Rendimiento / Ganancias */}
