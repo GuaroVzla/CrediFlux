@@ -65,10 +65,12 @@ export default function CrediFluxApp() {
   const [capitalSummary, setCapitalSummary] = useState({aportes: 0, retiros: 0, netCapital: 0, count: 0 });
   const [settings, setSettings] = useState({});
   const [adminUsersList, setAdminUsersList] = useState([]);
-  // La clave revelada vive solo mientras se mantiene presionado el botón.
+  // La clave revelada se muestra tras un clic y se oculta al volver a hacer clic
+  // (o automáticamente después de unos segundos).
   const [revealedPassword, setRevealedPassword] = useState(null);
-  const passwordHoldRef = useRef(null);
-  const endPasswordHoldRef = useRef(null);
+  const passwordRequestIdRef = useRef(0);
+  const passwordHideTimerRef = useRef(null);
+  const hidePasswordRef = useRef(null);
   const [receiptPatterns, setReceiptPatterns] = useState([]);
 
   // Modal para Cargar Patrón de Comprobante (Admin)
@@ -225,59 +227,72 @@ export default function CrediFluxApp() {
     setTimeout(() => setNotification(null), 5000);
   };
 
-  // ---------- Vista previa de clave: solo mientras se mantiene presionado ----------
-  const endPasswordHold = () => {
-    const hold = passwordHoldRef.current;
-    if (hold?.controller) hold.controller.abort();
-    passwordHoldRef.current = null;
+  // ---------- Vista previa de clave: clic para mostrar / clic para ocultar ----------
+  // No usamos AbortController: en Next 16 abortar una petición mientras el proxy/middleware
+  // está activo provoca un ECONNRESET/uncaughtException en el servidor de desarrollo.
+  // Las respuestas obsoletas se descartan con un token secuencial y la clave se
+  // oculta sola a los 15 segundos para no dejarla expuesta en pantalla.
+  const PASSWORD_REVEAL_MS = 15000;
+
+  const hidePassword = () => {
+    passwordRequestIdRef.current += 1;
+    if (passwordHideTimerRef.current) {
+      clearTimeout(passwordHideTimerRef.current);
+      passwordHideTimerRef.current = null;
+    }
     setRevealedPassword(null);
   };
-  endPasswordHoldRef.current = endPasswordHold;
+  hidePasswordRef.current = hidePassword;
 
-  const startPasswordHold = async (user) => {
-    endPasswordHold();
-    const controller = new AbortController();
-    passwordHoldRef.current = { userId: user.id, controller };
-    setRevealedPassword({ userId: user.id, password: null, reason: null });
+  const togglePassword = async (user) => {
+    const isCurrentlyShown = revealedPassword?.userId === user.id && revealedPassword.password;
+    if (isCurrentlyShown) {
+      hidePassword();
+      return;
+    }
+
+    hidePassword();
+    const requestId = passwordRequestIdRef.current;
+    setRevealedPassword({ userId: user.id, password: null, loading: true, reason: null });
     try {
       const res = await fetch('/api/admin/reveal-password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': currentUser?.id || ''
+        },
         body: JSON.stringify({ userId: user.id }),
-        signal: controller.signal,
         cache: 'no-store'
       });
       const data = await res.json().catch(() => ({}));
-      if (controller.signal.aborted || passwordHoldRef.current?.controller !== controller) return;
+      // Si hizo clic en otro usuario o volvió a ocultar, ignoramos la respuesta.
+      if (passwordRequestIdRef.current !== requestId) return;
       if (res.ok && data.success && data.available && data.password) {
-        setRevealedPassword({ userId: user.id, password: data.password, reason: null });
+        setRevealedPassword({ userId: user.id, password: data.password, loading: false, reason: null });
+        passwordHideTimerRef.current = setTimeout(() => {
+          passwordHideTimerRef.current = null;
+          hidePasswordRef.current?.();
+        }, PASSWORD_REVEAL_MS);
       } else {
         const reason = data.code === 'PREVIEW_UNAVAILABLE' ? 'unavailable' : (data.reason || 'hash');
-        setRevealedPassword({ userId: user.id, password: null, reason });
+        setRevealedPassword({ userId: user.id, password: null, loading: false, reason });
       }
-    } catch (error) {
-      if (error?.name === 'AbortError') return;
-      if (passwordHoldRef.current?.controller === controller) {
-        setRevealedPassword({ userId: user.id, password: null, reason: 'error' });
-      }
+    } catch {
+      if (passwordRequestIdRef.current !== requestId) return;
+      setRevealedPassword({ userId: user.id, password: null, loading: false, reason: 'error' });
     }
   };
 
   useEffect(() => {
-    const release = () => endPasswordHoldRef.current?.();
+    const release = () => hidePasswordRef.current?.();
     const releaseIfHidden = () => { if (document.hidden) release(); };
-    window.addEventListener('mouseup', release);
-    window.addEventListener('touchend', release);
-    window.addEventListener('touchcancel', release);
     window.addEventListener('blur', release);
     document.addEventListener('visibilitychange', releaseIfHidden);
     return () => {
-      window.removeEventListener('mouseup', release);
-      window.removeEventListener('touchend', release);
-      window.removeEventListener('touchcancel', release);
       window.removeEventListener('blur', release);
       document.removeEventListener('visibilitychange', releaseIfHidden);
-      endPasswordHoldRef.current?.();
+      if (passwordHideTimerRef.current) clearTimeout(passwordHideTimerRef.current);
+      hidePasswordRef.current?.();
     };
   }, []);
 
@@ -4802,28 +4817,32 @@ export default function CrediFluxApp() {
                                   <span className="select-none">
                                     {revealedPassword?.userId === u.id && revealedPassword.password
                                       ? revealedPassword.password
-                                      : '••••••••'}
+                                      : revealedPassword?.userId === u.id && revealedPassword.loading
+                                        ? 'Consultando…'
+                                        : '••••••••'}
                                   </span>
                                   <button
                                     type="button"
                                     disabled={!u.hasPassword}
-                                    title="Mantener presionado para ver la clave"
-                                    aria-label="Mantener presionado para ver la clave"
-                                    onMouseDown={(e) => { e.preventDefault(); startPasswordHold(u); }}
-                                    onMouseUp={endPasswordHold}
-                                    onMouseLeave={endPasswordHold}
-                                    onTouchStart={(e) => { e.preventDefault(); startPasswordHold(u); }}
-                                    onTouchEnd={endPasswordHold}
-                                    onTouchCancel={endPasswordHold}
-                                    onContextMenu={(e) => e.preventDefault()}
-                                    className="inline-flex items-center justify-center p-1 rounded text-slate-400 hover:text-emerald-300 hover:bg-slate-700/50 transition-colors touch-none select-none disabled:opacity-40 disabled:cursor-not-allowed"
+                                    title={revealedPassword?.userId === u.id && revealedPassword.password ? 'Ocultar clave' : 'Ver clave'}
+                                    aria-label={revealedPassword?.userId === u.id && revealedPassword.password ? 'Ocultar clave' : 'Ver clave'}
+                                    aria-pressed={Boolean(revealedPassword?.userId === u.id && revealedPassword.password)}
+                                    onClick={() => togglePassword(u)}
+                                    className="inline-flex items-center justify-center p-1 rounded text-slate-400 hover:text-emerald-300 hover:bg-slate-700/50 transition-colors select-none disabled:opacity-40 disabled:cursor-not-allowed"
                                   >
-                                    {revealedPassword?.userId === u.id && revealedPassword.password
-                                      ? <EyeOff className="w-3.5 h-3.5" />
-                                      : <Eye className="w-3.5 h-3.5" />}
+                                    {revealedPassword?.userId === u.id && revealedPassword.loading
+                                      ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                      : revealedPassword?.userId === u.id && revealedPassword.password
+                                        ? <EyeOff className="w-3.5 h-3.5" />
+                                        : <Eye className="w-3.5 h-3.5" />}
                                   </button>
                                 </div>
-                                {revealedPassword?.userId === u.id && !revealedPassword.password && revealedPassword.reason && (
+                                {revealedPassword?.userId === u.id && revealedPassword.password && (
+                                  <div className="mt-1 text-[10px] font-sans font-normal text-slate-500 normal-case">
+                                    Se oculta automáticamente en 15 s
+                                  </div>
+                                )}
+                                {revealedPassword?.userId === u.id && !revealedPassword.password && !revealedPassword.loading && revealedPassword.reason && (
                                   <div className="mt-1 text-[10px] font-sans font-normal text-amber-400 normal-case">
                                     {revealedPassword.reason === 'hash'
                                       ? 'Clave con hash: cámbiala para poder verla'
