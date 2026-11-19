@@ -1942,7 +1942,7 @@ export default function CrediFluxApp() {
 
           const urgentCount = morosoLoans.length + proximoLoans.length;
           const card = `rounded-3xl border ${themeDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'} shadow-sm`;
-          const periodInputCls = 'px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-200 outline-none focus:border-emerald-500';
+          const periodInputCls = `px-2.5 py-1.5 rounded-lg border text-xs outline-none focus:border-emerald-500 ${themeDark ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-900'}`;
 
           return (
           <div className="space-y-6">
@@ -2561,7 +2561,7 @@ export default function CrediFluxApp() {
                             <div className="flex items-center gap-3 min-w-0">
                               <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${loan.status === 'moroso' ? 'bg-rose-500 animate-pulse' : 'bg-amber-400'}`} />
                               <div className="min-w-0">
-                                <h5 className="font-semibold text-sm text-white truncate">{loan.clientName}</h5>
+                                <h5 className="font-semibold text-sm text-slate-200 truncate">{loan.clientName}</h5>
                                 <p className="text-[11px] text-slate-400 truncate">{loan.productName} • Cuota: {fmtUsd(loan.installmentAmount)}</p>
                               </div>
                             </div>
@@ -2590,7 +2590,7 @@ export default function CrediFluxApp() {
 
               {/* Accesos rápidos */}
               <div className={`${card} p-5 h-fit`}>
-                <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+                <h3 className="text-sm font-bold text-slate-200 mb-3 flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-emerald-400" />
                   Accesos rápidos
                 </h3>
@@ -2810,7 +2810,7 @@ export default function CrediFluxApp() {
           };
 
           const headerMain = `block text-xs font-bold leading-tight tracking-wide ${themeDark ? 'text-slate-100' : 'text-slate-800'}`;
-          const headerSub = `mt-0.5 block text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-400'}`;
+          const headerSub = `mt-0.5 block text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-600'}`;
           const stickyHead = themeDark ? 'bg-slate-800' : 'bg-slate-100';
           const stickyCell = themeDark
             ? 'bg-slate-900 text-slate-400 group-hover:bg-slate-800'
@@ -2820,7 +2820,7 @@ export default function CrediFluxApp() {
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-bold text-white tracking-tight">Financiamientos y Deudas</h2>
+                <h2 className="text-2xl font-bold text-slate-200 tracking-tight">Financiamientos y Deudas</h2>
                 <p className="text-slate-400 text-xs">
                   Cartera consolidada de contratos, cronogramas de cuotas y estado de cobranza en tiempo real.
                 </p>
@@ -3113,7 +3113,7 @@ export default function CrediFluxApp() {
                                 <div className="flex items-center gap-2">
                                   <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${meta.dot}`} title={meta.label} />
                                   <div className="min-w-0">
-                                    <div className="font-bold text-white text-sm leading-tight truncate">{loan.clientName}</div>
+                                    <div className="font-bold text-slate-200 text-sm leading-tight truncate">{loan.clientName}</div>
                                     <div className="mt-0.5 text-[11px] text-slate-400">Inicio: {loan.startDate}</div>
                                   </div>
                                 </div>
@@ -3324,7 +3324,7 @@ export default function CrediFluxApp() {
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-bold text-white tracking-tight">Clientes</h2>
+                <h2 className="text-2xl font-bold text-slate-200 tracking-tight">Clientes</h2>
                 <p className="text-slate-400 text-xs">
                   Datos de contacto, historial crediticio y nivel de confianza calculado automáticamente según el comportamiento de pago.
                 </p>
@@ -3386,31 +3386,31 @@ export default function CrediFluxApp() {
                       <tr className="align-middle whitespace-nowrap">
                         <th className={`sticky left-0 z-20 w-12 py-3 px-2 text-center align-middle ${themeDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
                           <span className={`block text-xs font-bold leading-tight tracking-wide ${themeDark ? 'text-slate-100' : 'text-slate-800'}`}>#</span>
-                          <span className={`mt-0.5 block text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-400'}`}>Ítem</span>
+                          <span className={`mt-0.5 block text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-600'}`}>Ítem</span>
                         </th>
                         <th className="py-3 px-3 text-left align-middle">
                           <span className={`block text-xs font-bold leading-tight tracking-wide ${themeDark ? 'text-slate-100' : 'text-slate-800'}`}>Cliente</span>
-                          <span className={`mt-0.5 block text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-400'}`}>Nombre / Identificación</span>
+                          <span className={`mt-0.5 block text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-600'}`}>Nombre / Identificación</span>
                         </th>
                         <th className="py-3 px-3 text-left align-middle">
                           <span className={`block text-xs font-bold leading-tight tracking-wide ${themeDark ? 'text-slate-100' : 'text-slate-800'}`}>Contacto</span>
-                          <span className={`mt-0.5 block text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-400'}`}>Teléfono / Dirección</span>
+                          <span className={`mt-0.5 block text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-600'}`}>Teléfono / Dirección</span>
                         </th>
                         <th className="py-3 px-3 text-left align-middle">
                           <span className={`block text-xs font-bold leading-tight tracking-wide ${themeDark ? 'text-slate-100' : 'text-slate-800'}`}>Registro</span>
-                          <span className={`mt-0.5 block text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-400'}`}>Alta / Notas</span>
+                          <span className={`mt-0.5 block text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-600'}`}>Alta / Notas</span>
                         </th>
                         <th className="py-3 px-3 text-center align-middle">
                           <span className={`block text-xs font-bold leading-tight tracking-wide ${themeDark ? 'text-slate-100' : 'text-slate-800'}`}>Finanzas</span>
-                          <span className={`mt-0.5 block text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-400'}`}>Crédito / Deuda</span>
+                          <span className={`mt-0.5 block text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-600'}`}>Crédito / Deuda</span>
                         </th>
                         <th className="py-3 px-3 text-center align-middle">
                           <span className={`block text-xs font-bold leading-tight tracking-wide ${themeDark ? 'text-slate-100' : 'text-slate-800'}`}>Confianza</span>
-                          <span className={`mt-0.5 block text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-400'}`}>Nivel automático</span>
+                          <span className={`mt-0.5 block text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-600'}`}>Nivel automático</span>
                         </th>
                         <th className="py-3 px-3 text-center align-middle">
                           <span className={`block text-xs font-bold leading-tight tracking-wide ${themeDark ? 'text-slate-100' : 'text-slate-800'}`}>Acciones</span>
-                          <span className={`mt-0.5 block text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-400'}`}>Gestión</span>
+                          <span className={`mt-0.5 block text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-600'}`}>Gestión</span>
                         </th>
                       </tr>
                     </thead>
@@ -3424,7 +3424,7 @@ export default function CrediFluxApp() {
                               {index + 1}
                             </td>
                             <td className="py-2.5 px-3 align-middle">
-                              <div className="font-bold text-white text-sm leading-tight">{client.name}</div>
+                              <div className="font-bold text-slate-200 text-sm leading-tight">{client.name}</div>
                               <div className="mt-0.5 text-[11px] font-semibold text-emerald-400">{client.dni}</div>
                             </td>
                             <td className="py-2.5 px-3 align-middle">
@@ -3665,7 +3665,7 @@ export default function CrediFluxApp() {
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-bold text-white tracking-tight">Productos</h2>
+                <h2 className="text-2xl font-bold text-slate-200 tracking-tight">Productos</h2>
                 <p className="text-slate-400 text-xs">
                   Cálculo automático del margen de ganancia por producto y fijación de precios financiados.
                 </p>
@@ -3713,13 +3713,13 @@ export default function CrediFluxApp() {
                     <tr className="align-middle whitespace-nowrap">
                       <th className={`sticky left-0 z-20 w-12 py-3 px-2 text-center align-middle ${themeDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
                         <span className={`block text-xs font-bold leading-tight tracking-wide ${themeDark ? 'text-slate-100' : 'text-slate-800'}`}>#</span>
-                        <span className={`mt-0.5 block text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-400'}`}>Ítem</span>
+                        <span className={`mt-0.5 block text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-600'}`}>Ítem</span>
                       </th>
                       <th className="py-3 px-3 text-left align-middle">
                         <button type="button" onClick={() => toggleProductSort('name')} className="inline-flex items-center gap-1.5 text-left" title="Ordenar por nombre (A-Z)">
                           <span className="flex flex-col">
                             <span className={`text-xs font-bold leading-tight tracking-wide ${themeDark ? 'text-slate-100' : 'text-slate-800'}`}>Equipo</span>
-                            <span className={`mt-0.5 text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-400'}`}>Producto / Modelo</span>
+                            <span className={`mt-0.5 text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-600'}`}>Producto / Modelo</span>
                           </span>
                           {sortIcon('name')}
                         </button>
@@ -3728,7 +3728,7 @@ export default function CrediFluxApp() {
                         <button type="button" onClick={() => toggleProductSort('costPrice')} className="inline-flex items-center justify-center gap-1.5" title="Ordenar por costo">
                           <span className="flex flex-col items-center">
                             <span className={`text-xs font-bold leading-tight tracking-wide ${themeDark ? 'text-slate-100' : 'text-slate-800'}`}>Costo Adq.</span>
-                            <span className={`mt-0.5 text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-400'}`}>Costo</span>
+                            <span className={`mt-0.5 text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-600'}`}>Costo</span>
                           </span>
                           {sortIcon('costPrice')}
                         </button>
@@ -3737,7 +3737,7 @@ export default function CrediFluxApp() {
                         <button type="button" onClick={() => toggleProductSort('salePrice')} className="inline-flex items-center justify-center gap-1.5" title="Ordenar por precio de venta">
                           <span className="flex flex-col items-center">
                             <span className={`text-xs font-bold leading-tight tracking-wide ${themeDark ? 'text-slate-100' : 'text-slate-800'}`}>Precio Venta Fin.</span>
-                            <span className={`mt-0.5 text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-400'}`}>PVP</span>
+                            <span className={`mt-0.5 text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-600'}`}>PVP</span>
                           </span>
                           {sortIcon('salePrice')}
                         </button>
@@ -3746,7 +3746,7 @@ export default function CrediFluxApp() {
                         <button type="button" onClick={() => toggleProductSort('profitMarginPercent')} className="inline-flex items-center justify-center gap-1.5" title="Ordenar por margen">
                           <span className="flex flex-col items-center">
                             <span className={`text-xs font-bold leading-tight tracking-wide ${themeDark ? 'text-slate-100' : 'text-slate-800'}`}>Margen Ganancia</span>
-                            <span className={`mt-0.5 text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-400'}`}>Margen</span>
+                            <span className={`mt-0.5 text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-600'}`}>Margen</span>
                           </span>
                           {sortIcon('profitMarginPercent')}
                         </button>
@@ -3755,14 +3755,14 @@ export default function CrediFluxApp() {
                         <button type="button" onClick={() => toggleProductSort('stock')} className="inline-flex items-center justify-center gap-1.5" title="Ordenar por stock">
                           <span className="flex flex-col items-center">
                             <span className={`text-xs font-bold leading-tight tracking-wide ${themeDark ? 'text-slate-100' : 'text-slate-800'}`}>Stock</span>
-                            <span className={`mt-0.5 text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-400'}`}>Disponibilidad</span>
+                            <span className={`mt-0.5 text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-600'}`}>Disponibilidad</span>
                           </span>
                           {sortIcon('stock')}
                         </button>
                       </th>
                       <th className="py-3 px-3 text-center align-middle">
                         <span className={`block text-xs font-bold leading-tight tracking-wide ${themeDark ? 'text-slate-100' : 'text-slate-800'}`}>Acciones</span>
-                        <span className={`mt-0.5 block text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-400'}`}>Gestión</span>
+                        <span className={`mt-0.5 block text-[11px] font-medium leading-tight tracking-wide ${themeDark ? 'text-slate-400' : 'text-slate-600'}`}>Gestión</span>
                       </th>
                     </tr>
                   </thead>
@@ -3773,7 +3773,7 @@ export default function CrediFluxApp() {
                           {index + 1}
                         </td>
                         <td className="py-2.5 px-3 align-middle">
-                          <div className="font-bold text-white text-sm leading-tight">{prod.name}</div>
+                          <div className="font-bold text-slate-200 text-sm leading-tight">{prod.name}</div>
                           {prod.category ? (
                             <div className="text-[11px] text-slate-400 mt-0.5">{prod.category}</div>
                           ) : null}
@@ -4131,7 +4131,7 @@ export default function CrediFluxApp() {
             <div className="space-y-8">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-2xl font-bold text-white tracking-tight">Comercio Electrónico & OCR IA</h2>
+                  <h2 className="text-2xl font-bold text-slate-200 tracking-tight">Comercio Electrónico & OCR IA</h2>
                   <p className="text-slate-400 text-xs">
                     Conversión automática de comprobantes Bs a USD con tasa BCV oficial y registro de bancos emisor y receptor.
                   </p>
@@ -4139,7 +4139,7 @@ export default function CrediFluxApp() {
                 {dolarRates?.oficial && (
                   <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 px-3.5 py-1.5 rounded-2xl text-xs">
                     <span className="text-emerald-400 font-bold">Tasa BCV Activa:</span>
-                    <span className="text-white font-mono font-extrabold">{dolarRates.oficial.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} Bs/USD</span>
+                    <span className="text-slate-200 font-mono font-extrabold">{dolarRates.oficial.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} Bs/USD</span>
                   </div>
                 )}
               </div>
@@ -4148,7 +4148,7 @@ export default function CrediFluxApp() {
               <div className={`p-6 rounded-3xl border ${themeDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200'}`}>
                 <div className="flex flex-col items-stretch gap-4 mb-6 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <h3 className="font-bold text-lg text-white flex items-center gap-2">
+                    <h3 className="font-bold text-lg text-slate-200 flex items-center gap-2">
                       <PieChart className="w-5 h-5 text-emerald-400" />
                       Módulo de Cálculos & Resumen Financiero
                     </h3>
@@ -4234,7 +4234,7 @@ export default function CrediFluxApp() {
                       <ArrowDownRight className="w-4 h-4" />
                     </div>
                     <div className="space-y-1">
-                      <div className="text-2xl font-extrabold text-white">
+                      <div className="text-2xl font-extrabold text-slate-200">
                         {calcComprasBs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-sm font-semibold text-rose-400">Bs</span>
                       </div>
                       <div className="text-sm font-bold text-slate-400">
@@ -4250,7 +4250,7 @@ export default function CrediFluxApp() {
                       <ArrowUpRight className="w-4 h-4" />
                     </div>
                     <div className="space-y-1">
-                      <div className="text-2xl font-extrabold text-white">
+                      <div className="text-2xl font-extrabold text-slate-200">
                         {calcVentasBs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-sm font-semibold text-emerald-400">Bs</span>
                       </div>
                       <div className="text-sm font-bold text-slate-400">
@@ -4282,7 +4282,7 @@ export default function CrediFluxApp() {
                 <div className={`p-6 rounded-3xl border ${themeDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200'}`}>
                   <div className="flex items-center gap-2 mb-4">
                     <Sparkles className="w-5 h-5 text-emerald-400" />
-                    <h3 className="font-bold text-base text-white">Escáner OCR Inteligente</h3>
+                    <h3 className="font-bold text-base text-slate-200">Escáner OCR Inteligente</h3>
                   </div>
 
                   <form onSubmit={handleProcessOcrAndSave} className="space-y-4">
@@ -4411,7 +4411,7 @@ export default function CrediFluxApp() {
                 <div className={`lg:col-span-2 p-6 rounded-3xl border flex flex-col justify-between ${themeDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200'}`}>
                   <div>
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
-                      <h3 className="font-bold text-base text-white flex items-center gap-2">
+                      <h3 className="font-bold text-base text-slate-200 flex items-center gap-2">
                         <FileText className="w-4 h-4 text-emerald-400" />
                         Registro Cronológico de Transacciones
                       </h3>
@@ -4494,7 +4494,7 @@ export default function CrediFluxApp() {
                                       {isVenta ? 'VENTA USDT' : 'COMPRA USDT'}
                                     </span>
                                   </td>
-                                  <td className="py-3 px-3 font-medium text-white whitespace-nowrap">
+                                  <td className="py-3 px-3 font-medium text-slate-200 whitespace-nowrap">
                                     {tx.bankOrigin || tx.bank || 'Desconocido'}
                                   </td>
                                   <td className="py-3 px-3 font-mono text-slate-400 text-[11px] whitespace-nowrap">
@@ -4503,7 +4503,7 @@ export default function CrediFluxApp() {
                                   <td className={`py-3 px-3 text-right font-extrabold whitespace-nowrap ${isVenta ? 'text-emerald-400' : 'text-rose-400'}`}>
                                     {isVenta ? '+' : '-'}{displayBs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Bs
                                   </td>
-                                  <td className="py-3 px-3 text-right font-bold text-white whitespace-nowrap">
+                                  <td className="py-3 px-3 text-right font-bold text-slate-200 whitespace-nowrap">
                                     ${displayUSD.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                   </td>
                                   <td className="py-3 px-3 text-center whitespace-nowrap">
@@ -4754,7 +4754,7 @@ export default function CrediFluxApp() {
           return (
           <div className="max-w-6xl mx-auto space-y-5">
             <div>
-              <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+              <h2 className="text-2xl font-bold text-slate-200 tracking-tight flex items-center gap-2">
                 <span>{currentUser?.role === 'admin' ? 'Ajustes de Administrador' : 'Mi Cuenta y Licencia'}</span>
                 <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">CrediFlux Core</span>
               </h2>
@@ -4970,21 +4970,21 @@ export default function CrediFluxApp() {
                     <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs text-slate-300 flex items-start gap-2">
                       <Users className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                       <div>
-                        <span className="font-semibold text-white block">Descubrimiento dinámico</span>
+                        <span className="font-semibold text-slate-200 block">Descubrimiento dinámico</span>
                         <span className="text-[11px] text-slate-400">Tablas, columnas y relaciones se leen del catálogo de PostgreSQL.</span>
                       </div>
                     </div>
                     <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs text-slate-300 flex items-start gap-2">
                       <Sparkles className="w-4 h-4 text-teal-400 shrink-0 mt-0.5" />
                       <div>
-                        <span className="font-semibold text-white block">Restauración ordenada</span>
+                        <span className="font-semibold text-slate-200 block">Restauración ordenada</span>
                         <span className="text-[11px] text-slate-400">Dependencias resueltas por llaves foráneas; padres antes que hijos.</span>
                       </div>
                     </div>
                     <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs text-slate-300 flex items-start gap-2">
                       <CheckCircle className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
                       <div>
-                        <span className="font-semibold text-white block">Transacción atómica</span>
+                        <span className="font-semibold text-slate-200 block">Transacción atómica</span>
                         <span className="text-[11px] text-slate-400">Cualquier fallo revierte todos los cambios; módulos nuevos se conservan.</span>
                       </div>
                     </div>
@@ -5062,7 +5062,7 @@ export default function CrediFluxApp() {
                           return (
                             <tr key={u.id} className="hover:bg-slate-800/30">
                               <td className="py-3.5 px-4">
-                                <div className="text-sm font-semibold text-white">{u.name}</div>
+                                <div className="text-sm font-semibold text-slate-200">{u.name}</div>
                                 <span className="text-xs text-slate-400">@{u.username}</span>
                                 {u.role === 'admin' && (
                                   <span className="ml-2 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-amber-500/20 text-amber-400">ADMIN</span>
@@ -5227,7 +5227,7 @@ export default function CrediFluxApp() {
                     <div className="p-4 rounded-xl bg-teal-500/5 border border-teal-500/20 space-y-3">
                       <div className="flex items-center gap-2">
                         <Sparkles className="w-4 h-4 text-teal-400" />
-                        <h4 className="text-sm font-semibold text-white">MOTOR OCR (Asignación Automática Global con Respaldo)</h4>
+                        <h4 className="text-sm font-semibold text-slate-200">MOTOR OCR (Asignación Automática Global con Respaldo)</h4>
                       </div>
 
                       {(() => {
@@ -5700,7 +5700,7 @@ export default function CrediFluxApp() {
                               </div>
                               <div>
                                 <div className="flex items-center gap-1.5">
-                                  <h4 className="text-sm font-semibold text-white">{pat.bankName}</h4>
+                                  <h4 className="text-sm font-semibold text-slate-200">{pat.bankName}</h4>
                                   <span className={`px-1.5 py-0.5 rounded text-[11px] font-semibold border ${
                                     pat.isActive !== false
                                       ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
@@ -5775,7 +5775,7 @@ export default function CrediFluxApp() {
           <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div>
-                <h3 className="text-base font-semibold text-white">Registrar Nuevo Usuario</h3>
+                <h3 className="text-base font-semibold text-slate-200">Registrar Nuevo Usuario</h3>
                 <p className={`${settingsDescCls} mt-1`}>Crea un usuario para operar bajo el núcleo unificado de CrediFlux.</p>
               </div>
               <button
@@ -5912,7 +5912,7 @@ export default function CrediFluxApp() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
           <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="text-base font-semibold text-white">
+              <h3 className="text-base font-semibold text-slate-200">
                 {editUserModal.passwordOnly ? 'Editar Clave del Administrador' : 'Editar Usuario y Licencia CrediFlux'}
               </h3>
               <button
@@ -6138,7 +6138,7 @@ export default function CrediFluxApp() {
             <div className="w-full max-w-6xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl max-h-[88vh] flex flex-col overflow-hidden">
               <div className="flex items-start justify-between gap-4 px-6 py-5 border-b border-slate-800">
                 <div>
-                  <h3 className="font-bold text-base text-white flex items-center gap-2">
+                  <h3 className="font-bold text-base text-slate-200 flex items-center gap-2">
                     <History className="w-5 h-5 text-emerald-400" />
                     Historial de Pagos de Financiamientos
                   </h3>
@@ -6191,7 +6191,7 @@ export default function CrediFluxApp() {
                           <div className="mt-0.5 text-[11px] text-slate-400">{row.payment.id}</div>
                         </td>
                         <td className="py-2.5 px-3 align-middle">
-                          <div className="font-bold text-white text-sm leading-tight">{row.payment.clientName || '—'}</div>
+                          <div className="font-bold text-slate-200 text-sm leading-tight">{row.payment.clientName || '—'}</div>
                           <div className="mt-0.5 text-[11px] text-slate-400">{row.loan ? (row.loan.type === 'producto' ? 'Producto' : 'Dinero') : 'Financiamiento'}</div>
                         </td>
                         <td className="py-2.5 px-3 align-middle">
@@ -6257,7 +6257,7 @@ export default function CrediFluxApp() {
                     <AlertTriangle className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="font-bold text-base text-white">
+                    <h3 className="font-bold text-base text-slate-200">
                       {!isConfirm
                         ? 'Eliminar financiamiento'
                         : isErrorReason
@@ -6402,7 +6402,7 @@ export default function CrediFluxApp() {
             <div className="w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl max-h-[88vh] flex flex-col overflow-hidden">
               <div className="flex items-start justify-between gap-4 px-6 py-5 border-b border-slate-800">
                 <div>
-                  <h3 className="font-bold text-base text-white flex items-center gap-2">
+                  <h3 className="font-bold text-base text-slate-200 flex items-center gap-2">
                     <Ban className="w-5 h-5 text-rose-400" />
                     Lista Negra de Clientes
                   </h3>
@@ -6485,7 +6485,7 @@ export default function CrediFluxApp() {
                             {index + 1}
                           </td>
                           <td className="py-2.5 px-3 align-middle">
-                            <div className="font-bold text-white text-sm leading-tight">{entry.name}</div>
+                            <div className="font-bold text-slate-200 text-sm leading-tight">{entry.name}</div>
                             <div className="mt-0.5 text-[11px] font-semibold text-rose-300">{entry.dni}</div>
                           </td>
                           <td className="py-2.5 px-3 align-middle">
@@ -6560,7 +6560,7 @@ export default function CrediFluxApp() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
           <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl">
             <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-              <h3 className="font-bold text-base text-white">
+              <h3 className="font-bold text-base text-slate-200">
                 {clientModal.data ? 'Editar Datos de Cliente' : 'Registrar Nuevo Cliente'}
               </h3>
               <button
@@ -6726,7 +6726,7 @@ export default function CrediFluxApp() {
           <div className="w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-2xl max-h-[94vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div>
-                <h3 className="font-bold text-base text-white">Nuevo Financiamiento o Préstamo</h3>
+                <h3 className="font-bold text-base text-slate-200">Nuevo Financiamiento o Préstamo</h3>
                 <p className="text-[11px] text-slate-400">Captura compacta con cálculos automáticos y resumen financiero.</p>
               </div>
               <button type="button" onClick={() => setLoanModal({ open: false, data: null })} className="p-1.5 rounded-lg text-slate-400 hover:text-white" title="Cerrar">
@@ -7006,7 +7006,7 @@ export default function CrediFluxApp() {
           <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl">
             <div className="flex items-center justify-between pb-4 border-b border-slate-800">
               <div>
-                <h3 className="font-bold text-base text-white">Registrar Abono o Cuota</h3>
+                <h3 className="font-bold text-base text-slate-200">Registrar Abono o Cuota</h3>
                 <p className="text-xs text-slate-400">Cliente: {quickPayModal.loan.clientName}</p>
               </div>
               <button
@@ -7123,7 +7123,7 @@ export default function CrediFluxApp() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
           <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl">
             <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-              <h3 className="font-bold text-base text-white">
+              <h3 className="font-bold text-base text-slate-200">
                 {productModal.data ? 'Editar Producto' : 'Registro de producto'}
               </h3>
               <button
@@ -7242,7 +7242,7 @@ export default function CrediFluxApp() {
           <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div>
-                <h3 className="text-base font-semibold text-white">
+                <h3 className="text-base font-semibold text-slate-200">
                   {editingPatternId ? 'Editar Patrón de Comprobante' : 'Cargar Patrón de Comprobante Oficial'}
                 </h3>
                 <p className={`${settingsDescCls} mt-1`}>
@@ -7416,7 +7416,7 @@ export default function CrediFluxApp() {
           <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl">
             <div className="flex items-center justify-between pb-4 border-b border-slate-800">
               <div>
-                <h3 className="text-base font-semibold text-white">Vaciar datos del sistema</h3>
+                <h3 className="text-base font-semibold text-slate-200">Vaciar datos del sistema</h3>
                 <p className={`${settingsDescCls} mt-1`}>
                   Usuario seleccionado: <span className="text-slate-200 font-semibold">{purgeModal.user?.name || purgeModal.user?.username || '—'}</span>
                 </p>
@@ -7561,7 +7561,7 @@ export default function CrediFluxApp() {
           <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-4 border-b border-slate-800">
               <div>
-                <h3 className="font-bold text-base text-white">Récord Crediticio e Historial</h3>
+                <h3 className="font-bold text-base text-slate-200">Récord Crediticio e Historial</h3>
                 <p className="text-xs text-slate-400">
                   {viewHistoryClient.name} • {viewHistoryClient.dni} • Confianza: <strong>{viewHistoryClient.trust?.label || computeClientTrust((loans || []).filter(l => l.clientId === viewHistoryClient.id), getTrustLevelConfig(settings)).label}</strong>
                 </p>
@@ -7583,7 +7583,7 @@ export default function CrediFluxApp() {
                 viewHistoryClient.creditHistory.map((h, i) => (
                   <div key={i} className="p-4 rounded-2xl bg-slate-800/40 border border-slate-800 flex items-center justify-between">
                     <div>
-                      <h5 className="font-bold text-white text-sm">{h.productName}</h5>
+                      <h5 className="font-bold text-slate-200 text-sm">{h.productName}</h5>
                       <p className="text-slate-400 text-xs">
                         Inicio: {h.startDate} • Cuotas: {h.paidCount}/{h.installmentsCount}
                       </p>
@@ -7611,7 +7611,7 @@ export default function CrediFluxApp() {
           <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div>
-                <h3 className="text-base font-semibold text-white">
+                <h3 className="text-base font-semibold text-slate-200">
                   {manualRecord.mode === 'edit' ? 'Editar registro manual' : 'Registro manual'}
                 </h3>
                 <p className="text-xs text-slate-400 mt-1">

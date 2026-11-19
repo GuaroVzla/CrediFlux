@@ -45,29 +45,88 @@ body {
 }
 
 /*
- * Legibilidad en modo claro.
- * Varias secciones usan clases pensadas para el tema oscuro (slate-200/300/400).
- * Al quitar `.dark` del <html>, las mapeamos a tonos oscuros con contraste >= 7:1.
- * Los botones y campos con fondo propio mantienen su color explícito.
+ * Modo claro: la app usa cientos de clases oscuras hardcodeadas
+ * (bg-slate-900/800, border-slate-800/700, text-white...). Al quitar `.dark`
+ * del <html> las remapeamos a superficies claras y textos legibles.
+ * Se usa !important porque las utilidades con opacidad (bg-slate-950/20,
+ * hover:bg-slate-800/40, etc.) compiten en especificidad.
+ * El login siempre conserva `.dark`, por lo que no se ve afectado.
  */
-html:not(.dark) .text-slate-200 { color: #0f172a; }
-html:not(.dark) .text-slate-300 { color: #334155; }
-html:not(.dark) .text-slate-400,
-html:not(.dark) .text-slate-500 { color: #475569; }
+:root:not(.dark) .bg-slate-950,
+:root:not(.dark) .bg-slate-900,
+:root:not(.dark) .bg-slate-800,
+:root:not(.dark) [class~="bg-[#0b1120]"],
+:root:not(.dark) [class~="bg-[#0f172a]"],
+:root:not(.dark) [class~="bg-[#111827]"] { background-color: #ffffff !important; }
+
+:root:not(.dark) .bg-slate-950\/20,
+:root:not(.dark) .bg-slate-950\/40,
+:root:not(.dark) .bg-slate-900\/60,
+:root:not(.dark) .bg-slate-900\/80,
+:root:not(.dark) .bg-slate-800\/20,
+:root:not(.dark) .bg-slate-800\/30,
+:root:not(.dark) .bg-slate-800\/40,
+:root:not(.dark) .bg-slate-800\/50,
+:root:not(.dark) .bg-slate-800\/60,
+:root:not(.dark) .bg-slate-800\/70,
+:root:not(.dark) .bg-slate-800\/80,
+:root:not(.dark) .bg-slate-800\/90 { background-color: #f1f5f9 !important; }
+
+:root:not(.dark) .hover\:bg-slate-800:hover,
+:root:not(.dark) .hover\:bg-slate-700:hover { background-color: #e2e8f0 !important; }
+
+:root:not(.dark) .border-slate-800,
+:root:not(.dark) .border-slate-700,
+:root:not(.dark) .border-slate-800\/70,
+:root:not(.dark) .border-slate-800\/80,
+:root:not(.dark) .border-slate-700\/50,
+:root:not(.dark) .border-slate-700\/60,
+:root:not(.dark) .border-slate-700\/70,
+:root:not(.dark) .border-slate-700\/80 { border-color: #cbd5e1 !important; }
+
+/* Textos base */
+:root:not(.dark) .text-slate-100 { color: #0f172a !important; }
+:root:not(.dark) .text-slate-200 { color: #0f172a !important; }
+:root:not(.dark) .text-slate-300 { color: #334155 !important; }
+:root:not(.dark) .text-slate-400,
+:root:not(.dark) .text-slate-500 { color: #475569 !important; }
 
 /* Acentos: se oscurecen para no perder contraste sobre tarjetas claras. */
-html:not(.dark) .text-emerald-300,
-html:not(.dark) .text-emerald-400 { color: #047857; }
-html:not(.dark) .text-amber-300,
-html:not(.dark) .text-amber-400,
-html:not(.dark) .text-amber-500 { color: #b45309; }
-html:not(.dark) .text-rose-300,
-html:not(.dark) .text-rose-400 { color: #be123c; }
-html:not(.dark) .text-teal-300,
-html:not(.dark) .text-teal-400 { color: #0f766e; }
-html:not(.dark) .text-purple-300,
-html:not(.dark) .text-purple-400 { color: #7e22ce; }
+:root:not(.dark) .text-emerald-300,
+:root:not(.dark) .text-emerald-400 { color: #047857 !important; }
+:root:not(.dark) .text-amber-300,
+:root:not(.dark) .text-amber-400,
+:root:not(.dark) .text-amber-500 { color: #b45309 !important; }
+:root:not(.dark) .text-rose-300,
+:root:not(.dark) .text-rose-400 { color: #be123c !important; }
+:root:not(.dark) .text-teal-300,
+:root:not(.dark) .text-teal-400 { color: #0f766e !important; }
+:root:not(.dark) .text-purple-300,
+:root:not(.dark) .text-purple-400 { color: #7e22ce !important; }
 
-html:not(.dark) input::placeholder,
-html:not(.dark) textarea::placeholder { color: #64748b; }
+/*
+ * text-white suele ser el valor de una KPI o botón sobre fondo propio.
+ * Solo se corrige donde el fondo es claro; se excluyen botones con acento
+ * (emerald/rose/teal) y contenedores con gradiente.
+ */
+:root:not(.dark) .bg-white .text-white,
+:root:not(.dark) .bg-slate-50 .text-white,
+:root:not(.dark) .bg-slate-100 .text-white { color: #0f172a !important; }
+:root:not(.dark) .bg-slate-800 .text-white,
+:root:not(.dark) .bg-slate-900 .text-white,
+:root:not(.dark) .bg-slate-950 .text-white { color: #0f172a !important; }
+:root:not(.dark) .hover\:text-white:hover { color: #0f172a !important; }
+
+/* Campos: fondo claro, borde visible y texto oscuro. */
+:root:not(.dark) input.bg-slate-800,
+:root:not(.dark) input.bg-slate-950\/40,
+:root:not(.dark) textarea.bg-slate-800,
+:root:not(.dark) textarea.bg-slate-950\/40,
+:root:not(.dark) select.bg-slate-800 {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+:root:not(.dark) input::placeholder,
+:root:not(.dark) textarea::placeholder { color: #64748b !important; }
 
