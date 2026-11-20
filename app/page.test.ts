@@ -3,11 +3,14 @@ import { fileURLToPath } from 'node:url'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 const pagePath = fileURLToPath(new URL('./page.jsx', import.meta.url))
+const paginationHookPath = fileURLToPath(new URL('../hooks/usePaginationController.js', import.meta.url))
 let source = ''
+let paginationSource = ''
 
 describe('M-009: page.jsx — invariantes de paginación y sesión', () => {
   beforeAll(() => {
     source = fs.readFileSync(pagePath, 'utf8')
+    paginationSource = fs.readFileSync(paginationHookPath, 'utf8')
   })
 
   it('numera las filas usando el desplazamiento real de la paginación de financiamientos', () => {
@@ -22,9 +25,9 @@ describe('M-009: page.jsx — invariantes de paginación y sesión', () => {
   })
 
   it('ajusta el estado de la página cuando el rango válido cambia', () => {
-    expect(source).toContain('const safePage = Math.min(Math.max(1, page), totalPages);')
-    expect(source).toContain('if (safePage !== page) setPage(safePage);')
-    expect(source).toContain('const offset = (safePage - 1) * pageSize;')
+    expect(paginationSource).toContain('const safePage = Math.min(Math.max(1, page), totalPages);')
+    expect(paginationSource).toContain('if (safePage !== page) setPage(safePage);')
+    expect(paginationSource).toContain('const offset = (safePage - 1) * pageSize;')
   })
 
   it('no deja enlaces inactivos con href="#"', () => {

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { resolveRequestAuth } from '@/lib/server/request-auth';
-import { createP2PTransaction, listP2PTransactions } from '@/lib/services/rates';
+import { resolveRequestAuth } from '@/server/auth/request-auth';
+import { createP2PTransaction, listP2PTransactions } from '@/server/services/rates';
 
 export const dynamic = 'force-dynamic';
 

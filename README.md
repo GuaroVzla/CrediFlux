@@ -134,34 +134,46 @@ npm run start
 
 ```
 CrediFlux/
-├── app/
-│   ├── api/
-│   │   ├── auth/          # Login, sesión y registro
-│   │   ├── clients/       # CRUD de clientes y récord crediticio
-│   │   ├── ecommerce/     # Upload de captures, OCR y balance
-│   │   ├── loans/         # Financiamientos, cuotas y límites
-│   │   ├── payments/      # Registro rápido de abonos
-│   │   ├── products/      # Catálogo y cálculo de margen
-│   │   └── settings/      # Configuración de empresa, capital y claves
-│   ├── globals.css        # Estilos globales y Tailwind CSS
-│   ├── layout.jsx         # Layout principal con tema oscuro/claro
-│   └── page.jsx           # SPA interactiva completa de alta fidelidad
-├── lib/
-│   ├── supabase/          # Clientes browser/server/admin, middleware y database.types.ts
-│   ├── server/            # supabase-store.ts, request-auth.ts, seguridad y persistencia legada
-│   ├── services/          # Servicios tipados (tasas BCV/P2P)
-│   ├── db.js              # Reglas de negocio y semáforo de deudores
-│   └── ocr.js             # Motor de visión multimodal (OpenAI / Gemini / OCR.space / Heurístico)
+├── app/                       # Rutas Next.js (capa delgada)
+│   ├── api/                   # Adaptadores HTTP que delegan en modules/ y server/
+│   │   ├── auth/              # Login, sesión y registro
+│   │   ├── clients/           # CRUD de clientes y récord crediticio
+│   │   ├── ecommerce-handler/ # Upload, OCR y balance (rewrite /api/ecommerce)
+│   │   ├── loans/             # Financiamientos, cuotas y límites
+│   │   ├── payments/          # Registro rápido de abonos
+│   │   ├── products-api/      # Catálogo y margen (rewrite /api/products)
+│   │   ├── settings-handler/  # Empresa, capital y claves (rewrite /api/settings)
+│   │   └── health/            # Health check
+│   ├── globals.css            # Estilos globales y Tailwind CSS
+│   ├── layout.jsx             # Layout principal con tema oscuro/claro
+│   └── page.jsx               # SPA que compone hooks y componentes extraídos
+├── components/
+│   └── ui/                    # UI reutilizable sin reglas de negocio
+├── hooks/                     # Hooks genéricos (paginación, debounce)
+├── modules/                   # Lógica de negocio por dominio
+│   ├── clients|loans|payments|products|capital|ecommerce/service.ts
+│   ├── license/service.js     # Expiración y progreso de licencia
+│   ├── products/pricing.js    # Margen y precio automático
+│   └── trust/service.js       # Niveles de confianza
+├── server/                    # Infraestructura (solo servidor)
+│   ├── auth/                  # Sesión, request-auth y password-preview
+│   ├── persistence/           # supabase-store, persistence y prisma (legacy)
+│   ├── services/              # ocr/, rates.ts y uploads.ts
+│   ├── supabase/              # clientes browser/server/admin, middleware, env
+│   ├── security/              # hash y cifrado
+│   ├── admin/                 # config, purge y system-backup
+│   └── dashboard/builders.ts  # Normalización y builders de respuesta
+├── shared/
+│   ├── lib/                   # db.js (reglas compartidas) y format.js
+│   └── types/database.ts      # Tipos generados desde Supabase
+├── prisma/                    # Esquema legacy opcional (lo usa `prisma generate`)
 ├── supabase/
-│   ├── schema.sql         # Esquema relacional + RLS + triggers
-│   ├── migrations/        # Migraciones aplicables con Supabase CLI
-│   └── verify_rls.sql     # Consultas de verificación de RLS
-├── scripts/
-│   └── migrate-json-to-supabase.mjs # Importación de datos legados
-├── public/
-│   └── uploads/           # Comprobantes en desarrollo (producción: Vercel Blob/Storage)
-├── tailwind.config.js     # Configuración visual Fintech
-├── package.json
-└── README.md
+│   ├── schema.sql             # Esquema canónico + RLS + triggers
+│   ├── migrations/            # Migraciones aplicables con Supabase CLI
+│   └── verify_rls.sql         # Consultas de verificación de RLS
+├── scripts/                   # Migraciones y pruebas de estrés controladas
+├── public/                    # tessdata/ y uploads/ (ignorado en git)
+└── Config en raíz: next.config.mjs, tailwind.config.js, tsconfig.json,
+    vitest.config.mts, vercel.json, package.json
 ```
 

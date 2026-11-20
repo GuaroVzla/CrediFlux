@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { isSupabaseConfigured } from '@/lib/supabase/env';
-import { persistenceInfo } from '@/lib/server/supabase-store';
+import { isSupabaseConfigured } from '@/server/supabase/env';
+import { persistenceInfo } from '@/server/persistence/supabase-store';
 
 export const dynamic = 'force-dynamic';
 

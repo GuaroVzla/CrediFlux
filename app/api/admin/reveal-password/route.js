@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import { checkWritePermission } from '../../../../lib/db.js';
-import { getStateForRequest } from '../../../../lib/server/supabase-store';
-import { resolveRequestAuth } from '../../../../lib/server/request-auth';
-import { isSupabaseConfigured } from '../../../../lib/supabase/env';
-import { canRevealPasswords, readPasswordPreview } from '../../../../lib/server/password-preview.js';
+import { checkWritePermission } from '@/shared/lib/db.js';
+import { getStateForRequest } from '@/server/persistence/supabase-store';
+import { resolveRequestAuth } from '@/server/auth/request-auth';
+import { isSupabaseConfigured } from '@/server/supabase/env';
+import { canRevealPasswords, readPasswordPreview } from '@/server/auth/password-preview.js';
 
 const NO_STORE = { 'Cache-Control': 'no-store, no-cache, must-revalidate' };
 

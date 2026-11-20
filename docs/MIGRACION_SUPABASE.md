@@ -10,14 +10,14 @@ hacia **Supabase (PostgreSQL + Auth + RLS)**.
 | Capa | Ubicación | Responsabilidad |
 | --- | --- | --- |
 | Esquema relacional | `supabase/schema.sql` y `supabase/migrations/` | Tablas, constraints, índices, RLS, triggers y bucket de comprobantes |
-| Cliente navegador | `lib/supabase/client.ts` | `createBrowserClient` con la anon key |
-| Cliente servidor | `lib/supabase/server.ts` | `createServerClient` + cookies de Next.js |
-| Cliente admin | `lib/supabase/admin.ts` | `service_role`; solo servidor |
-| Proxy (Next 16) | `proxy.ts` + `lib/supabase/middleware.ts` | Refresco de sesión y bloqueo de `/api/*` sin sesión |
-| Auth de request | `lib/server/request-auth.ts` | Resuelve `auth.uid()` + perfil y lo expone a las rutas |
-| Adaptador relacional | `lib/server/supabase-store.ts` | Lee/escribe el dominio por tablas, siempre con `user_id` |
-| Servicios tipados | `lib/services/rates.ts` | Tasas BCV/Binance P2P e historial P2P |
-| Tipos | `lib/supabase/database.types.ts` | Tipos generados desde el esquema |
+| Cliente navegador | `server/supabase/client.ts` | `createBrowserClient` con la anon key |
+| Cliente servidor | `server/supabase/server.ts` | `createServerClient` + cookies de Next.js |
+| Cliente admin | `server/supabase/admin.ts` | `service_role`; solo servidor |
+| Proxy (Next 16) | `proxy.ts` + `server/supabase/middleware.ts` | Refresco de sesión y bloqueo de `/api/*` sin sesión |
+| Auth de request | `server/auth/request-auth.ts` | Resuelve `auth.uid()` + perfil y lo expone a las rutas |
+| Adaptador relacional | `server/persistence/supabase-store.ts` | Lee/escribe el dominio por tablas, siempre con `user_id` |
+| Servicios tipados | `server/services/rates.ts` | Tasas BCV/Binance P2P e historial P2P |
+| Tipos | `shared/types/database.ts` | Tipos generados desde el esquema |
 | Migración de datos | `scripts/migrate-json-to-supabase.mjs` | Importa el JSON legado y crea usuarios de Auth |
 
 ## 2. Aplicar el esquema

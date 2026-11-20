@@ -107,7 +107,7 @@ Disparador preciso para activar la skill cuando se pida "probar todos los módul
 
 ```
 - Módulo: api-payments
-- Archivo: lib/ocrEngine.ts:427
+- Archivo: server/services/ocr.js:427
 - Causa raíz: Timeout de 75s en AbortController al comunicarse con proveedor OpenAI Vision; el worker de Tesseract.js no termina y Vercel corta la función (error 504).
 - Evidencia: `npm run test` mostró `AbortError: Tesseract.js excedió el tiempo máximo de espera en 75 s`
 - Acción: Configurar timeout menor o cambiar proveedor a Tesseract.js local para recepciones pequeñas.

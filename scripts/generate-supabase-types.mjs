@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 /**
- * Regenera lib/supabase/database.types.ts desde el proyecto Supabase enlazado
+ * Regenera shared/types/database.ts desde el proyecto Supabase enlazado
  * y le añade los alias de conveniencia que usa la aplicación.
  *
  * Uso:
  *   npm run db:types
  *
  * Requiere SUPABASE_ACCESS_TOKEN o un proyecto enlazado (`supabase link`).
- * No editar database.types.ts a mano: los cambios de esquema van en
+ * No editar shared/types/database.ts a mano: los cambios de esquema van en
  * supabase/migrations/*.
  */
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 
-const OUTPUT = 'lib/supabase/database.types.ts';
+const OUTPUT = 'shared/types/database.ts';
 
 const header = `// -----------------------------------------------------------------------------
 // Tipos de la base de datos Supabase (generados por la CLI).

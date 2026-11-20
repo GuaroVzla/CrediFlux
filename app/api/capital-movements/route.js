@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
-import { checkWritePermission, getRequestUser, canAccessRecord, scopeRecords } from '../../../lib/db.js';
-import { getStateForRequest, saveStateForRequest } from '../../../lib/server/supabase-store';
-import { buildCapitalBody, normalizeDashboardState, summarize } from '../../../lib/server/dashboard-builders';
+import {
+  checkWritePermission, getRequestUser, canAccessRecord, scopeRecords,
+  getStateForRequest, saveStateForRequest, buildCapitalBody, normalizeDashboardState, summarize,
+} from '@/modules/capital/service';
 
 const MOVEMENT_TYPES = ['APORTE_CAPITAL', 'RETIRO_CAPITAL'];
 const CURRENCIES = ['USD', 'USDT', 'VES'];

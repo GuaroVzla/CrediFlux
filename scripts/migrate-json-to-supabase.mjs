@@ -169,7 +169,7 @@ async function main() {
   const settings = data.settings && typeof data.settings === 'object' ? data.settings : {};
   const settingsForStorage = JSON.parse(JSON.stringify(settings));
   try {
-    const { encryptStateSecretsAtRest } = await import('../lib/server/security.js');
+    const { encryptStateSecretsAtRest } = await import('@/server/security/security.js');
     encryptStateSecretsAtRest({ settings: settingsForStorage });
   } catch (e) {
     console.warn('No se pudieron cifrar secretos al importar:', e?.message || e);

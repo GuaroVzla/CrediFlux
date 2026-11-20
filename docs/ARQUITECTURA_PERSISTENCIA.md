@@ -3,26 +3,28 @@
 ## Objetivo
 Garantizar que la configuración del Administrador Maestro (usuarios/licencias, parámetros generales y motor IA/OCR, niveles de confianza y patrones de comprobantes) sea **persistente en Vercel**, **versionada en Git a nivel de esquema** y **sin exponer secretos**.
 
+> **Estado actual (2026-11-20):** la fuente de verdad en producción es `supabase/schema.sql` con `supabase/migrations/*`. Prisma se conserva únicamente como capa legacy opcional (`npm run build` ejecuta `prisma generate` por compatibilidad). Las secciones que describen `AppState`/`DATABASE_URL` son históricas; el runtime activo usa `server/persistence/supabase-store.ts`.
+
 ## Componentes implementados
 
 ### 1) Esquema versionado (Git)
-- `prisma/schema.prisma`: fuente de verdad del modelo de datos.
+- `prisma/schema.prisma`: modelo legacy opcional (no es la fuente de verdad en producción; ver nota arriba).
   - Normalizado: `Tenant`, `User`, `License`, `AdminSetting`, `TrustLevelConfig`, `ReceiptPattern`, `SettingAuditLog`.
   - Compatibilidad/persistencia integral: `AppState` (almacena el estado JSON completo en Postgres para que los módulos existentes sigan funcionando en Vercel sin pérdida de datos).
 - `prisma/seed.mjs`: seed idempotente de defaults (tenant, `AdminSetting`, niveles de confianza Alta/Media/Riesgosa). No contiene secretos.
 - `scripts/migrate-json-to-postgres.mjs`: importa `data/crediflux-store.json` (o legados `ricardo-store.json`/`db.json`) a Postgres (`AppState` + tablas normalizadas).
 
 ### 2) Capa de persistencia en runtime
-- `lib/server/persistence.js`
+- `server/persistence/persistence.js`
   - Si `DATABASE_URL` está configurado: lee/escribe en Postgres (`AppState`) → **persistente en Vercel**.
   - Si no: fallback a JSON local (`data/crediflux-store.json`, con lectura de legados `ricardo-store.json`/`db.json`) → **solo desarrollo local**.
   - Descifra secretos en memoria al leer y cifra claves de proveedores en reposo al guardar cuando `SETTINGS_ENCRYPTION_KEY` está configurada.
-- `lib/server/security.js`: utilidades de hardening (hash `scrypt`/verificación y migración de contraseñas legadas; cifrado AES-256-GCM para secretos en reposo).
-- `lib/server/admin-config.js`: sincroniza/normaliza el dominio admin hacia tablas Prisma y registra auditoría (`SettingAuditLog`) cuando hay DB.
-- `lib/prisma.js`: singleton de `PrismaClient` (seguro para serverless).
+- `server/security/security.js`: utilidades de hardening (hash `scrypt`/verificación y migración de contraseñas legadas; cifrado AES-256-GCM para secretos en reposo).
+- `server/admin/config.js`: sincroniza/normaliza el dominio admin hacia tablas Prisma y registra auditoría (`SettingAuditLog`) cuando hay DB.
+- `server/persistence/prisma.js`: singleton de `PrismaClient` (seguro para serverless; legacy).
 
 ### 3) Almacenamiento de archivos (patrones/imágenes)
-- `lib/storage/uploads.js`
+- `server/services/uploads.js`
   - Si `BLOB_READ_WRITE_TOKEN` existe: sube a **Vercel Blob** (persistente).
   - Si no: guarda en `public/uploads` (solo local/dev). En Vercel **debe** usarse Blob/almacenamiento externo.
 
@@ -80,7 +82,7 @@ Definir en Vercel (Project Settings → Environment Variables) y en `.env.local`
 - **Tesseract.js en Vercel:** los modelos `eng.traineddata`/`spa.traineddata` se versionan en `public/tessdata/`, se sirven como `/tessdata/*` y se incluyen en el bundle de las rutas OCR. El worker usa el core embebido `.wasm.js` y `maxDuration = 300`. Detalle completo en `docs/TESSERACT_VERCEL.md`.
 - **Importante:** definir `SETTINGS_ENCRYPTION_KEY` en todos los entornos persistentes antes de operar en producción; rotación de clave requiere proceso de re-cifrado controlado.
 
-> Nota (2026-11-20): el store activo en producción es **Supabase** (`lib/server/supabase-store.ts`). Prisma queda como capa opcional/legacy y sus migraciones sólo deben aplicarse cuando exista un `DATABASE_URL` apuntando a una base con el esquema `prisma/schema.prisma`. La migración de índices `20261120000000_perf_indexes` se retiró porque sus tablas (`ReceiptPattern`, `SettingAuditLog`) no existen en la base Supabase; los índices de las consultas reales están en `supabase/migrations/20261120000100_perf_indexes.sql`.
+> Nota (2026-11-20): el store activo en producción es **Supabase** (`server/persistence/supabase-store.ts`). Prisma queda como capa opcional/legacy y sus migraciones sólo deben aplicarse cuando exista un `DATABASE_URL` apuntando a una base con el esquema `prisma/schema.prisma`. La migración de índices `20261120000000_perf_indexes` se retiró porque sus tablas (`ReceiptPattern`, `SettingAuditLog`) no existen en la base Supabase; los índices de las consultas reales están en `supabase/migrations/20261120000100_perf_indexes.sql`.
 
 ## Evolución recomendada
 

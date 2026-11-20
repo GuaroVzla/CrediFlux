@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { getRequestUser, scopeRecords } from '../../../lib/db.js';
-import { getStateForRequest } from '../../../lib/server/supabase-store';
-import { resolveUploadUrls } from '../../../lib/storage/uploads.js';
+import { getRequestUser, scopeRecords } from '@/shared/lib/db.js';
+import { getStateForRequest } from '@/server/persistence/supabase-store';
+import { resolveUploadUrls } from '@/server/services/uploads.js';
 import {
   buildCapitalBody,
   buildClientsBody,
@@ -13,7 +13,7 @@ import {
   getReceiptPatternImageUrls,
   normalizeDashboardState,
   prepareSettings
-} from '../../../lib/server/dashboard-builders';
+} from '@/server/dashboard/builders';
 
 //Los datos son específicos de la sesión: nunca cachear ni prerenderizar.
 export const dynamic = 'force-dynamic';

@@ -1,9 +1,8 @@
 const OCR_TRACE_GLOBS = [
   // Modelos empaquetados: se sirven desde /tessdata y se leen como archivos locales.
   './public/tessdata/*.traineddata',
-  // Compatibilidad con instalaciones antiguas que guardaban los modelos en la raíz.
-  './*.traineddata',
-  './lib/ocr/**/*',
+  // Worker OCR ubicado en la capa server después de la refactorización.
+  './server/services/ocr/**/*',
   './node_modules/tesseract.js/**/*',
   './node_modules/tesseract.js-core/**/*',
   // Dependencias transitivas que el worker carga con require() en runtime.

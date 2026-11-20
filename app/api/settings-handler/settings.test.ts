@@ -6,7 +6,7 @@ vi.mock('server-only', () => ({}))
 
 const scope = vi.hoisted(() => ({ saved: 0 }))
 
-vi.mock('../../../lib/server/supabase-store', () => ({
+vi.mock('@/server/persistence/supabase-store', () => ({
   saveStateForRequest: async () => { scope.saved += 1; return true },
   persistenceInfo: () => ({ mode: 'test' }),
 }))
@@ -15,8 +15,8 @@ import {
   buildSettingsBody,
   getReceiptPatternImageUrls,
   prepareSettings,
-} from '../../../lib/server/dashboard-builders'
-import { ALLOWED_PROVIDERS, maskKey } from '../../../lib/server/settings-shared'
+} from '@/server/dashboard/builders'
+import { ALLOWED_PROVIDERS, maskKey } from '@/server/settings/settings-shared'
 
 function makeDb(role: 'admin' | 'user') {
   const currentUser = role === 'admin'

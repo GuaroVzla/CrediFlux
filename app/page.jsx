@@ -11,7 +11,13 @@ import {
   Wallet, Ban,
   HelpCircle, AlertCircle, Briefcase, Save, Coins, Landmark
 } from 'lucide-react';
-import { getTrustLevelConfig, computeClientTrust } from '../lib/trust';
+import { getTrustLevelConfig, computeClientTrust } from '@/modules/trust/service.js';
+import useDebouncedValue from '@/hooks/useDebouncedValue.js';
+import usePaginationController from '@/hooks/usePaginationController.js';
+import PaginationControls from '@/components/ui/PaginationControls.jsx';
+import { checkIsExpired, calculateLicenseProgress } from '@/modules/license/service.js';
+import { getProductMargin, getAutoSalePrice } from '@/modules/products/pricing.js';
+import { fmtUsd, fmtBs } from '@/shared/lib/format.js';
 
 const PATTERN_FALLBACK_IMAGE = '/uploads/sample-voucher.svg';
 
@@ -95,71 +101,6 @@ function getServerSessionStart() {
   } catch (e) {
     return null;
   }
-}
-
-/** Retrasa el valor usado en filtros sin retrasar el texto del input. */
-function useDebouncedValue(value, delay = 250) {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(timer);
-  }, [value, delay]);
-  return debounced;
-}
-
-/**
- * Control de paginación client-side. Los datos siguen viniendo completos del
- * servidor (no cambia ningún contrato); sólo se corta el array que se renderiza.
- * `slice(array)` se usa dentro de los callbacks condicionales de cada pestaña,
- * manteniendo los hooks siempre en el nivel superior del componente.
- */
-function usePaginationController(pageSize = 10, resetKey = '') {
-  const [page, setPage] = useState(1);
-  useEffect(() => { setPage(1); }, [resetKey, pageSize]);
-
-  const slice = useCallback((array) => {
-    const list = Array.isArray(array) ? array : [];
-    const totalPages = Math.max(1, Math.ceil(list.length / pageSize));
-    const safePage = Math.min(Math.max(1, page), totalPages);
-    // Tras borrar registros la lista puede encogerse sin que `resetKey` cambie.
-    // Ajustar el estado durante el render evita que "Anterior" opere sobre una
-    // página interna obsoleta (React re-renderiza inmediatamente este componente).
-    if (safePage !== page) setPage(safePage);
-    const offset = (safePage - 1) * pageSize;
-    return {
-      items: list.slice(offset, offset + pageSize),
-      page: safePage,
-      setPage,
-      totalPages,
-      total: list.length,
-      from: list.length === 0 ? 0 : offset + 1,
-      to: Math.min(offset + pageSize, list.length),
-    };
-  }, [page, pageSize]);
-
-  return { page, setPage, slice };
-}
-
-/** Controles visuales reutilizables: Previous / Next + "Mostrando X-Y de Z". */
-function PaginationControls({ paging, label = 'registros', themeDark = true }) {
-  if (!paging || paging.total === 0) return null;
-  const btnBase = 'px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
-  const btnTheme = themeDark
-    ? 'border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700'
-    : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100';
-  const nav = (dir) => paging.setPage(prev => Math.min(Math.max(1, prev + dir), paging.totalPages));
-  return (
-    <div className={`flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-t ${themeDark ? 'border-slate-800' : 'border-slate-200'}`}>
-      <span className={`text-[11px] ${themeDark ? 'text-slate-400' : 'text-slate-500'}`}>
-        Mostrando {paging.from}-{paging.to} de {paging.total} {label}
-      </span>
-      <div className="flex items-center gap-2">
-        <button type="button" disabled={paging.page <= 1} onClick={() => nav(-1)} className={`${btnBase} ${btnTheme}`}>Anterior</button>
-        <span className={`text-[11px] tabular-nums ${themeDark ? 'text-slate-400' : 'text-slate-500'}`}>{paging.page} / {paging.totalPages}</span>
-        <button type="button" disabled={paging.page >= paging.totalPages} onClick={() => nav(1)} className={`${btnBase} ${btnTheme}`}>Siguiente</button>
-      </div>
-    </div>
-  );
 }
 
 const PURGE_TARGET_KEYS = [
@@ -888,17 +829,6 @@ export default function CrediFluxApp() {
     }
   };
 
-  // Margen por defecto (30%) y precio calculado en modo automático
-  const DEFAULT_PROFIT_MARGIN = 30;
-  const getProductMargin = (prod) => {
-    const margin = Number(prod?.profitMarginPercent);
-    return Number.isFinite(margin) ? margin : DEFAULT_PROFIT_MARGIN;
-  };
-  const getAutoSalePrice = (prod) => {
-    const cost = Number(prod?.costPrice) || 0;
-    return Number((cost * (1 + getProductMargin(prod) / 100)).toFixed(2));
-  };
-
   // Ordenamiento dinámico de la tabla de productos
   const toggleProductSort = (field) => {
     setProductSort(prev => prev.field === field
@@ -1094,36 +1024,6 @@ export default function CrediFluxApp() {
     } finally {
       setRestoringBlacklistId(null);
     }
-  };
-
-  // Helper para verificar expiración en frontend
-  const checkIsExpired = (user) => {
-    if (!user || user.role === 'admin') return false;
-    if (!user.licenseExpiresAt) return true;
-    return new Date(user.licenseExpiresAt).getTime() < new Date().getTime();
-  };
-
-  // Helper para calcular barra de consumo de días de licencia
-  const calculateLicenseProgress = (user) => {
-    if (!user || user.role === 'admin') return { percent: 100, daysLeft: 999, totalDays: 999, isExpired: false };
-    if (!user.licenseExpiresAt) return { percent: 0, daysLeft: 0, totalDays: 30, isExpired: true };
-
-    const now = new Date().getTime();
-    const expiry = new Date(user.licenseExpiresAt).getTime();
-    const assigned = user.licenseAssignedAt ? new Date(user.licenseAssignedAt).getTime() : (expiry - (user.licenseDurationMonths || 1) * 30 * 24 * 60 * 60 * 1000);
-
-    const totalMs = Math.max(1, expiry - assigned);
-    const leftMs = expiry - now;
-
-    const daysLeft = Math.ceil(leftMs / (1000 * 60 * 60 * 24));
-    const totalDays = Math.ceil(totalMs / (1000 * 60 * 60 * 24));
-
-    if (leftMs <= 0) {
-      return { percent: 0, daysLeft: 0, totalDays, isExpired: true };
-    }
-
-    const percent = Math.min(100, Math.max(0, Math.round((leftMs / totalMs) * 100)));
-    return { percent, daysLeft, totalDays, isExpired: false };
   };
 
   // Login handler (SOLO ACCESO PÚBLICO - SIN REGISTRO)
@@ -2134,8 +2034,6 @@ export default function CrediFluxApp() {
         {activeTab === 'dashboard' && (() => {
           const bcvRate = Number(dolarRates?.oficial) || 0;
           const toBs = (usd) => (Number(usd) || 0) * bcvRate;
-          const fmtUsd = (n) => `$${(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-          const fmtBs = (n) => `Bs ${(Number(n) || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
           // --- Filtros cronológicos (dashboard) ---
           const now = new Date();

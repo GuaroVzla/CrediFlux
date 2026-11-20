@@ -114,14 +114,14 @@ node scripts/vercel-setup.mjs --project=crediflux-app --apply  # config + env + 
 | Esquema canónico | `supabase/schema.sql` |
 | Migración CLI | `supabase/migrations/20261116000100_crediflux_initial_schema.sql` |
 | Verificación RLS | `supabase/verify_rls.sql` |
-| Cliente navegador | `lib/supabase/client.ts` |
-| Cliente servidor (cookies) | `lib/supabase/server.ts` (`createSupabaseServerClient`, `createSupabaseRouteClient`) |
-| Cliente admin (`service_role`) | `lib/supabase/admin.ts` |
-| Proxy de sesión (Next 16) | `proxy.ts` + `lib/supabase/middleware.ts` |
-| Resolución de identidad | `lib/server/request-auth.ts` |
-| Adaptador relacional | `lib/server/supabase-store.ts` |
-| Servicios tipados | `lib/services/rates.ts` |
-| Tipos | `lib/supabase/database.types.ts` |
+| Cliente navegador | `server/supabase/client.ts` |
+| Cliente servidor (cookies) | `server/supabase/server.ts` (`createSupabaseServerClient`, `createSupabaseRouteClient`) |
+| Cliente admin (`service_role`) | `server/supabase/admin.ts` |
+| Proxy de sesión (Next 16) | `proxy.ts` + `server/supabase/middleware.ts` |
+| Resolución de identidad | `server/auth/request-auth.ts` |
+| Adaptador relacional | `server/persistence/supabase-store.ts` |
+| Servicios tipados | `server/services/rates.ts` |
+| Tipos | `shared/types/database.ts` |
 | Migración de datos | `scripts/migrate-json-to-supabase.mjs` |
 | Diagnóstico | `app/api/health/route.ts` |
 | Guía operativa | `docs/MIGRACION_SUPABASE.md` |
@@ -135,7 +135,7 @@ node scripts/vercel-setup.mjs --project=crediflux-app --apply  # config + env + 
 - Administradores pueden leer/editar todos los `profiles` y `audit_logs`; los
   datos financieros quedan estrictamente aislados por `user_id`.
 - El espejo Prisma se desactiva cuando `NEXT_PUBLIC_SUPABASE_URL` está presente
-  (`lib/server/admin-config.js`).
+  (`server/admin/config.js`).
 - Sin variables de Supabase la app funciona en modo legado (JSON/Prisma) y
   `/api/auth` responde 503, sin cerrar la sesión del usuario.
 - El proxy nunca rompe la request: si el refresco de sesión falla, continúa.
@@ -175,7 +175,7 @@ Ejecutada contra la API REST con el JWT de cada usuario:
 
 ### Modelo de Datos
 - Tabla `capital_movements` con campos: `id`, `user_id` (aislamiento estricto), `type` (`APORTE_CAPITAL` | `RETIRO_CAPITAL`), `amount_usd` decimal, `currency_origin` (`USD` | `USDT` | `VES`), `exchange_rate` opcional, `notes`, `created_at`.
-- tipos `CapitalMovementType` y `CapitalCurrency` añadidos a los alias en `lib/supabase/database.types.ts`.
+- tipos `CapitalMovementType` y `CapitalCurrency` añadidos a los alias en `shared/types/database.ts`.
 
 ### Reglas de Cálculo y Aislamiento Contable (Crucial)
 - Los movimientos `APORTE_CAPITAL` y `RETIRO_CAPITAL` **NO** se registran como transacciones comerciales ni alteran `Ganancias Netas`.
@@ -204,8 +204,8 @@ Ejecutada contra la API REST con el JWT de cada usuario:
 - `package.json` → `"db:types": "node scripts/generate-supabase-types.mjs"`.
 
 ### Estado por Defecto
-- `lib/server/persistence.js` → `buildDefaultState` incluye `capitalMovements: []`.
-- `lib/server/supabase-store.ts` sincroniza `capital_movements` entre JSON legacy y Supabase.
+- `server/persistence/persistence.js` → `buildDefaultState` incluye `capitalMovements: []`.
+- `server/persistence/supabase-store.ts` sincroniza `capital_movements` entre JSON legacy y Supabase.
 
 | Prueba | Resultado |
 | --- | --- |
@@ -227,7 +227,7 @@ Las imágenes de comprobantes y patrones OCR **ya no dependen de Vercel Blob**
 
 ### Diseño
 
-- `lib/storage/uploads.js` usa `@supabase/supabase-js` con
+- `server/services/uploads.js` usa `@supabase/supabase-js` con
   `SUPABASE_SERVICE_ROLE_KEY` y sube a `receipts/{userId}/{folder}/{filename}`.
   El primer segmento coincide con `auth.uid()`, tal como exigen las políticas
   RLS del bucket.

@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
-import { computeLoanStatus, checkWritePermission, normalizeDni, getRequestUser, canAccessRecord } from '../../../lib/db.js';
-import { getStateForRequest, saveStateForRequest } from '../../../lib/server/supabase-store';
-import { buildLoansBody, normalizeDashboardState } from '../../../lib/server/dashboard-builders';
+import {
+  computeLoanStatus, normalizeDni, checkWritePermission, getRequestUser, canAccessRecord,
+  getStateForRequest, saveStateForRequest, buildLoansBody, normalizeDashboardState,
+} from '@/modules/loans/service';
 
 export async function GET(request) {
   try {

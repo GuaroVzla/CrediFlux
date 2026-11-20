@@ -23,7 +23,7 @@ vi.mock('next/server', () => ({
   },
 }))
 
-vi.mock('../../../lib/server/supabase-store', () => ({
+vi.mock('@/server/persistence/supabase-store', () => ({
   getStateForRequest: async () => ({
     users: scope.users,
     settings: scope.settings,
@@ -33,13 +33,13 @@ vi.mock('../../../lib/server/supabase-store', () => ({
   persistenceInfo: () => ({ mode: 'test' }),
 }))
 
-vi.mock('../../../lib/supabase/env', () => ({
+vi.mock('@/server/supabase/env', () => ({
   isSupabaseConfigured: () => scope.supabaseConfigured,
   isLegacyAuthAllowed: () => process.env.NODE_ENV !== 'production',
   usernameToEmail: (username: string) => `${username}@test.local`,
 }))
 
-vi.mock('../../../lib/supabase/server', () => ({
+vi.mock('@/server/supabase/server', () => ({
   createSupabaseServerClient: async () => ({
     from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }) }),
   }),
@@ -61,16 +61,16 @@ vi.mock('../../../lib/supabase/server', () => ({
   }),
 }))
 
-vi.mock('../../../lib/server/request-auth', () => ({
+vi.mock('@/server/auth/request-auth', () => ({
   resolveRequestAuth: async () => ({ userId: null, profile: null }),
   profileToLegacyUser: (profile: any) => profile,
 }))
 
-vi.mock('../../../lib/supabase/admin', () => ({
+vi.mock('@/server/supabase/admin', () => ({
   getSupabaseAdminClientOrNull: () => null,
 }))
 
-vi.mock('../../../lib/server/password-preview.js', () => ({
+vi.mock('@/server/auth/password-preview.js', () => ({
   setLegacyPasswordPreview: () => {},
   storePasswordPreview: async () => {},
 }))

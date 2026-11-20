@@ -47,7 +47,7 @@ export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const isApi = pathname.startsWith('/api/');
   try {
-    const { updateSession } = await import('@/lib/supabase/middleware');
+    const { updateSession } = await import('@/server/supabase/middleware');
     const response = await updateSession(request);
     return isApi ? applyNoStore(response) : response;
   } catch (error) {

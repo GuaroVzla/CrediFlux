@@ -52,9 +52,8 @@ pnpm-debug.log*
 # 7. Residuos de Pruebas, Código Muerto y Backups
 # reportes y backups de pruebas de estrés (pueden contener hashes)
 /reports/
-_disabled_routes/
-neighbor.js
-app/neighbor2.js
+# La CLI de Supabase guarda aquí URLs de conexión con credenciales.
+/supabase/.temp/
 *.bak
 *.tmp
 *.temp

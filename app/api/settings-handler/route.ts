@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
-import { checkWritePermission, MONTH_NAMES } from '../../../lib/db.js';
-import { normalizeTrustConfig } from '../../../lib/trust.js';
-import { createTestReceiptPngBuffer, runTesseractRecognition } from '../../../lib/ocrEngine.js';
-import { getStateForRequest, saveStateForRequest, saveStateForRequestWithResult, persistenceInfo } from '../../../lib/server/supabase-store';
+import { checkWritePermission, MONTH_NAMES } from '@/shared/lib/db.js';
+import { normalizeTrustConfig } from '@/modules/trust/service.js';
+import { createTestReceiptPngBuffer, runTesseractRecognition } from '@/server/services/ocr.js';
+import { getStateForRequest, saveStateForRequest, saveStateForRequestWithResult, persistenceInfo } from '@/server/persistence/supabase-store';
 import {
   syncAdminStateToNormalized,
   logAudit,
@@ -13,25 +13,25 @@ import {
   DEFAULT_OCR_MODELS,
   DEFAULT_OCR_THRESHOLDS,
   DEFAULT_AI_ROUTING_RULES
-} from '../../../lib/server/admin-config.js';
+} from '@/server/admin/config.js';
 import {
   buildSettingsBody,
   getReceiptPatternImageUrls,
   normalizeDashboardState,
   prepareSettings
-} from '../../../lib/server/dashboard-builders';
+} from '@/server/dashboard/builders';
 import {
   ALLOWED_PROVIDERS,
   getInternalLicenseStatus,
   getStoredOcrKeys,
   maskKey
-} from '../../../lib/server/settings-shared';
-import { hashPassword } from '../../../lib/server/security.js';
-import { setLegacyPasswordPreview, storePasswordPreview } from '../../../lib/server/password-preview.js';
-import { getSupabaseAdminClientOrNull } from '../../../lib/supabase/admin';
-import { isSupabaseConfigured } from '../../../lib/supabase/env';
-import { resolveRequestAuth } from '../../../lib/server/request-auth';
-import { resolveUploadUrls } from '../../../lib/storage/uploads.js';
+} from '@/server/settings/settings-shared';
+import { hashPassword } from '@/server/security/security.js';
+import { setLegacyPasswordPreview, storePasswordPreview } from '@/server/auth/password-preview.js';
+import { getSupabaseAdminClientOrNull } from '@/server/supabase/admin';
+import { isSupabaseConfigured } from '@/server/supabase/env';
+import { resolveRequestAuth } from '@/server/auth/request-auth';
+import { resolveUploadUrls } from '@/server/services/uploads.js';
 import {
   exportSystemBackup,
   importSystemBackup,
@@ -40,7 +40,7 @@ import {
   BackupForbiddenError,
   BackupTransactionError,
   publicBackupError
-} from '../../../lib/server/system-backup';
+} from '@/server/admin/system-backup.js';
 
 // Tesseract.js necesita tiempo para iniciar el worker y cargar wasm/traineddata.
 // 300 s es el máximo de Hobby; el timeout interno responde mucho antes del corte.

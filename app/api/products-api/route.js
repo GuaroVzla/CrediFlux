@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
-import { checkWritePermission, getRequestUser, canAccessRecord } from '../../../lib/db.js';
-import { getStateForRequest, saveStateForRequest } from '../../../lib/server/supabase-store';
-import { buildProductsBody, normalizeDashboardState } from '../../../lib/server/dashboard-builders';
+import {
+  checkWritePermission, getRequestUser, canAccessRecord,
+  getStateForRequest, saveStateForRequest, buildProductsBody, normalizeDashboardState,
+} from '@/modules/products/service';
 
 export async function GET(request) {
   try {

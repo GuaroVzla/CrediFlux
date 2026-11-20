@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
 import path from 'path';
-import { checkWritePermission, getRequestUser, canAccessRecord } from '../../../lib/db.js';
-import { parseReceiptWithAI } from '../../../lib/ocrEngine.js';
-import { getStateForRequest, saveStateForRequest, persistenceInfo } from '../../../lib/server/supabase-store';
-import { buildEcommerceBody, normalizeDashboardState } from '../../../lib/server/dashboard-builders';
-import { saveUpload, resolveUploadUrl, resolveUploadUrls } from '../../../lib/storage/uploads.js';
+import {
+  checkWritePermission, getRequestUser, canAccessRecord, parseReceiptWithAI,
+  getStateForRequest, saveStateForRequest, persistenceInfo,
+  buildEcommerceBody, normalizeDashboardState, saveUpload, resolveUploadUrl, resolveUploadUrls,
+} from '@/modules/ecommerce/service';
 
 // El OCR local (Tesseract.js) y las llamadas a proveedores externos pueden tardar;
 // 300 s es el máximo de Hobby. Límite de payload de Vercel: 4.5 MB.

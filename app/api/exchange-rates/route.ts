@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { resolveRequestAuth } from '@/lib/server/request-auth';
-import { createExchangeRate, listExchangeRates } from '@/lib/services/rates';
+import { resolveRequestAuth } from '@/server/auth/request-auth';
+import { createExchangeRate, listExchangeRates } from '@/server/services/rates';
 
 export const dynamic = 'force-dynamic';
 

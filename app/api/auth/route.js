@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { generateRandomLicense, isUserLicenseExpired, getDefaultMonthlyCapital, getRequestUser } from '../../../lib/db.js';
-import { getStateForRequest, saveStateForRequest, persistenceInfo } from '../../../lib/server/supabase-store';
-import { hashPassword, verifyPassword, sanitizeUserForClient } from '../../../lib/server/security.js';
-import { createSupabaseServerClient, createSupabaseRouteClient } from '../../../lib/supabase/server';
-import { getSupabaseAdminClientOrNull } from '../../../lib/supabase/admin';
-import { isLegacyAuthAllowed, isSupabaseConfigured, usernameToEmail } from '../../../lib/supabase/env';
-import { profileToLegacyUser, resolveRequestAuth } from '../../../lib/server/request-auth';
-import { setLegacyPasswordPreview, storePasswordPreview } from '../../../lib/server/password-preview.js';
+import { generateRandomLicense, isUserLicenseExpired, getDefaultMonthlyCapital, getRequestUser } from '@/shared/lib/db.js';
+import { getStateForRequest, saveStateForRequest, persistenceInfo } from '@/server/persistence/supabase-store';
+import { hashPassword, verifyPassword, sanitizeUserForClient } from '@/server/security/security.js';
+import { createSupabaseServerClient, createSupabaseRouteClient } from '@/server/supabase/server';
+import { getSupabaseAdminClientOrNull } from '@/server/supabase/admin';
+import { isLegacyAuthAllowed, isSupabaseConfigured, usernameToEmail } from '@/server/supabase/env';
+import { profileToLegacyUser, resolveRequestAuth } from '@/server/auth/request-auth';
+import { setLegacyPasswordPreview, storePasswordPreview } from '@/server/auth/password-preview.js';
 
 function supabaseUnavailable() {
   return NextResponse.json({
@@ -43,7 +43,7 @@ async function tryLegacyBootstrap(username, password) {
   const admin = getSupabaseAdminClientOrNull();
   if (!admin) return null;
   try {
-    const { getAppState: getLegacyState } = await import('../../../lib/server/persistence.js');
+    const { getAppState: getLegacyState } = await import('@/server/persistence/persistence.js');
     const legacy = await getLegacyState();
     const user = (legacy.users || []).find(
       (u) => u?.username?.toLowerCase() === String(username || '').trim().toLowerCase()

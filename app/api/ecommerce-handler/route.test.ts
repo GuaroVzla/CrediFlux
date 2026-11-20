@@ -16,7 +16,7 @@ vi.mock('next/server', () => ({
   },
 }))
 
-vi.mock('../../../lib/db.js', () => ({
+vi.mock('@/shared/lib/db.js', () => ({
   checkWritePermission: () => scope.allow
     ? { allowed: true, user: scope.user, isAdmin: scope.user?.role === 'admin' }
     : { allowed: false, error: 'Licencia del sistema caducada' },
@@ -24,7 +24,7 @@ vi.mock('../../../lib/db.js', () => ({
   canAccessRecord: () => true,
 }))
 
-vi.mock('../../../lib/ocrEngine.js', () => ({
+vi.mock('@/server/services/ocr.js', () => ({
   parseReceiptWithAI: vi.fn(async () => ({
     success: true,
     provider: 'Tesseract.js (Motor Local)',
@@ -38,7 +38,7 @@ vi.mock('../../../lib/ocrEngine.js', () => ({
   })),
 }))
 
-vi.mock('../../../lib/server/supabase-store', () => ({
+vi.mock('@/server/persistence/supabase-store', () => ({
   getStateForRequest: async () => ({
     ecommerce: [],
     users: [scope.user],
@@ -48,18 +48,18 @@ vi.mock('../../../lib/server/supabase-store', () => ({
   persistenceInfo: () => ({ mode: 'test' }),
 }))
 
-vi.mock('../../../lib/server/dashboard-builders', () => ({
+vi.mock('@/server/dashboard/builders', () => ({
   normalizeDashboardState: () => {},
   buildEcommerceBody: () => ({ success: true }),
 }))
 
-vi.mock('../../../lib/storage/uploads.js', () => ({
+vi.mock('@/server/services/uploads.js', () => ({
   saveUpload: vi.fn(async () => ({ url: '/uploads/recibo.png' })),
   resolveUploadUrl: async (url: string | null) => url || '',
   resolveUploadUrls: async (urls: string[]) => urls,
 }))
 
-import { parseReceiptWithAI } from '../../../lib/ocrEngine.js'
+import { parseReceiptWithAI } from '@/server/services/ocr.js'
 import { POST } from './route.js'
 
 function requestWith(fields: Record<string, unknown>): Request {

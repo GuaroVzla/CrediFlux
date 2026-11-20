@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
-import { checkWritePermission } from '../../../../lib/db.js';
-import { getStateForRequest } from '../../../../lib/server/supabase-store';
-import { resolveRequestAuth } from '../../../../lib/server/request-auth';
-import { isSupabaseConfigured, isSupabaseAdminConfigured } from '../../../../lib/supabase/env';
+import { checkWritePermission } from '@/shared/lib/db.js';
+import { getStateForRequest } from '@/server/persistence/supabase-store';
+import { resolveRequestAuth } from '@/server/auth/request-auth';
+import { isSupabaseConfigured, isSupabaseAdminConfigured } from '@/server/supabase/env';
 import {
   executePurge,
   hasSelectedPurgeTargets,
@@ -11,7 +11,7 @@ import {
   publicPurgeError,
   PurgeUnavailableError,
   PurgeTransactionError,
-} from '../../../../lib/server/admin-purge';
+} from '@/server/admin/purge.js';
 
 /**
  * Purga atómica y aislada por usuario.

@@ -23,10 +23,10 @@ La corrección conserva la arquitectura actual: el navegador sigue enviando la i
 - `public/tessdata/eng.traineddata` y `public/tessdata/spa.traineddata` pasan a ser archivos versionados. Se sirven como `/tessdata/*` y se tracean dentro de cada función OCR.
 - `.gitignore` permite explícitamente `public/tessdata/*.traineddata`.
 - `next.config.mjs` incluye los modelos, el worker propio, `tesseract.js`, `tesseract.js-core` y sus dependencias transitivas (`bmp-js`, `idb-keyval`, `node-fetch`, `wasm-feature-detect`, `is-url`, `regenerator-runtime`, `zlibjs`) en `/api/settings*` y `/api/ecommerce*` (rutas públicas y handlers).
-- `lib/ocrEngine.js`:
+- `server/services/ocr.js`:
   - resuelve `langPath` desde `public/tessdata` antes de usar cualquier CDN;
   - distingue rutas locales de URLs y aplica `gzip=false` solo a modelos locales;
-  - resuelve `workerPath` desde varias ubicaciones y usa `lib/ocr/tesseract-worker.cjs`;
+  - resuelve `workerPath` desde varias ubicaciones y usa `server/services/ocr/tesseract-worker.cjs`;
   - fuerza el core embebido `.wasm.js` para evitar sidecars `.wasm`;
   - parchea `worker_threads.Worker` para reenviar `error`/`exit` al handler de tesseract.js y convertir el timeout silencioso en un error con mensaje;
   - expone `workerPath`, `corePath`, `langPath`, `langSource`, `gzip`, `workerError` y `workerLogTail` en `diagnostics`.

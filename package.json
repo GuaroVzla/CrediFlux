@@ -4,9 +4,8 @@
   "description": "CrediFlux - Plataforma SaaS Financiera, Préstamos y E-Commerce Inteligente",
   "main": "index.js",
   "scripts": {
-    "dev": "next dev --webpack",
+    "dev": "next dev",
     "dev:webpack": "next dev --webpack",
-    "dev:turbo": "next dev",
     "build": "prisma generate && next build",
     "postinstall": "prisma generate",
     "start": "next start",

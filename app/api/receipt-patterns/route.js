@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
-import { getStateForRequest, saveStateForRequest, persistenceInfo } from '../../../lib/server/supabase-store';
-import { syncAdminStateToNormalized, logAudit, ensureAdminConfigSeed, hasDatabase, enrichReceiptPattern } from '../../../lib/server/admin-config.js';
-import { saveUpload, deleteUpload, resolveUploadUrl, resolveUploadUrls } from '../../../lib/storage/uploads.js';
-import { checkWritePermission, getRequestUser } from '../../../lib/db.js';
+import { getStateForRequest, saveStateForRequest, persistenceInfo } from '@/server/persistence/supabase-store';
+import { syncAdminStateToNormalized, logAudit, ensureAdminConfigSeed, hasDatabase, enrichReceiptPattern } from '@/server/admin/config.js';
+import { saveUpload, deleteUpload, resolveUploadUrl, resolveUploadUrls } from '@/server/services/uploads.js';
+import { checkWritePermission, getRequestUser } from '@/shared/lib/db.js';
 
 function findUser(db, request) {
   return getRequestUser(request, db);
