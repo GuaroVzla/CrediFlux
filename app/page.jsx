@@ -72,6 +72,67 @@ const PatternImage = React.memo(function PatternImage({ src, alt, className = ''
 /** Préstamo activo: excluye completados y dados de baja (archivados/lista negra). */
 const isActiveLoan = (l) => Boolean(l) && !l.archived && l.status !== 'completado' && l.status !== 'archivado';
 
+/** Retrasa el valor usado en filtros sin retrasar el texto del input. */
+function useDebouncedValue(value, delay = 250) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
+
+/**
+ * Control de paginación client-side. Los datos siguen viniendo completos del
+ * servidor (no cambia ningún contrato); sólo se corta el array que se renderiza.
+ * `slice(array)` se usa dentro de los callbacks condicionales de cada pestaña,
+ * manteniendo los hooks siempre en el nivel superior del componente.
+ */
+function usePaginationController(pageSize = 10, resetKey = '') {
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [resetKey, pageSize]);
+
+  const slice = useCallback((array) => {
+    const list = Array.isArray(array) ? array : [];
+    const totalPages = Math.max(1, Math.ceil(list.length / pageSize));
+    const safePage = Math.min(Math.max(1, page), totalPages);
+    const offset = (safePage - 1) * pageSize;
+    return {
+      items: list.slice(offset, offset + pageSize),
+      page: safePage,
+      setPage,
+      totalPages,
+      total: list.length,
+      from: list.length === 0 ? 0 : offset + 1,
+      to: Math.min(offset + pageSize, list.length),
+    };
+  }, [page, pageSize]);
+
+  return { page, setPage, slice };
+}
+
+/** Controles visuales reutilizables: Previous / Next + "Mostrando X-Y de Z". */
+function PaginationControls({ paging, label = 'registros', themeDark = true }) {
+  if (!paging || paging.total === 0) return null;
+  const btnBase = 'px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
+  const btnTheme = themeDark
+    ? 'border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700'
+    : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100';
+  const nav = (dir) => paging.setPage(prev => Math.min(Math.max(1, prev + dir), paging.totalPages));
+  return (
+    <div className={`flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-t ${themeDark ? 'border-slate-800' : 'border-slate-200'}`}>
+      <span className={`text-[11px] ${themeDark ? 'text-slate-400' : 'text-slate-500'}`}>
+        Mostrando {paging.from}-{paging.to} de {paging.total} {label}
+      </span>
+      <div className="flex items-center gap-2">
+        <button type="button" disabled={paging.page <= 1} onClick={() => nav(-1)} className={`${btnBase} ${btnTheme}`}>Anterior</button>
+        <span className={`text-[11px] tabular-nums ${themeDark ? 'text-slate-400' : 'text-slate-500'}`}>{paging.page} / {paging.totalPages}</span>
+        <button type="button" disabled={paging.page >= paging.totalPages} onClick={() => nav(1)} className={`${btnBase} ${btnTheme}`}>Siguiente</button>
+      </div>
+    </div>
+  );
+}
+
 const PURGE_TARGET_KEYS = [
   'payments',
   'loans',
@@ -286,6 +347,28 @@ export default function CrediFluxApp() {
     loading: false,
     error: false
   });
+
+  // Búsquedas con debounce: el input responde al instante, los filtros costosos
+  // se recalculan 250 ms después de que el usuario deje de escribir.
+  const debouncedLoanSearch = useDebouncedValue(loanSearch);
+  const debouncedClientSearch = useDebouncedValue(clientSearch);
+  const debouncedProductSearch = useDebouncedValue(productSearch);
+  const debouncedTxSearch = useDebouncedValue(txSearch);
+  const debouncedHistorySearch = useDebouncedValue(historySearch);
+  const debouncedBlacklistSearch = useDebouncedValue(blacklistSearch);
+
+  // Paginación client-side (los totales para KPIs/chips se siguen calculando
+  // sobre los arrays completos).
+  const capitalPagingController = usePaginationController(8);
+  const loanPagingController = usePaginationController(10, debouncedLoanSearch);
+  const clientPagingController = usePaginationController(10, debouncedClientSearch);
+  const productPagingController = usePaginationController(10, debouncedProductSearch);
+  const txPagingController = usePaginationController(10, debouncedTxSearch);
+  const historyPagingController = usePaginationController(10, debouncedHistorySearch);
+  const blacklistPagingController = usePaginationController(10, debouncedBlacklistSearch);
+  const patternPagingController = usePaginationController(10);
+  const capitalPaging = capitalPagingController.slice(capitalMovements);
+  const patternPaging = patternPagingController.slice(receiptPatterns);
 
   // Contact support info for expired license
   const SUPPORT_CONTACT_TEXT = "Licencia del sistema caducada, favor comunicarse con el administrador del sistema. Informacion de contacto: telefono: +584126770824 correo: Oswaldoserrano18@gmail.com";
@@ -2717,7 +2800,7 @@ export default function CrediFluxApp() {
                             <tbody>
                               {capitalMovements.length === 0 ? (
                                 <tr><td colSpan="7" className="py-5 px-3 text-center text-slate-400">Sin movimientos registrados.</td></tr>
-                              ) : capitalMovements.map((m) => (
+                              ) : capitalPaging.items.map((m) => (
                                 <tr key={m.id} className="border-t border-slate-800/70 hover:bg-slate-800/20">
                                   <td className="py-2 px-3 text-slate-300 whitespace-nowrap">{new Date(m.createdAt || 0).toLocaleDateString('es-VE')}</td>
                                   <td className="py-2 px-3 text-slate-400 whitespace-nowrap">{monthNameFor(m.createdAt)}</td>
@@ -2746,6 +2829,7 @@ export default function CrediFluxApp() {
                             </tbody>
                           </table>
                         </div>
+                        <PaginationControls paging={capitalPaging} label="movimientos" themeDark={themeDark} />
                       </div>
                     )}
                   </div>
@@ -2907,7 +2991,7 @@ export default function CrediFluxApp() {
             return acc;
           }, {});
 
-          const searchTerm = loanSearch.trim().toLowerCase();
+          const searchTerm = debouncedLoanSearch.trim().toLowerCase();
           const searchedLoans = activePortfolioLoans.filter(loan => {
             if (!searchTerm) return true;
             return (loan.clientName || '').toLowerCase().includes(searchTerm)
@@ -2958,6 +3042,7 @@ export default function CrediFluxApp() {
             if (av > bv) return 1 * dir;
             return 0;
           });
+          const loanPaging = loanPagingController.slice(sortedLoans);
 
           const totalReceivable = activePortfolioLoans.reduce(
             (sum, l) => sum + (Number(l.stats?.pendingAmount) || 0),
@@ -3319,7 +3404,7 @@ export default function CrediFluxApp() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">
-                      {sortedLoans.map((loan, index) => {
+                      {loanPaging.items.map((loan, index) => {
                         const isExpanded = expandedLoanId === loan.id;
                         const meta = statusMeta[loan.status] || statusMeta.al_dia;
                         const paidCount = loan.stats?.paidCount || 0;
@@ -3488,6 +3573,7 @@ export default function CrediFluxApp() {
                     </tbody>
                   </table>
                 </div>
+                <PaginationControls paging={loanPaging} label="financiamientos" themeDark={themeDark} />
               </div>
 
             </div>
@@ -3518,13 +3604,14 @@ export default function CrediFluxApp() {
             return Number.isNaN(date.getTime()) ? 'Sin fecha' : date.toLocaleDateString('es-VE');
           };
 
-          const searchTerm = clientSearch.trim().toLowerCase();
+          const searchTerm = debouncedClientSearch.trim().toLowerCase();
           const filteredClients = (clients || []).filter(client => {
             if (!searchTerm) return true;
             return (client.name || '').toLowerCase().includes(searchTerm)
               || (client.dni || '').toLowerCase().includes(searchTerm)
               || (client.phone || '').toLowerCase().includes(searchTerm);
           });
+          const clientPaging = clientPagingController.slice(filteredClients);
 
           const trustCounts = (clients || []).reduce((acc, client) => {
             const trust = getClientTrust(client);
@@ -3639,7 +3726,7 @@ export default function CrediFluxApp() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">
-                      {filteredClients.map((client, index) => {
+                      {clientPaging.items.map((client, index) => {
                         const trust = getClientTrust(client);
                         const TrustIcon = trustIcons[trust.level] || Clock;
                         return (
@@ -3747,6 +3834,7 @@ export default function CrediFluxApp() {
                     </tbody>
                   </table>
                 </div>
+                <PaginationControls paging={clientPaging} label="clientes" themeDark={themeDark} />
               </div>
 
               <aside className="space-y-3">
@@ -3825,7 +3913,7 @@ export default function CrediFluxApp() {
           // Productos visibles en la tabla principal: solo con stock disponible.
           // Al financiarse una unidad, el stock se decrementa y el producto sale de la vista al agotarse.
           const availableProducts = products.filter(p => (Number(p.stock) || 0) > 0);
-          const searchTerm = productSearch.trim().toLowerCase();
+          const searchTerm = debouncedProductSearch.trim().toLowerCase();
           const searchedProducts = searchTerm
             ? availableProducts.filter(p =>
                 (p.name || '').toLowerCase().includes(searchTerm) ||
@@ -3864,6 +3952,7 @@ export default function CrediFluxApp() {
             if (av > bv) return 1 * dir;
             return 0;
           });
+          const productPaging = productPagingController.slice(sortedProducts);
 
           const stockUnits = availableProducts.reduce((sum, p) => sum + (Number(p.stock) || 0), 0);
           const totalInvestment = availableProducts.reduce(
@@ -3991,7 +4080,7 @@ export default function CrediFluxApp() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/50">
-                    {sortedProducts.map((prod, index) => (
+                    {productPaging.items.map((prod, index) => (
                       <tr key={prod.id} className="group hover:bg-slate-800/30 transition-colors">
                         <td className={`sticky left-0 z-10 w-12 py-2.5 px-2 text-center align-middle text-xs font-semibold tabular-nums ${themeDark ? 'bg-slate-900 text-slate-400 group-hover:bg-slate-800' : 'bg-white text-slate-400 group-hover:bg-slate-50'}`}>
                           {index + 1}
@@ -4185,6 +4274,7 @@ export default function CrediFluxApp() {
                   </tbody>
                 </table>
                 </div>
+                <PaginationControls paging={productPaging} label="productos" themeDark={themeDark} />
               </div>
 
               <aside className="space-y-3">
@@ -4263,7 +4353,7 @@ export default function CrediFluxApp() {
           // Filtrado de transacciones para la tabla
           const filteredTxs = (ecommerceData.transactions || []).filter(tx => {
             const matchesType = txTypeFilter === 'todos' ? true : tx.type === txTypeFilter;
-            const searchLower = txSearch.toLowerCase().trim();
+            const searchLower = debouncedTxSearch.toLowerCase().trim();
             if (!searchLower) return matchesType;
             const refMatch = (tx.reference || '').toLowerCase().includes(searchLower);
             const origMatch = (tx.bankOrigin || tx.bank || '').toLowerCase().includes(searchLower);
@@ -4307,6 +4397,7 @@ export default function CrediFluxApp() {
             if (valA > valB) return txSortDir === 'asc' ? 1 : -1;
             return 0;
           });
+          const txPaging = txPagingController.slice(sortedTxs);
 
           const toggleSort = (field) => {
             if (txSortField === field) {
@@ -4714,7 +4805,7 @@ export default function CrediFluxApp() {
                               </td>
                             </tr>
                           ) : (
-                            sortedTxs.map(tx => {
+                            txPaging.items.map(tx => {
                               const isVenta = tx.type === 'venta';
                               const isManualTx = tx.manual === true || tx.ocrProvider === 'Manual';
                               const bcvRateUsed = tx.bcvRate || dolarRates?.oficial || 1;
@@ -4791,6 +4882,8 @@ export default function CrediFluxApp() {
                       </table>
                     </div>
                   </div>
+
+                  <PaginationControls paging={txPaging} label="transacciones" themeDark={themeDark} />
 
                   <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
                     <span>Total de transacciones listadas: {sortedTxs.length}</span>
@@ -5933,7 +6026,7 @@ export default function CrediFluxApp() {
                         No hay patrones registrados. Registra uno para entrenar la validación cruzada.
                       </div>
                     ) : (
-                      receiptPatterns.map(pat => (
+                      patternPaging.items.map(pat => (
                         <div
                           key={pat.id}
                           className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 ${settingsSubcardTheme}`}
@@ -6003,6 +6096,7 @@ export default function CrediFluxApp() {
                       ))
                     )}
                   </div>
+                  <PaginationControls paging={patternPaging} label="patrones" themeDark={themeDark} />
                 </div>
               </div>
               </>
@@ -6379,7 +6473,7 @@ export default function CrediFluxApp() {
             return String(b.payment.createdAt || '').localeCompare(String(a.payment.createdAt || ''));
           });
 
-        const term = historySearch.trim().toLowerCase();
+        const term = debouncedHistorySearch.trim().toLowerCase();
         const filteredRows = term
           ? historyRows.filter(row =>
               (row.payment.clientName || '').toLowerCase().includes(term)
@@ -6389,6 +6483,7 @@ export default function CrediFluxApp() {
               || (row.cuotaLabel || '').toLowerCase().includes(term)
             )
           : historyRows;
+        const historyPaging = historyPagingController.slice(filteredRows);
 
         const totalUsd = filteredRows.reduce((sum, r) => sum + r.usd, 0);
         const totalBs = filteredRows.reduce((sum, r) => sum + (Number.isFinite(r.bs) ? r.bs : 0), 0);
@@ -6443,7 +6538,7 @@ export default function CrediFluxApp() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
-                    {filteredRows.map((row, index) => (
+                    {historyPaging.items.map((row, index) => (
                       <tr key={row.payment.id} className="hover:bg-slate-800/20 transition-colors">
                         <td className="py-2.5 px-2 text-center align-middle text-xs font-semibold tabular-nums text-slate-400">{index + 1}</td>
                         <td className="py-2.5 px-3 align-middle whitespace-nowrap">
@@ -6488,6 +6583,7 @@ export default function CrediFluxApp() {
                   </tbody>
                 </table>
               </div>
+              <PaginationControls paging={historyPaging} label="pagos" themeDark={themeDark} />
 
               <div className={`px-6 py-3 border-t ${settingsModalBorderCls} flex items-center justify-between gap-3`}>
                 <p className="text-xs text-slate-400">Al eliminar un pago, los cuadros estadísticos se recalculan en tiempo real.</p>
@@ -6643,13 +6739,14 @@ export default function CrediFluxApp() {
       {/* MODAL: LISTA NEGRA (CLIENTES RESTRINGIDOS)                     */}
       {/* ============================================================== */}
       {blacklistModal && (() => {
-        const term = blacklistSearch.trim().toLowerCase();
+        const term = debouncedBlacklistSearch.trim().toLowerCase();
         const rows = (blacklist || []).filter(entry => {
           if (!term) return true;
           return (entry.name || '').toLowerCase().includes(term)
             || (entry.dni || '').toLowerCase().includes(term)
             || (entry.phone || '').toLowerCase().includes(term);
         });
+        const blacklistPaging = blacklistPagingController.slice(rows);
 
         const formatDate = (value) => {
           if (!value) return '—';
@@ -6737,7 +6834,7 @@ export default function CrediFluxApp() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
-                    {rows.map((entry, index) => {
+                    {blacklistPaging.items.map((entry, index) => {
                       const restoring = restoringBlacklistId === entry.id;
                       return (
                         <tr key={entry.id} className="hover:bg-slate-800/20 transition-colors">
@@ -6795,6 +6892,7 @@ export default function CrediFluxApp() {
                   </tbody>
                 </table>
               </div>
+              <PaginationControls paging={blacklistPaging} label="registros" themeDark={themeDark} />
 
               <div className={`px-6 py-3 border-t ${settingsModalBorderCls} flex items-center justify-between gap-3`}>
                 <p className="text-xs text-slate-400">
