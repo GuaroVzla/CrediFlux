@@ -8,21 +8,22 @@
  * Se mantienen los nombres para no tocar la lógica ni los componentes.
  */
 :root {
-  --background: #eef2f7;
+  --background: #f1f5f9;
   --foreground: #0f172a;
   --surface: #ffffff;
-  --surface-subtle: #e8eef5;
-  --border-subtle: #94a3b8;
-  --border-divider: #b8c4d2;
-  --border-strong: #64748b;
-  --text-muted: #334155;
+  --surface-subtle: #f8fafc;
+  --surface-muted: #e2e8f0;
+  --border-subtle: #cbd5e1;
+  --border-divider: #e2e8f0;
+  --border-strong: #94a3b8;
+  --text-muted: #64748b;
   --text-secondary: #334155;
   --text-tertiary: #475569;
   --accent-emerald: #064e3b;
-  --accent-amber: #b45309;
-  --accent-rose: #be123c;
-  --accent-teal: #0f766e;
-  --accent-purple: #7e22ce;
+  --accent-amber: #92400e;
+  --accent-rose: #9f1239;
+  --accent-teal: #115e59;
+  --accent-purple: #6b21a8;
 }
 
 .dark {
@@ -120,20 +121,38 @@ body {
 :root:not(.dark) .bg-slate-800\/90 { background-color: var(--surface-subtle) !important; }
 
 :root:not(.dark) .hover\:bg-slate-800:hover,
-:root:not(.dark) .hover\:bg-slate-700:hover { background-color: #dbe4ee !important; }
+:root:not(.dark) .hover\:bg-slate-700:hover { background-color: #f1f5f9 !important; }
+
+/* Filas de tablas y elementos interactivos al hover en modo claro */
+:root:not(.dark) tr:hover,
+:root:not(.dark) tr.group:hover,
+:root:not(.dark) .hover\:bg-slate-800\/20:hover,
+:root:not(.dark) .hover\:bg-slate-800\/30:hover,
+:root:not(.dark) .hover\:bg-slate-800\/40:hover { background-color: #f8fafc !important; }
 
 /*
  * Jerarquía de superficies en claro:
- * fondo de página (#eef2f7) < sub-tarjetas (#e8eef5) < bandas de tabla (#e2e8f0) < tarjeta (#ffffff).
- * El wrapper del dashboard fija bg-[#f8fafc] en claro, por eso se remapea al token.
+ * fondo de página (#f1f5f9) < sub-tarjetas/bloques (#f8fafc) < bandas y cabeceras (#e2e8f0) < tarjetas principales (#ffffff).
+ * El wrapper del dashboard fija bg-[#f8fafc] en claro, por eso se remapea al token de fondo.
  */
 :root:not(.dark) [class~="bg-[#f8fafc]"] { background-color: var(--background) !important; }
-:root:not(.dark) .bg-slate-50 { background-color: #f1f5f9 !important; }
-:root:not(.dark) .bg-slate-100 { background-color: #e2e8f0 !important; }
+:root:not(.dark) .bg-slate-50 { background-color: #f8fafc !important; }
+:root:not(.dark) .bg-slate-100 { background-color: #f1f5f9 !important; }
+
+/* Cabeceras de tablas en modo claro: superficie distintiva y texto de máxima legibilidad */
+:root:not(.dark) thead,
+:root:not(.dark) thead.bg-slate-800\/30,
+:root:not(.dark) thead.bg-slate-800\/80,
+:root:not(.dark) thead th {
+  background-color: #f1f5f9 !important;
+  color: #334155 !important;
+  font-weight: 700 !important;
+}
 
 /* Bordes hardcodeados oscuros y gris claro de Tailwind (KPIs, inputs, modal). */
 :root:not(.dark) .border-slate-800,
 :root:not(.dark) .border-slate-700,
+:root:not(.dark) .border-slate-800\/40,
 :root:not(.dark) .border-slate-800\/70,
 :root:not(.dark) .border-slate-800\/80,
 :root:not(.dark) .border-slate-700\/50,
@@ -143,13 +162,13 @@ body {
 :root:not(.dark) .border-slate-200,
 :root:not(.dark) .border-slate-300 { border-color: var(--border-subtle) !important; }
 
-/* Divisores de filas de tabla: visibles pero más suaves que el borde de la tarjeta. */
+/* Divisores de filas de tabla y contenedores: limpios y sutiles */
 :root:not(.dark) .divide-slate-800 > :not([hidden]) ~ :not([hidden]),
 :root:not(.dark) .divide-slate-800\/50 > :not([hidden]) ~ :not([hidden]),
 :root:not(.dark) .divide-slate-800\/60 > :not([hidden]) ~ :not([hidden]) { border-color: var(--border-divider) !important; }
 
-/* Línea inferior del encabezado de tabla: la más marcada de la jerarquía. */
-:root:not(.dark) thead { border-color: var(--border-strong) !important; }
+/* Línea divisoria destacada del encabezado de tabla */
+:root:not(.dark) thead { border-bottom-color: var(--border-strong) !important; }
 
 /* Textos base: usan tokens para que claro y oscuro compartan jerarquía. */
 :root:not(.dark) .text-slate-100,
@@ -158,6 +177,9 @@ body {
 :root:not(.dark) .text-slate-300 { color: var(--text-secondary) !important; }
 :root:not(.dark) .text-slate-400,
 :root:not(.dark) .text-slate-500 { color: var(--text-tertiary) !important; }
+
+/* Asegurar contraste WCAG en textos muted / notas auxiliares */
+:root:not(.dark) .text-slate-400 { font-weight: 500; }
 
 /* Acentos oscurecidos sobre superficies claras. */
 :root:not(.dark) .text-emerald-100,
