@@ -356,6 +356,45 @@ export default function CrediFluxApp() {
     };
   }, []);
 
+  // Cierra el modal abierto con Escape (accesibilidad de teclado).
+  useEffect(() => {
+    const handleEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      if (capitalModal.open) { setCapitalModal(prev => ({ ...prev, open: false })); return; }
+      if (newUserModal) { setNewUserModal(false); return; }
+      if (editUserModal.open) { setEditUserModal({ open: false, user: null }); return; }
+      if (historyModal) { setHistoryModal(false); return; }
+      if (deleteLoanModal.open) { setDeleteLoanModal(emptyDeleteLoanModal()); return; }
+      if (blacklistModal) { setBlacklistModal(false); return; }
+      if (clientModal.open) { setClientModal({ open: false, data: null }); return; }
+      if (loanModal.open) { setLoanModal({ open: false, data: null }); return; }
+      if (quickPayModal.open) { setQuickPayModal({ open: false, loan: null }); return; }
+      if (productModal.open) { setProductModal({ open: false, data: null }); return; }
+      if (patternModal) { setPatternModal(false); return; }
+      if (purgeModal.open) { setPurgeModal(prev => ({ ...prev, open: false })); return; }
+      if (viewHistoryClient) { setViewHistoryClient(null); return; }
+      if (manualRecord.open) { setManualRecord(createEmptyManualRecord()); return; }
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [
+    capitalModal.open, newUserModal, editUserModal.open, historyModal,
+    deleteLoanModal.open, blacklistModal, clientModal.open, loanModal.open,
+    quickPayModal.open, productModal.open, patternModal, purgeModal.open,
+    viewHistoryClient, manualRecord.open
+  ]);
+
+  // Preferencia de tema: persiste la elección y respeta la del sistema.
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('crediflux_theme');
+      const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+      const nextDark = stored ? stored === 'dark' : Boolean(prefersDark);
+      setThemeDark(nextDark);
+      document.documentElement.classList.toggle('dark', nextDark);
+    } catch (e) {}
+  }, []);
+
   // Toggle Dark/Light Theme
   const toggleTheme = () => {
     setThemeDark(prev => {
@@ -365,6 +404,7 @@ export default function CrediFluxApp() {
       } else {
         document.documentElement.classList.remove('dark');
       }
+      try { localStorage.setItem('crediflux_theme', next ? 'dark' : 'light'); } catch (e) {}
       return next;
     });
   };
@@ -1518,36 +1558,42 @@ export default function CrediFluxApp() {
           {/* FORMULARIO ÚNICO DE INICIO DE SESIÓN (Registro público removido) */}
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-300 mb-1.5">
+              <label htmlFor="login-username" className="block text-xs font-semibold uppercase tracking-wide text-slate-300 mb-1.5">
                 Usuario
               </label>
               <div className="relative">
-                <User className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-400" />
+                <User className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-400" aria-hidden="true" />
                 <input
+                  id="login-username"
+                  name="username"
                   type="text"
                   required
+                  autoComplete="username"
                   placeholder="admin o usuario asignado"
                   value={loginInput.username}
                   onChange={(e) => setLoginInput({ ...loginInput, username: e.target.value })}
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs"
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs"
                 suppressHydrationWarning
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-300 mb-1.5">
+              <label htmlFor="login-password" className="block text-xs font-semibold uppercase tracking-wide text-slate-300 mb-1.5">
                 Clave de Acceso
               </label>
               <div className="relative">
-                <Lock className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-400" />
+                <Lock className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-400" aria-hidden="true" />
                 <input
+                  id="login-password"
+                  name="password"
                   type="password"
                   required
+                  autoComplete="current-password"
                   placeholder="Contraseña"
                   value={loginInput.password}
                   onChange={(e) => setLoginInput({ ...loginInput, password: e.target.value })}
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs"
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs"
                 suppressHydrationWarning
                 />
               </div>
@@ -1555,7 +1601,7 @@ export default function CrediFluxApp() {
 
             <button
               type="submit"
-              className="w-full mt-3 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-950 font-bold rounded-xl shadow-lg shadow-emerald-500/25 transition-all flex items-center justify-center gap-2 text-xs"
+              className="w-full mt-3 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-950 font-bold rounded-xl shadow-lg shadow-emerald-500/25 transition-all flex items-center justify-center gap-2 text-xs min-h-[44px] min-w-[44px]"
             >
               <ShieldCheck className="w-4 h-4" />
               <span>Iniciar Sesión Segura</span>
@@ -1564,7 +1610,7 @@ export default function CrediFluxApp() {
 
           <div className="mt-8 pt-4 border-t border-slate-800 text-center">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 motion-safe:animate-pulse" />
               Acceso Restringido • Registro Solo por Administrador
             </span>
           </div>
@@ -1584,8 +1630,8 @@ export default function CrediFluxApp() {
   const settingsDescCls = 'text-xs text-slate-400 leading-relaxed';
   const settingsLabelCls = 'block text-xs font-medium text-slate-300 mb-1.5';
   const settingsFieldTheme = themeDark
-    ? 'bg-slate-800/60 border-slate-700 text-white placeholder:text-slate-500'
-    : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-500';
+    ? 'bg-slate-800/60 border-slate-700 text-white placeholder:text-slate-400'
+    : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400';
   const settingsInputCls = `w-full h-10 px-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`;
 
   // Vista previa del cálculo automático del registro manual (mismo divisor BCV del OCR).
@@ -1594,7 +1640,7 @@ export default function CrediFluxApp() {
   const manualUsdPreview = manualBcvRate > 0 && Number.isFinite(manualAmountBsNumber) && manualAmountBsNumber > 0
     ? (manualAmountBsNumber / manualBcvRate).toFixed(2)
     : null;
-  const settingsTextareaCls = `w-full px-3 py-2 rounded-xl border text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 resize-none ${settingsFieldTheme}`;
+  const settingsTextareaCls = `w-full px-3 py-2 rounded-xl border text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 resize-none ${settingsFieldTheme}`;
   const settingsPrimaryBtnCls = 'h-10 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-sm transition-colors shadow-sm inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed';
   const settingsSecondaryBtnCls = `h-10 px-4 rounded-xl border font-semibold text-sm transition-colors inline-flex items-center justify-center gap-1.5 ${themeDark ? 'bg-slate-800/80 hover:bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-900'}`;
   const settingsDangerBtnCls = 'h-10 px-4 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 font-semibold text-sm transition-colors inline-flex items-center justify-center gap-1.5';
@@ -1610,7 +1656,11 @@ export default function CrediFluxApp() {
     <div className={`min-h-screen ${themeDark ? 'bg-slate-950 text-slate-100' : 'bg-[#f8fafc] text-slate-900'} flex flex-col transition-colors duration-200`}>
       {/* Toast Notification */}
       {notification && (
-        <div className={`fixed top-5 right-5 z-[100] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border text-xs font-semibold transition-all max-w-md ${notification.type === 'error'
+        <div
+          role="status"
+          aria-live={notification.type === 'error' ? 'assertive' : 'polite'}
+          aria-atomic="true"
+          className={`fixed top-5 right-5 z-[100] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border text-xs font-semibold transition-all max-w-md ${notification.type === 'error'
           ? 'bg-rose-950/95 border-rose-500 text-rose-200'
           : 'bg-emerald-950/95 border-emerald-500 text-emerald-200'
           }`}>
@@ -1623,12 +1673,12 @@ export default function CrediFluxApp() {
       {isUserExpired && (
         <div className="bg-rose-600 text-white px-4 py-2.5 text-xs font-medium flex flex-col sm:flex-row items-center justify-between gap-2 shadow-lg">
           <div className="flex items-center gap-2 text-center sm:text-left">
-            <AlertCircle className="w-5 h-5 shrink-0 animate-bounce" />
+            <AlertCircle className="w-5 h-5 shrink-0 motion-safe:animate-bounce" />
             <span>
               <strong>Licencia del sistema caducada.</strong> Modo solo lectura activo. Para renovar contacte a soporte (+584126770824 | Oswaldoserrano18@gmail.com)
             </span>
           </div>
-          <button
+          <button type="button"
             onClick={() => setActiveTab('settings')}
             className="px-3 py-1 bg-white text-rose-700 font-bold rounded-lg text-xs hover:bg-slate-100 shrink-0"
           >
@@ -1665,12 +1715,12 @@ export default function CrediFluxApp() {
             <div className={`flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-semibold ${themeDark ? 'bg-slate-800/90 border-slate-700/80' : 'bg-slate-100 border-slate-200'
               }`}>
               <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span className="w-2 h-2 rounded-full bg-emerald-400 motion-safe:animate-pulse"></span>
                 <span className="text-xs font-bold text-emerald-400 tracking-wide">USD</span>
               </div>
               <div className="h-3 w-px bg-slate-700/60 hidden sm:block"></div>
               {dolarRates.loading && !dolarRates.oficial && !dolarRates.p2pAverage ? (
-                <span className="text-xs text-slate-400 animate-pulse">Cargando...</span>
+                <span className="text-xs text-slate-400 motion-safe:animate-pulse">Cargando...</span>
               ) : (
                 <div className="flex items-center gap-2 sm:gap-3 text-xs flex-wrap">
                   {dolarRates.oficial && (
@@ -1711,7 +1761,7 @@ export default function CrediFluxApp() {
               type="button"
               onClick={() => fetchAllData({ forceP2P: true })}
               title="Sincronizar datos y tasas (BCV + P2P Binance)"
-              className={`p-2 rounded-xl border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-950 ${themeDark ? 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700' : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-200'}`}
+              className={`p-2 rounded-xl border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-950 ${themeDark ? 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700' : 'bg-slate-100 border-slate-200 text-slate-900 hover:text-slate-900 hover:bg-slate-200'} min-h-[44px] min-w-[44px]}`}
             >
               <RefreshCw className={`w-4 h-4 ${loading || dolarRates.loading ? 'animate-spin' : ''}`} />
             </button>
@@ -1720,7 +1770,7 @@ export default function CrediFluxApp() {
               type="button"
               onClick={toggleTheme}
               title="Cambiar tema"
-              className={`p-2 rounded-xl border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-950 ${themeDark ? 'bg-slate-800 border-slate-700 text-amber-400 hover:bg-slate-700' : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'}`}
+              className={`p-2 rounded-xl border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-950 ${themeDark ? 'bg-slate-800 border-slate-700 text-amber-400 hover:bg-slate-700' : 'bg-slate-100 border-slate-200 text-slate-900 hover:bg-slate-200'} min-h-[44px] min-w-[44px]}`}
             >
               {themeDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
@@ -1740,7 +1790,7 @@ export default function CrediFluxApp() {
               type="button"
               onClick={handleLogout}
               title="Cerrar sesión"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-950"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-950 min-h-[44px] min-w-[44px]"
             >
               <LogOut className="w-4 h-4" />
               <span className="hidden sm:inline">Salir</span>
@@ -1761,7 +1811,7 @@ export default function CrediFluxApp() {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
             return (
-              <button
+              <button type="button"
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${active
@@ -1785,6 +1835,7 @@ export default function CrediFluxApp() {
 
       {/* MAIN VIEW CONTENT CONTAINER */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full">
+        <h1 className="sr-only">CrediFlux — Panel de gestión financiera, financiamientos y e-commerce</h1>
         {/* ============================================================== */}
         {/* TAB 1: DASHBOARD GENERAL (RESUMEN FINANCIERO Y OPERATIVO)      */}
         {/* ============================================================== */}
@@ -2052,9 +2103,9 @@ export default function CrediFluxApp() {
                     </p>
                   </div>
                 </div>
-                <button
+                <button type="button"
                   onClick={() => { setActiveTab('loans'); setDebtorStatusFilter('moroso'); }}
-                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-semibold text-xs transition-all shadow-md"
+                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-semibold text-xs transition-all shadow-md min-h-[44px] min-w-[44px]"
                 >
                   Ver cartera de cobro
                 </button>
@@ -2265,9 +2316,9 @@ export default function CrediFluxApp() {
                   <p className="text-xs text-slate-400 mt-0.5">Aportes y retiros de capital. El capital es patrimonio, no un egreso operativo.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <button
+                  <button type="button"
                     onClick={() => { if (isUserExpired) { notify(SUPPORT_CONTACT_TEXT, 'error'); return; } setCapitalModal(prev => ({ ...prev, open: true, tab: 'movimiento' })); }}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs transition-all shadow-md shadow-emerald-500/20"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs transition-all shadow-md shadow-emerald-500/20 min-h-[44px] min-w-[44px]"
                     aria-label="Gestionar Capital"
                   >
                     <Coins className="w-4 h-4" /> Gestionar Capital
@@ -2373,9 +2424,9 @@ export default function CrediFluxApp() {
                       <h2 className={`text-lg font-bold flex items-center gap-2 ${themeDark ? 'text-white' : 'text-slate-900'}`}><Coins className="w-5 h-5 text-emerald-400" /> Gestionar Capital</h2>
                       <p className="text-xs text-slate-400">Registra aportes y retiros, y consulta el historial cronológico del capital.</p>
                     </div>
-                    <button
+                    <button type="button"
                       onClick={() => setCapitalModal(prev => ({ ...prev, open: false }))}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60"
+                      className="p-1.5 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60"
                       aria-label="Cerrar modal"
                     >
                       <X className="w-4 h-4" />
@@ -2403,7 +2454,7 @@ export default function CrediFluxApp() {
                         { id: 'movimiento', label: 'Movimiento' },
                         { id: 'historial', label: `Historial (${capitalSummary.count})` }
                       ].map((tabItem) => (
-                        <button
+                        <button type="button"
                           key={tabItem.id}
                           onClick={() => setCapitalModal(prev => ({ ...prev, tab: tabItem.id }))}
                           className={`flex-1 whitespace-nowrap px-3 py-2 rounded-lg text-xs font-bold transition-all ${capitalModal.tab === tabItem.id ? 'bg-emerald-500 text-slate-950 shadow-sm' : themeDark ? 'text-slate-400 hover:text-white' : 'text-slate-400 hover:text-slate-900'}`}
@@ -2444,7 +2495,7 @@ export default function CrediFluxApp() {
                               value={capitalModal.amount}
                               onChange={e => setCapitalModal(prev => ({ ...prev, amount: e.target.value }))}
                               placeholder="0.00"
-                              className="w-full h-10 pl-7 pr-3 bg-slate-950/40 border border-slate-700 rounded-xl text-sm text-white font-semibold placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                              className="w-full h-10 pl-7 pr-3 bg-slate-950/40 border border-slate-700 rounded-xl text-sm text-white font-semibold placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
                             />
                           </div>
                         </div>
@@ -2455,7 +2506,7 @@ export default function CrediFluxApp() {
                             value={capitalModal.notes}
                             onChange={e => setCapitalModal(prev => ({ ...prev, notes: e.target.value }))}
                             placeholder="Ej: Aporte mensual de operaciones, retiro de utilidades..."
-                            className="w-full px-3 py-2 bg-slate-950/40 border border-slate-700 rounded-xl text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 h-20 resize-y"
+                            className="w-full px-3 py-2 bg-slate-950/40 border border-slate-700 rounded-xl text-sm text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 h-20 resize-y"
                           />
                         </div>
 
@@ -2466,13 +2517,13 @@ export default function CrediFluxApp() {
                         )}
 
                         <div className="flex gap-3 pt-1">
-                          <button
+                          <button type="button"
                             onClick={() => setCapitalModal(prev => ({ ...prev, open: false }))}
                             className={`flex-1 py-2.5 rounded-xl font-semibold text-xs transition-all ${themeDark ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
                           >
                             Cancelar
                           </button>
-                          <button
+                          <button type="button"
                             onClick={() => handleCapitalMovementSave()}
                             disabled={capitalModal.loading}
                             className={`flex-1 py-2.5 rounded-xl font-bold text-xs transition-all disabled:opacity-60 ${capitalModal.type === 'APORTE_CAPITAL' ? 'bg-emerald-500 hover:bg-emerald-600 text-slate-950' : 'bg-rose-600 hover:bg-rose-700 text-white'}`}
@@ -2550,7 +2601,7 @@ export default function CrediFluxApp() {
                       <Clock className="w-4 h-4 text-amber-400" />
                       Cobros urgentes y vencimientos
                     </h3>
-                    <button onClick={() => setActiveTab('loans')} className="text-xs font-semibold text-emerald-400 hover:text-emerald-400">
+                    <button type="button" onClick={() => setActiveTab('loans')} className="text-xs font-semibold text-emerald-400 hover:text-emerald-400">
                       Ver todos ({loans.length}) →
                     </button>
                   </div>
@@ -2568,7 +2619,7 @@ export default function CrediFluxApp() {
                         .map(loan => (
                           <div key={loan.id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-800/40 border border-slate-800 hover:border-slate-700 transition-all">
                             <div className="flex items-center gap-3 min-w-0">
-                              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${loan.status === 'moroso' ? 'bg-rose-500 animate-pulse' : 'bg-amber-400'}`} />
+                              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${loan.status === 'moroso' ? 'bg-rose-500 motion-safe:animate-pulse' : 'bg-amber-400'}`} />
                               <div className="min-w-0">
                                 <h5 className="font-semibold text-sm text-slate-200 truncate">{loan.clientName}</h5>
                                 <p className="text-xs text-slate-400 truncate">{loan.productName} • Cuota: {fmtUsd(loan.installmentAmount)}</p>
@@ -2578,7 +2629,7 @@ export default function CrediFluxApp() {
                               <span className={`px-2 py-0.5 rounded-full text-xs font-bold border ${loan.status === 'moroso' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}>
                                 {loan.status === 'moroso' ? 'Atrasado' : 'Próximo'}
                               </span>
-                              <button
+                              <button type="button"
                                 onClick={() => {
                                   if (isUserExpired) { notify(SUPPORT_CONTACT_TEXT, 'error'); return; }
                                   const firstUnpaid = (loan.installments || []).find(i => !i.paid);
@@ -2604,7 +2655,7 @@ export default function CrediFluxApp() {
                   Accesos rápidos
                 </h3>
                 <div className="space-y-2.5">
-                  <button
+                  <button type="button"
                     onClick={() => {
                       if (isUserExpired) { notify(SUPPORT_CONTACT_TEXT, 'error'); return; }
                       setLoanModal({
@@ -2617,28 +2668,28 @@ export default function CrediFluxApp() {
                     <span className="flex items-center gap-2"><Plus className="w-4 h-4" />Nuevo financiamiento</span>
                     <ArrowUpRight className="w-4 h-4" />
                   </button>
-                  <button
+                  <button type="button"
                     onClick={() => { if (isUserExpired) { notify(SUPPORT_CONTACT_TEXT, 'error'); return; } setClientModal({ open: true, data: null }); }}
                     className={`w-full flex items-center justify-between p-3 rounded-2xl font-semibold text-xs transition-all border ${themeDark ? 'bg-slate-800/80 hover:bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-50 hover:bg-slate-100 border-slate-300 text-slate-800 shadow-sm'}`}
                   >
                     <span className="flex items-center gap-2"><User className="w-4 h-4" />Registrar cliente</span>
                     <ArrowUpRight className="w-4 h-4" />
                   </button>
-                  <button
+                  <button type="button"
                     onClick={() => { if (isUserExpired) { notify(SUPPORT_CONTACT_TEXT, 'error'); return; } setProductModal({ open: true, data: null }); }}
                     className={`w-full flex items-center justify-between p-3 rounded-2xl font-semibold text-xs transition-all border ${themeDark ? 'bg-indigo-500/10 hover:bg-indigo-500/20 border-indigo-500/20 text-indigo-300' : 'bg-indigo-50 hover:bg-indigo-100 border-indigo-300 text-indigo-950 shadow-sm'}`}
                   >
                     <span className="flex items-center gap-2"><Smartphone className="w-4 h-4" />Crear producto</span>
                     <ArrowUpRight className="w-4 h-4" />
                   </button>
-                  <button
+                  <button type="button"
                     onClick={() => setActiveTab('ecommerce')}
                     className={`w-full flex items-center justify-between p-3 rounded-2xl font-semibold text-xs transition-all border ${themeDark ? 'bg-teal-500/10 hover:bg-teal-500/20 border-teal-500/20 text-teal-300' : 'bg-teal-50 hover:bg-teal-100 border-teal-300 text-teal-950 shadow-sm'}`}
                   >
                     <span className="flex items-center gap-2"><Upload className="w-4 h-4" />Subir comprobante (OCR)</span>
                     <ArrowUpRight className="w-4 h-4" />
                   </button>
-                  <button
+                  <button type="button"
                     onClick={() => setActiveTab('loans')}
                     className={`w-full flex items-center justify-between p-3 rounded-2xl font-semibold text-xs transition-all border ${themeDark ? 'bg-slate-800/80 hover:bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-50 hover:bg-slate-100 border-slate-300 text-slate-800 shadow-sm'}`}
                   >
@@ -2836,7 +2887,7 @@ export default function CrediFluxApp() {
               </div>
 
               <div className="flex items-center gap-2 w-full sm:w-auto">
-                <button
+                <button type="button"
                   onClick={() => {
                     setHistorySearch('');
                     setHistoryModal(true);
@@ -2848,7 +2899,7 @@ export default function CrediFluxApp() {
                   <History className="w-4 h-4" />
                   <span>Historial</span>
                 </button>
-                <button
+                <button type="button"
                   onClick={() => {
                     if (isUserExpired) { notify(SUPPORT_CONTACT_TEXT, 'error'); return; }
                     setLoanModal({
@@ -2978,7 +3029,7 @@ export default function CrediFluxApp() {
                   value={loanSearch}
                   onChange={(e) => setLoanSearch(e.target.value)}
                   placeholder="Buscar por cliente, concepto o tipo..."
-                  className={`w-full pl-9 pr-8 py-2 border rounded-xl text-xs placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${themeDark ? 'bg-slate-800/60 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}
+                  className={`w-full pl-9 pr-8 py-2 border rounded-xl text-xs placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${themeDark ? 'bg-slate-800/60 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}
                 />
                 {loanSearch ? (
                   <button
@@ -3014,7 +3065,9 @@ export default function CrediFluxApp() {
                       ) : null}
                       <span>{st === 'todos' ? 'Todos' : (statusMeta[st]?.short || st)}</span>
                       <span className={`px-1.5 py-0.5 rounded-full text-xs tabular-nums ${
-                        active ? 'bg-slate-950/20 text-slate-950' : themeDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-200 text-slate-600'
+                        active
+                          ? 'bg-white/30 text-slate-950 border border-slate-950/10'
+                          : themeDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-200 text-slate-600'
                       }`}>
                         {st === 'todos' ? activePortfolioLoans.length : (statusCounts[st] || 0)}
                       </span>
@@ -3182,7 +3235,7 @@ export default function CrediFluxApp() {
                                     }}
                                     title="Registrar abono o pago de cuota"
                                     aria-label="Registrar abono o pago de cuota"
-                                    className="p-2 rounded-lg text-emerald-400 hover:text-emerald-400 hover:bg-slate-800 transition-colors"
+                                    className="p-2 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-emerald-400 hover:text-emerald-400 hover:bg-slate-800 transition-colors"
                                   >
                                     <Wallet className="w-4 h-4" />
                                   </button>
@@ -3191,7 +3244,7 @@ export default function CrediFluxApp() {
                                     onClick={() => setExpandedLoanId(isExpanded ? null : loan.id)}
                                     title={isExpanded ? 'Ocultar cronograma' : 'Ver cronograma de cuotas'}
                                     aria-label={isExpanded ? 'Ocultar cronograma' : 'Ver cronograma de cuotas'}
-                                    className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                                    className="p-2 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
                                   >
                                     {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                                   </button>
@@ -3203,7 +3256,7 @@ export default function CrediFluxApp() {
                                     }}
                                     title="Eliminar financiamiento"
                                     aria-label="Eliminar financiamiento"
-                                    className="p-2 rounded-lg text-rose-400 hover:text-rose-300 hover:bg-slate-800 transition-colors"
+                                    className="p-2 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-rose-400 hover:text-rose-300 hover:bg-slate-800 transition-colors"
                                   >
                                     <Trash2 className="w-4 h-4" />
                                   </button>
@@ -3347,7 +3400,7 @@ export default function CrediFluxApp() {
                     value={clientSearch}
                     onChange={(e) => setClientSearch(e.target.value)}
                     placeholder="Buscar por nombre, cédula o teléfono..."
-                    className={`w-full sm:w-64 pl-9 pr-8 py-2 border rounded-xl text-xs placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${themeDark ? 'bg-slate-800/60 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}
+                    className={`w-full sm:w-64 pl-9 pr-8 py-2 border rounded-xl text-xs placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${themeDark ? 'bg-slate-800/60 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}
                   />
                   {clientSearch ? (
                     <button
@@ -3360,7 +3413,7 @@ export default function CrediFluxApp() {
                     </button>
                   ) : null}
                 </div>
-                <button
+                <button type="button"
                   onClick={() => {
                     setBlacklistSearch('');
                     setBlacklistModal(true);
@@ -3374,7 +3427,7 @@ export default function CrediFluxApp() {
                     {blacklist.length}
                   </span>
                 </button>
-                <button
+                <button type="button"
                   onClick={() => {
                     if (isUserExpired) { notify(SUPPORT_CONTACT_TEXT, 'error'); return; }
                     setClientModal({ open: true, data: null });
@@ -3489,7 +3542,7 @@ export default function CrediFluxApp() {
                                   type="button"
                                   onClick={() => setViewHistoryClient(client)}
                                   title="Ver récord crediticio"
-                                  className="p-2 rounded-lg text-emerald-400 hover:text-emerald-400 hover:bg-slate-800 transition-colors"
+                                  className="p-2 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-emerald-400 hover:text-emerald-400 hover:bg-slate-800 transition-colors"
                                 >
                                   <Eye className="w-4 h-4" />
                                 </button>
@@ -3500,7 +3553,7 @@ export default function CrediFluxApp() {
                                     setClientModal({ open: true, data: client });
                                   }}
                                   title="Editar cliente"
-                                  className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                                  className="p-2 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
                                 >
                                   <Edit3 className="w-4 h-4" />
                                 </button>
@@ -3508,7 +3561,7 @@ export default function CrediFluxApp() {
                                   type="button"
                                   onClick={() => deleteClient(client)}
                                   title="Eliminar cliente"
-                                  className="p-2 rounded-lg text-rose-400 hover:text-white hover:bg-slate-800 transition-colors"
+                                  className="p-2 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-rose-400 hover:text-white hover:bg-slate-800 transition-colors"
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </button>
@@ -3688,7 +3741,7 @@ export default function CrediFluxApp() {
                     value={productSearch}
                     onChange={(e) => setProductSearch(e.target.value)}
                     placeholder="Buscar producto o categoría..."
-                    className={`w-full sm:w-64 pl-9 pr-8 py-2 border rounded-xl text-xs placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${themeDark ? 'bg-slate-800/60 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}
+                    className={`w-full sm:w-64 pl-9 pr-8 py-2 border rounded-xl text-xs placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${themeDark ? 'bg-slate-800/60 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}
                   />
                   {productSearch ? (
                     <button
@@ -3701,7 +3754,7 @@ export default function CrediFluxApp() {
                     </button>
                   ) : null}
                 </div>
-                <button
+                <button type="button"
                   onClick={() => {
                     if (isUserExpired) { notify(SUPPORT_CONTACT_TEXT, 'error'); return; }
                     setProductModal({ open: true, data: null });
@@ -3914,16 +3967,16 @@ export default function CrediFluxApp() {
                         </td>
                         <td className="py-2.5 px-3 text-center align-middle">
                           <div className="inline-flex items-center justify-center gap-1">
-                          <button
+                          <button type="button"
                             onClick={() => {
                               if (isUserExpired) { notify(SUPPORT_CONTACT_TEXT, 'error'); return; }
                               setProductModal({ open: true, data: prod });
                             }}
-                            className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                            className="p-2 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
                           >
                             <Edit3 className="w-4 h-4" />
                           </button>
-                          <button
+                          <button type="button"
                             onClick={() => {
                               if (isUserExpired) { notify(SUPPORT_CONTACT_TEXT, 'error'); return; }
                               const handleDelete = async () => {
@@ -4208,27 +4261,30 @@ export default function CrediFluxApp() {
                     {calcPeriod === 'day' && (
                       <input
                         type="date"
+                        aria-label="Fecha del período (día)"
                         value={calcDate}
                         onChange={(e) => setCalcDate(e.target.value)}
-                        className="min-w-0 flex-1 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white"
+                        className="min-w-0 flex-1 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:ring-2"
                       />
                     )}
                     {calcPeriod === 'month' && (
                       <input
                         type="month"
+                        aria-label="Mes del período"
                         value={calcDate}
                         onChange={(e) => setCalcDate(e.target.value)}
-                        className="min-w-0 flex-1 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white"
+                        className="min-w-0 flex-1 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:ring-2"
                       />
                     )}
                     {calcPeriod === 'year' && (
                       <input
                         type="number"
+                        aria-label="Año del período"
                         min="2020"
                         max="2035"
                         value={calcDate}
                         onChange={(e) => setCalcDate(e.target.value)}
-                        className="w-24 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white font-mono"
+                        className="w-24 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white font-mono focus:outline-none focus:ring-2"
                       />
                     )}
                   </div>
@@ -4329,16 +4385,17 @@ export default function CrediFluxApp() {
                       <label className="block text-xs font-semibold uppercase tracking-wide text-slate-300 mb-1.5">
                         Adjuntar Capture / Comprobante
                       </label>
-                      <div
-                        onClick={() => fileInputRef.current?.click()}
-                        className="border-2 border-dashed border-slate-700 hover:border-emerald-500 rounded-2xl p-4 text-center cursor-pointer transition-all bg-slate-800/30 hover:bg-slate-800/50"
+                      <label
+                        htmlFor="ocr-capture"
+                        className="block border-2 border-dashed border-slate-700 hover:border-emerald-500 rounded-2xl p-4 text-center cursor-pointer transition-all bg-slate-800/30 hover:bg-slate-800/50 focus-within:ring-2 focus-within:ring-emerald-500"
                       >
                         <input
+                          id="ocr-capture"
                           type="file"
                           ref={fileInputRef}
                           accept="image/*"
                           onChange={handleFileSelect}
-                          className="hidden"
+                          className="sr-only"
                         />
                         {ocrForm.filePreview ? (
                           <div className="space-y-2">
@@ -4361,20 +4418,21 @@ export default function CrediFluxApp() {
                             <p className="text-xs text-slate-400 mt-1">PNG, JPG, JPEG de Pago Móvil o Transferencia</p>
                           </div>
                         )}
-                      </div>
+                      </label>
                     </div>
 
                     {/* Fecha y acceso al registro manual (sin extracción OCR) */}
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                       <div className="flex-1">
-                        <label className="block text-xs font-semibold uppercase tracking-wide text-slate-300 mb-1">
+                        <label htmlFor="ocr-date" className="block text-xs font-semibold uppercase tracking-wide text-slate-300 mb-1">
                           Fecha
                         </label>
                         <input
+                          id="ocr-date"
                           type="date"
                           value={ocrForm.date}
                           onChange={(e) => setOcrForm({ ...ocrForm, date: e.target.value })}
-                          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white"
+                          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:ring-2"
                         />
                       </div>
                       <button
@@ -4431,10 +4489,11 @@ export default function CrediFluxApp() {
                           <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
                           <input
                             type="text"
+                            aria-label="Buscar transacciones"
                             placeholder="Buscar ref, banco o monto (Bs/USD)..."
                             value={txSearch}
                             onChange={(e) => setTxSearch(e.target.value)}
-                            className="w-full pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white"
+                            className="w-full pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:ring-2"
                           />
                         </div>
 
@@ -4455,21 +4514,31 @@ export default function CrediFluxApp() {
                       <table className="w-full text-left text-xs">
                         <thead className="bg-slate-800/80 text-slate-400 uppercase font-semibold border-b border-slate-700/60">
                           <tr>
-                            <th onClick={() => toggleSort('date')} className="py-3 px-3 cursor-pointer hover:text-white transition-colors">
-                              Fecha {txSortField === 'date' && (txSortDir === 'asc' ? '↑' : '↓')}
+                            <th aria-sort={txSortField === 'date' ? (txSortDir === 'asc' ? 'ascending' : 'descending') : 'none'} className="py-3 px-3">
+                              <button type="button" onClick={() => toggleSort('date')} className="inline-flex items-center gap-1 hover:text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded px-1">
+                                Fecha {txSortField === 'date' && (txSortDir === 'asc' ? '↑' : '↓')}
+                              </button>
                             </th>
                             <th className="py-3 px-2">Tipo</th>
-                            <th onClick={() => toggleSort('bankOrigin')} className="py-3 px-3 cursor-pointer hover:text-white transition-colors">
-                              Banco Emisor {txSortField === 'bankOrigin' && (txSortDir === 'asc' ? '↑' : '↓')}
+                            <th aria-sort={txSortField === 'bankOrigin' ? (txSortDir === 'asc' ? 'ascending' : 'descending') : 'none'} className="py-3 px-3">
+                              <button type="button" onClick={() => toggleSort('bankOrigin')} className="inline-flex items-center gap-1 hover:text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded px-1">
+                                Banco Emisor {txSortField === 'bankOrigin' && (txSortDir === 'asc' ? '↑' : '↓')}
+                              </button>
                             </th>
-                            <th onClick={() => toggleSort('reference')} className="py-3 px-3 cursor-pointer hover:text-white transition-colors">
-                              Referencia {txSortField === 'reference' && (txSortDir === 'asc' ? '↑' : '↓')}
+                            <th aria-sort={txSortField === 'reference' ? (txSortDir === 'asc' ? 'ascending' : 'descending') : 'none'} className="py-3 px-3">
+                              <button type="button" onClick={() => toggleSort('reference')} className="inline-flex items-center gap-1 hover:text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded px-1">
+                                Referencia {txSortField === 'reference' && (txSortDir === 'asc' ? '↑' : '↓')}
+                              </button>
                             </th>
-                            <th onClick={() => toggleSort('amountBs')} className="py-3 px-3 text-right cursor-pointer hover:text-white transition-colors">
-                              Monto Bs {txSortField === 'amountBs' && (txSortDir === 'asc' ? '↑' : '↓')}
+                            <th aria-sort={txSortField === 'amountBs' ? (txSortDir === 'asc' ? 'ascending' : 'descending') : 'none'} className="py-3 px-3 text-right">
+                              <button type="button" onClick={() => toggleSort('amountBs')} className="inline-flex items-center gap-1 hover:text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded px-1">
+                                Monto Bs {txSortField === 'amountBs' && (txSortDir === 'asc' ? '↑' : '↓')}
+                              </button>
                             </th>
-                            <th onClick={() => toggleSort('amountUSD')} className="py-3 px-3 text-right cursor-pointer hover:text-white transition-colors">
-                              Monto USD {txSortField === 'amountUSD' && (txSortDir === 'asc' ? '↑' : '↓')}
+                            <th aria-sort={txSortField === 'amountUSD' ? (txSortDir === 'asc' ? 'ascending' : 'descending') : 'none'} className="py-3 px-3 text-right">
+                              <button type="button" onClick={() => toggleSort('amountUSD')} className="inline-flex items-center gap-1 hover:text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded px-1">
+                                Monto USD {txSortField === 'amountUSD' && (txSortDir === 'asc' ? '↑' : '↓')}
+                              </button>
                             </th>
                             <th className="py-3 px-3 text-center">Capture</th>
                             <th className="py-3 px-3 text-center">Acción</th>
@@ -4527,7 +4596,7 @@ export default function CrediFluxApp() {
                                         <span>Ver</span>
                                       </a>
                                     ) : (
-                                      <span className="text-slate-600 text-xs">Sin capture</span>
+                                      <span className="text-slate-500 text-xs">Sin capture</span>
                                     )}
                                   </td>
                                   <td className="py-3 px-3 text-center whitespace-nowrap">
@@ -4537,7 +4606,7 @@ export default function CrediFluxApp() {
                                           type="button"
                                           onClick={() => openEditManualRecord(tx)}
                                           title="Editar registro manual"
-                                          className="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-400 transition-colors"
+                                          className="p-1.5 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-400 transition-colors"
                                         >
                                           <Edit3 className="w-3.5 h-3.5" />
                                         </button>
@@ -4546,7 +4615,7 @@ export default function CrediFluxApp() {
                                         type="button"
                                         onClick={() => handleDeleteEcommerceTransaction(tx.id)}
                                         title="Eliminar registro"
-                                        className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition-colors"
+                                        className="p-1.5 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition-colors"
                                       >
                                         <Trash2 className="w-3.5 h-3.5" />
                                       </button>
@@ -4881,9 +4950,14 @@ export default function CrediFluxApp() {
                     className="space-y-3"
                   >
                     <div>
+                      <label htmlFor="renew-license-key" className="sr-only">Código de licencia</label>
                       <input
+                        id="renew-license-key"
+                        name="licenseKey"
                         type="text"
                         required
+                        aria-label="Código de licencia"
+                        autoComplete="off"
                         placeholder="RIC-XXXX-XXXX-XXXX"
                         value={renewLicenseKey}
                         onChange={(e) => setRenewLicenseKey(e.target.value)}
@@ -5041,7 +5115,7 @@ export default function CrediFluxApp() {
                       </p>
                     </div>
 
-                    <button
+                    <button type="button"
                       onClick={() => {
                         handleAdminGenerateLicense(1);
                         setNewUserModal(true);
@@ -5140,21 +5214,21 @@ export default function CrediFluxApp() {
                               <td className="py-3.5 px-4 text-right">
                                 <div className="inline-flex items-center justify-end gap-1.5">
                                   {u.role === 'admin' ? (
-                                    <button
+                                    <button type="button"
                                       onClick={() => setEditUserModal({ open: true, user: u, passwordOnly: true })}
                                       className={settingsTableBtnCls}
                                     >
                                       Editar clave
                                     </button>
                                   ) : (
-                                    <button
+                                    <button type="button"
                                       onClick={() => setEditUserModal({ open: true, user: u })}
                                       className={settingsTableBtnCls}
                                     >
                                       Editar
                                     </button>
                                   )}
-                                  <button
+                                  <button type="button"
                                     onClick={() => setPurgeModal({
                                       open: true,
                                       user: u,
@@ -5780,16 +5854,16 @@ export default function CrediFluxApp() {
       {/* MODAL: REGISTRAR NUEVO USUARIO (INCORPORADO DENTRO DE ADMIN)   */}
       {/* ============================================================== */}
       {newUserModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+        <div role="dialog" aria-modal="true" aria-label="Nuevo usuario" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
           <div className={`w-full max-w-lg ${settingsModalCls} border rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto`}>
             <div className={`flex items-center justify-between pb-3 border-b ${settingsModalBorderCls}`}>
               <div>
                 <h3 className="text-base font-semibold text-slate-200">Registrar Nuevo Usuario</h3>
                 <p className={`${settingsDescCls} mt-1`}>Crea un usuario para operar bajo el núcleo unificado de CrediFlux.</p>
               </div>
-              <button
+              <button type="button"
                 onClick={() => setNewUserModal(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white"
+                className="p-1.5 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -5797,10 +5871,13 @@ export default function CrediFluxApp() {
 
             <form onSubmit={handleAdminRegisterUser} className="space-y-3 mt-4">
               <div>
-                <label className={settingsLabelCls}>Nombre y Apellido *</label>
+                <label htmlFor="new-user-name" className={settingsLabelCls}>Nombre y Apellido *</label>
                 <input
+                  id="new-user-name"
+                  name="name"
                   type="text"
                   required
+                  autoComplete="name"
                   placeholder="Ej. Roberto Sánchez"
                   value={newUserForm.name}
                   onChange={(e) => setNewUserForm({ ...newUserForm, name: e.target.value })}
@@ -5810,10 +5887,13 @@ export default function CrediFluxApp() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className={settingsLabelCls}>Usuario de Acceso *</label>
+                  <label htmlFor="new-user-username" className={settingsLabelCls}>Usuario de Acceso *</label>
                   <input
+                    id="new-user-username"
+                    name="username"
                     type="text"
                     required
+                    autoComplete="username"
                     placeholder="roberto18"
                     value={newUserForm.username}
                     onChange={(e) => setNewUserForm({ ...newUserForm, username: e.target.value })}
@@ -5821,10 +5901,13 @@ export default function CrediFluxApp() {
                   />
                 </div>
                 <div>
-                  <label className={settingsLabelCls}>Clave de Acceso *</label>
+                  <label htmlFor="new-user-password" className={settingsLabelCls}>Clave de Acceso *</label>
                   <input
-                    type="text"
+                    id="new-user-password"
+                    name="password"
+                    type="password"
                     required
+                    autoComplete="new-password"
                     placeholder="Contraseña"
                     value={newUserForm.password}
                     onChange={(e) => setNewUserForm({ ...newUserForm, password: e.target.value })}
@@ -5835,9 +5918,12 @@ export default function CrediFluxApp() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className={settingsLabelCls}>Teléfono</label>
+                  <label htmlFor="new-user-phone" className={settingsLabelCls}>Teléfono</label>
                   <input
-                    type="text"
+                    id="new-user-phone"
+                    name="phone"
+                    type="tel"
+                    autoComplete="tel"
                     placeholder="+58 414-1234567"
                     value={newUserForm.phone}
                     onChange={(e) => setNewUserForm({ ...newUserForm, phone: e.target.value })}
@@ -5845,9 +5931,12 @@ export default function CrediFluxApp() {
                   />
                 </div>
                 <div>
-                  <label className={settingsLabelCls}>Dirección</label>
+                  <label htmlFor="new-user-address" className={settingsLabelCls}>Dirección</label>
                   <input
+                    id="new-user-address"
+                    name="address"
                     type="text"
+                    autoComplete="street-address"
                     placeholder="Dirección del cliente..."
                     value={newUserForm.address}
                     onChange={(e) => setNewUserForm({ ...newUserForm, address: e.target.value })}
@@ -5918,15 +6007,15 @@ export default function CrediFluxApp() {
       {/* MODAL: ADMIN EDITA USUARIO FINAL & SU LICENCIA                 */}
       {/* ============================================================== */}
       {editUserModal.open && editUserModal.user && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+        <div role="dialog" aria-modal="true" aria-label="Editar usuario" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
           <div className={`w-full max-w-md ${settingsModalCls} border rounded-2xl p-5 sm:p-6 shadow-2xl`}>
             <div className={`flex items-center justify-between pb-3 border-b ${settingsModalBorderCls}`}>
               <h3 className="text-base font-semibold text-slate-200">
                 {editUserModal.passwordOnly ? 'Editar Clave del Administrador' : 'Editar Usuario y Licencia CrediFlux'}
               </h3>
-              <button
+              <button type="button"
                 onClick={() => setEditUserModal({ open: false, user: null })}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white"
+                className="p-1.5 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -6143,7 +6232,7 @@ export default function CrediFluxApp() {
         const totalBs = filteredRows.reduce((sum, r) => sum + (Number.isFinite(r.bs) ? r.bs : 0), 0);
 
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div role="dialog" aria-modal="true" aria-label="Historial de pagos" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
             <div className={`w-full max-w-6xl ${settingsModalCls} border rounded-3xl shadow-2xl max-h-[88vh] flex flex-col overflow-hidden`}>
               <div className={`flex items-start justify-between gap-4 px-6 py-5 border-b ${settingsModalBorderCls}`}>
                 <div>
@@ -6155,7 +6244,7 @@ export default function CrediFluxApp() {
                     Registro de abonos y cuotas (incluye pagos parciales y totales). Cada entrada suma al acumulado mostrado.
                   </p>
                 </div>
-                <button type="button" onClick={() => setHistoryModal(false)} className="p-1.5 rounded-lg text-slate-400 hover:text-white" title="Cerrar historial">
+                <button type="button" onClick={() => setHistoryModal(false)} className="p-1.5 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white" title="Cerrar historial">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -6163,7 +6252,7 @@ export default function CrediFluxApp() {
               <div className={`px-6 py-4 border-b ${settingsModalBorderCls} flex flex-col lg:flex-row lg:items-center justify-between gap-3`}>
                 <div className="relative w-full lg:w-80">
                   <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                  <input type="text" value={historySearch} onChange={(e) => setHistorySearch(e.target.value)} placeholder="Buscar por cliente, producto, referencia o método..." className={`w-full pl-9 pr-8 py-2 rounded-xl border text-xs placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`} />
+                  <input type="text" value={historySearch} onChange={(e) => setHistorySearch(e.target.value)} placeholder="Buscar por cliente, producto, referencia o método..." className={`w-full pl-9 pr-8 py-2 rounded-xl border text-xs placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`} />
                   {historySearch ? (
                     <button type="button" onClick={() => setHistorySearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-white" title="Limpiar búsqueda">
                       <X className="w-3.5 h-3.5" />
@@ -6219,7 +6308,7 @@ export default function CrediFluxApp() {
                           <div className="mt-0.5 text-xs text-slate-400 truncate max-w-[150px]" title={row.payment.reference || ''}>Ref: {row.payment.reference || '—'}</div>
                         </td>
                         <td className="py-2.5 px-3 text-center align-middle">
-                          <button type="button" onClick={() => deletePaymentRecord(row.payment)} title="Eliminar pago del historial (revierte la cuota)" className="p-2 rounded-lg text-rose-400 hover:text-rose-300 hover:bg-slate-800 transition-colors">
+                          <button type="button" onClick={() => deletePaymentRecord(row.payment)} title="Eliminar pago del historial (revierte la cuota)" className="p-2 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-rose-400 hover:text-rose-300 hover:bg-slate-800 transition-colors">
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </td>
@@ -6255,7 +6344,7 @@ export default function CrediFluxApp() {
         const isErrorReason = deleteLoanModal.reason === 'registro_error';
         const closeDeleteModal = () => setDeleteLoanModal(emptyDeleteLoanModal());
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div role="dialog" aria-modal="true" aria-label="Eliminar financiamiento" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
             <div className={`w-full max-w-lg ${settingsModalCls} border rounded-3xl shadow-2xl overflow-hidden`}>
               <div className={`px-6 py-5 border-b ${settingsModalBorderCls} flex items-start justify-between gap-4`}>
                 <div className="flex items-start gap-3">
@@ -6283,7 +6372,7 @@ export default function CrediFluxApp() {
                 <button
                   type="button"
                   onClick={closeDeleteModal}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-white disabled:opacity-40"
+                  className="p-1.5 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white disabled:opacity-40"
                   disabled={deleteLoanModal.processing}
                   title="Cerrar"
                 >
@@ -6407,7 +6496,7 @@ export default function CrediFluxApp() {
         };
 
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div role="dialog" aria-modal="true" aria-label="Lista negra" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
             <div className={`w-full max-w-5xl ${settingsModalCls} border rounded-3xl shadow-2xl max-h-[88vh] flex flex-col overflow-hidden`}>
               <div className={`flex items-start justify-between gap-4 px-6 py-5 border-b ${settingsModalBorderCls}`}>
                 <div>
@@ -6422,7 +6511,7 @@ export default function CrediFluxApp() {
                 <button
                   type="button"
                   onClick={() => setBlacklistModal(false)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-white"
+                  className="p-1.5 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white"
                   title="Cerrar"
                 >
                   <X className="w-5 h-5" />
@@ -6437,7 +6526,7 @@ export default function CrediFluxApp() {
                     value={blacklistSearch}
                     onChange={(e) => setBlacklistSearch(e.target.value)}
                     placeholder="Buscar por nombre, cédula o teléfono..."
-                    className={`w-full pl-9 pr-8 py-2 rounded-xl border text-xs placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`}
+                    className={`w-full pl-9 pr-8 py-2 rounded-xl border text-xs placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`}
                   />
                   {blacklistSearch ? (
                     <button
@@ -6566,15 +6655,15 @@ export default function CrediFluxApp() {
       {/* MODAL: REGISTRAR / EDITAR CLIENTE                              */}
       {/* ============================================================== */}
       {clientModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+        <div role="dialog" aria-modal="true" aria-label="Cliente" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
           <div className={`w-full max-w-lg ${settingsModalCls} border rounded-3xl p-6 shadow-2xl`}>
             <div className={`flex items-center justify-between pb-4 border-b ${settingsModalBorderCls}`}>
               <h3 className="font-bold text-base text-slate-200">
                 {clientModal.data ? 'Editar Datos de Cliente' : 'Registrar Nuevo Cliente'}
               </h3>
-              <button
+              <button type="button"
                 onClick={() => setClientModal({ open: false, data: null })}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white"
+                className="p-1.5 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -6621,11 +6710,13 @@ export default function CrediFluxApp() {
               className="space-y-4 mt-4 text-xs"
             >
               <div>
-                <label className="block text-slate-300 font-semibold mb-1">Nombre Completo *</label>
+                <label htmlFor="client-name" className="block text-slate-300 font-semibold mb-1">Nombre Completo *</label>
                 <input
+                  id="client-name"
                   type="text"
                   name="name"
                   required
+                  autoComplete="name"
                   defaultValue={clientModal.data?.name || ''}
                   placeholder="Ej. Roberto Sánchez"
                   className={`w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`}
@@ -6634,8 +6725,9 @@ export default function CrediFluxApp() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Cédula / DNI *</label>
+                  <label htmlFor="client-dni" className="block text-slate-300 font-semibold mb-1">Cédula / DNI *</label>
                   <input
+                    id="client-dni"
                     type="text"
                     name="dni"
                     required
@@ -6645,10 +6737,12 @@ export default function CrediFluxApp() {
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Teléfono Móvil</label>
+                  <label htmlFor="client-phone" className="block text-slate-300 font-semibold mb-1">Teléfono Móvil</label>
                   <input
-                    type="text"
+                    id="client-phone"
+                    type="tel"
                     name="phone"
+                    autoComplete="tel"
                     defaultValue={clientModal.data?.phone || ''}
                     placeholder="+58 414-1234567"
                     className={`w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`}
@@ -6657,10 +6751,12 @@ export default function CrediFluxApp() {
               </div>
 
               <div>
-                <label className="block text-slate-300 font-semibold mb-1">Dirección de Habitación / Trabajo</label>
+                <label htmlFor="client-address" className="block text-slate-300 font-semibold mb-1">Dirección de Habitación / Trabajo</label>
                 <input
+                  id="client-address"
                   type="text"
                   name="address"
+                  autoComplete="street-address"
                   defaultValue={clientModal.data?.address || ''}
                   placeholder="Av. Principal, Edificio / Casa..."
                   className={`w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`}
@@ -6672,8 +6768,9 @@ export default function CrediFluxApp() {
               </div>
 
               <div>
-                <label className="block text-slate-300 font-semibold mb-1">Notas / Observaciones</label>
+                <label htmlFor="client-notes" className="block text-slate-300 font-semibold mb-1">Notas / Observaciones</label>
                 <textarea
+                  id="client-notes"
                   name="notes"
                   rows={2}
                   defaultValue={clientModal.data?.notes || ''}
@@ -6731,14 +6828,14 @@ export default function CrediFluxApp() {
         const labelCls = 'block text-slate-300 font-semibold mb-1 text-xs';
 
         return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm">
+        <div role="dialog" aria-modal="true" aria-label="Nuevo financiamiento" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm">
           <div className={`w-full max-w-4xl ${settingsModalCls} border rounded-3xl p-4 sm:p-5 shadow-2xl max-h-[94vh] overflow-y-auto`}>
             <div className={`flex items-center justify-between pb-3 border-b ${settingsModalBorderCls}`}>
               <div>
                 <h3 className="font-bold text-base text-slate-200">Nuevo Financiamiento o Préstamo</h3>
                 <p className="text-xs text-slate-400">Captura compacta con cálculos automáticos y resumen financiero.</p>
               </div>
-              <button type="button" onClick={() => setLoanModal({ open: false, data: null })} className="p-1.5 rounded-lg text-slate-400 hover:text-white" title="Cerrar">
+              <button type="button" onClick={() => setLoanModal({ open: false, data: null })} className="p-1.5 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white" title="Cerrar">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -7011,16 +7108,16 @@ export default function CrediFluxApp() {
       {/* MODAL: ABONO RÁPIDO / PAGO DE CUOTA                            */}
       {/* ============================================================== */}
       {quickPayModal.open && quickPayModal.loan && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+        <div role="dialog" aria-modal="true" aria-label="Registrar pago" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
           <div className={`w-full max-w-md ${settingsModalCls} border rounded-3xl p-6 shadow-2xl`}>
             <div className={`flex items-center justify-between pb-4 border-b ${settingsModalBorderCls}`}>
               <div>
                 <h3 className="font-bold text-base text-slate-200">Registrar Abono o Cuota</h3>
                 <p className="text-xs text-slate-400">Cliente: {quickPayModal.loan.clientName}</p>
               </div>
-              <button
+              <button type="button"
                 onClick={() => { setQuickPayModal({ open: false, loan: null }); setQuickPaySelection(''); }}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white"
+                className="p-1.5 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -7129,15 +7226,15 @@ export default function CrediFluxApp() {
       {/* MODAL: REGISTRAR / EDITAR PRODUCTO DEL CATÁLOGO               */}
       {/* ============================================================== */}
       {productModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+        <div role="dialog" aria-modal="true" aria-label="Producto" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
           <div className={`w-full max-w-md ${settingsModalCls} border rounded-3xl p-6 shadow-2xl`}>
             <div className={`flex items-center justify-between pb-4 border-b ${settingsModalBorderCls}`}>
               <h3 className="font-bold text-base text-slate-200">
                 {productModal.data ? 'Editar Producto' : 'Registro de producto'}
               </h3>
-              <button
+              <button type="button"
                 onClick={() => setProductModal({ open: false, data: null })}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white"
+                className="p-1.5 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -7247,7 +7344,7 @@ export default function CrediFluxApp() {
       {/* MODAL: CARGAR PATRÓN DE COMPROBANTE (ADMIN)                    */}
       {/* ============================================================== */}
       {patternModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+        <div role="dialog" aria-modal="true" aria-label="Patrón de comprobante" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
           <div className={`w-full max-w-lg ${settingsModalCls} border rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto`}>
             <div className={`flex items-center justify-between pb-3 border-b ${settingsModalBorderCls}`}>
               <div>
@@ -7263,7 +7360,7 @@ export default function CrediFluxApp() {
               <button
                 type="button"
                 onClick={() => { resetPatternForm(); setPatternModal(false); }}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white"
+                className="p-1.5 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -7421,7 +7518,7 @@ export default function CrediFluxApp() {
       {/* MODAL: VACIAR DATOS (ADMIN, GRANULAR Y POR FECHA)             */}
       {/* ============================================================== */}
       {purgeModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+        <div role="dialog" aria-modal="true" aria-label="Depuración de datos" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
           <div className={`w-full max-w-lg ${settingsModalCls} border rounded-2xl p-5 sm:p-6 shadow-2xl`}>
             <div className={`flex items-center justify-between pb-4 border-b ${settingsModalBorderCls}`}>
               <div>
@@ -7433,7 +7530,7 @@ export default function CrediFluxApp() {
               <button
                 type="button"
                 onClick={() => !purgeModal.processing && setPurgeModal(prev => ({ ...prev, open: false }))}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white disabled:opacity-40"
+                className="p-1.5 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white disabled:opacity-40"
                 disabled={purgeModal.processing}
               >
                 <X className="w-5 h-5" />
@@ -7566,7 +7663,7 @@ export default function CrediFluxApp() {
       {/* MODAL: HISTORIAL / RÉCORD CREDITICIO DEL CLIENTE              */}
       {/* ============================================================== */}
       {viewHistoryClient && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+        <div role="dialog" aria-modal="true" aria-label="Historial del cliente" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
           <div className={`w-full max-w-2xl ${settingsModalCls} border rounded-3xl p-6 shadow-2xl max-h-[85vh] overflow-y-auto`}>
             <div className={`flex items-center justify-between pb-4 border-b ${settingsModalBorderCls}`}>
               <div>
@@ -7575,9 +7672,9 @@ export default function CrediFluxApp() {
                   {viewHistoryClient.name} • {viewHistoryClient.dni} • Confianza: <strong>{viewHistoryClient.trust?.label || computeClientTrust((loans || []).filter(l => l.clientId === viewHistoryClient.id), getTrustLevelConfig(settings)).label}</strong>
                 </p>
               </div>
-              <button
+              <button type="button"
                 onClick={() => setViewHistoryClient(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white"
+                className="p-1.5 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -7616,7 +7713,7 @@ export default function CrediFluxApp() {
       {/* MODAL: REGISTRO MANUAL DE TRANSACCIÓN (SIN OCR)                 */}
       {/* ============================================================== */}
       {manualRecord.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+        <div role="dialog" aria-modal="true" aria-label="Registro manual" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
           <div className={`w-full max-w-md ${settingsModalCls} border rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto`}>
             <div className={`flex items-center justify-between pb-3 border-b ${settingsModalBorderCls}`}>
               <div>
@@ -7633,7 +7730,7 @@ export default function CrediFluxApp() {
                 type="button"
                 onClick={closeManualRecord}
                 disabled={manualRecord.saving}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white disabled:opacity-40"
+                className="p-1.5 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white disabled:opacity-40"
               >
                 <X className="w-5 h-5" />
               </button>

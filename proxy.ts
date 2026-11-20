@@ -12,7 +12,8 @@ export async function proxy(request: NextRequest) {
     const { updateSession } = await import('@/lib/supabase/middleware');
     return await updateSession(request);
   } catch (error) {
-    console.error('[proxy] Error no controlado, se continúa sin refrescar sesión:', error);
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`[proxy] Error no controlado, se continúa sin refrescar sesión: ${detail}`);
     return NextResponse.next({ request });
   }
 }

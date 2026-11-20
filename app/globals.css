@@ -24,6 +24,10 @@
   --accent-rose: #9f1239;
   --accent-teal: #115e59;
   --accent-purple: #6b21a8;
+  /* Anillo de foco: emerald-600 sobre superficies claras = 3.77:1 (WCAG 2.4.11). */
+  --focus-ring: #059669;
+  /* Borde de campos: 4.76:1 sobre blanco y 3.42:1 sobre superficie oscura. */
+  --border-field: #64748b;
 }
 
 .dark {
@@ -38,12 +42,42 @@
   --accent-rose: #f43f5e;
   --accent-teal: #14b8a6;
   --accent-purple: #a855f7;
+  /* Anillo de foco: emerald-500 sobre superficie oscura = 6.42:1 (WCAG 2.4.11). */
+  --focus-ring: #34d399;
+  --border-field: #64748b;
 }
 
 body {
   background-color: var(--background);
   color: var(--foreground);
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+}
+
+/*
+ * Accesibilidad de teclado (WCAG 2.4.11 Focus Appearance).
+ * Anillo de foco de 2px con contraste >= 3:1 en ambos temas. Es un fallback
+ * global: los controles con su propio ring lo conservan y además muestran
+ * el anillo del navegador, evitando el fallo de los que no tenían ninguno.
+ */
+:is(button, a[href], [role="button"], [role="switch"], [role="tab"], summary):focus-visible {
+  outline: 2px solid var(--focus-ring) !important;
+  outline-offset: 2px;
+}
+
+/*
+ * Campos: borde visible (>= 3:1) y anillo de foco opaco. Se excluyen los
+ * estados semánticos (emerald/rose/amber) para no pisar validaciones.
+ */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([class*="border-emerald"]):not([class*="border-rose"]):not([class*="border-amber"]),
+select:not([class*="border-emerald"]):not([class*="border-rose"]):not([class*="border-amber"]),
+textarea:not([class*="border-emerald"]):not([class*="border-rose"]):not([class*="border-amber"]) {
+  border-color: var(--border-field) !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  --tw-ring-color: var(--focus-ring) !important;
 }
 
 /* Custom scrollbars for clean UI */
@@ -83,14 +117,25 @@ body {
 :root.dark [class~="bg-[#0f172a]"],
 :root.dark [class~="bg-[#111827]"],
 :root.dark .bg-slate-900,
-:root.dark .bg-slate-950 { background-color: var(--background) !important; }
-:root.dark .bg-slate-800 { background-color: var(--surface-subtle) !important; }
+:root.dark .bg-slate-950 {
+  background-color: var(--background) !important;
+}
+
+:root.dark .bg-slate-800 {
+  background-color: var(--surface-subtle) !important;
+}
+
 :root.dark .bg-slate-900\/60,
-:root.dark .bg-slate-900\/80 { background-color: var(--surface) !important; }
+:root.dark .bg-slate-900\/80 {
+  background-color: var(--surface) !important;
+}
+
 :root.dark .bg-slate-950\/20,
 :root.dark .bg-slate-800\/30,
 :root.dark .bg-slate-800\/40,
-:root.dark .bg-slate-800\/50 { background-color: var(--surface-subtle) !important; }
+:root.dark .bg-slate-800\/50 {
+  background-color: var(--surface-subtle) !important;
+}
 
 /*
  * Modo claro: la app usa cientos de clases oscuras hardcodeadas
@@ -105,7 +150,9 @@ body {
 :root:not(.dark) .bg-slate-800,
 :root:not(.dark) [class~="bg-[#0b1120]"],
 :root:not(.dark) [class~="bg-[#0f172a]"],
-:root:not(.dark) [class~="bg-[#111827]"] { background-color: var(--surface) !important; }
+:root:not(.dark) [class~="bg-[#111827]"] {
+  background-color: var(--surface) !important;
+}
 
 :root:not(.dark) .bg-slate-950\/20,
 :root:not(.dark) .bg-slate-950\/40,
@@ -118,26 +165,40 @@ body {
 :root:not(.dark) .bg-slate-800\/60,
 :root:not(.dark) .bg-slate-800\/70,
 :root:not(.dark) .bg-slate-800\/80,
-:root:not(.dark) .bg-slate-800\/90 { background-color: var(--surface-subtle) !important; }
+:root:not(.dark) .bg-slate-800\/90 {
+  background-color: var(--surface-subtle) !important;
+}
 
 :root:not(.dark) .hover\:bg-slate-800:hover,
-:root:not(.dark) .hover\:bg-slate-700:hover { background-color: #f1f5f9 !important; }
+:root:not(.dark) .hover\:bg-slate-700:hover {
+  background-color: #f1f5f9 !important;
+}
 
 /* Filas de tablas y elementos interactivos al hover en modo claro */
 :root:not(.dark) tr:hover,
 :root:not(.dark) tr.group:hover,
 :root:not(.dark) .hover\:bg-slate-800\/20:hover,
 :root:not(.dark) .hover\:bg-slate-800\/30:hover,
-:root:not(.dark) .hover\:bg-slate-800\/40:hover { background-color: #f8fafc !important; }
+:root:not(.dark) .hover\:bg-slate-800\/40:hover {
+  background-color: #f8fafc !important;
+}
 
 /*
  * Jerarquía de superficies en claro:
  * fondo de página (#f1f5f9) < sub-tarjetas/bloques (#f8fafc) < bandas y cabeceras (#e2e8f0) < tarjetas principales (#ffffff).
  * El wrapper del dashboard fija bg-[#f8fafc] en claro, por eso se remapea al token de fondo.
  */
-:root:not(.dark) [class~="bg-[#f8fafc]"] { background-color: var(--background) !important; }
-:root:not(.dark) .bg-slate-50 { background-color: #f8fafc !important; }
-:root:not(.dark) .bg-slate-100 { background-color: #f1f5f9 !important; }
+:root:not(.dark) [class~="bg-[#f8fafc]"] {
+  background-color: var(--background) !important;
+}
+
+:root:not(.dark) .bg-slate-50 {
+  background-color: #f8fafc !important;
+}
+
+:root:not(.dark) .bg-slate-100 {
+  background-color: #f1f5f9 !important;
+}
 
 /* Cabeceras de tablas en modo claro: superficie distintiva y texto de máxima legibilidad */
 :root:not(.dark) thead,
@@ -160,26 +221,42 @@ body {
 :root:not(.dark) .border-slate-700\/70,
 :root:not(.dark) .border-slate-700\/80,
 :root:not(.dark) .border-slate-200,
-:root:not(.dark) .border-slate-300 { border-color: var(--border-subtle) !important; }
+:root:not(.dark) .border-slate-300 {
+  border-color: var(--border-subtle) !important;
+}
 
 /* Divisores de filas de tabla y contenedores: limpios y sutiles */
-:root:not(.dark) .divide-slate-800 > :not([hidden]) ~ :not([hidden]),
-:root:not(.dark) .divide-slate-800\/50 > :not([hidden]) ~ :not([hidden]),
-:root:not(.dark) .divide-slate-800\/60 > :not([hidden]) ~ :not([hidden]) { border-color: var(--border-divider) !important; }
+:root:not(.dark) .divide-slate-800> :not([hidden])~ :not([hidden]),
+:root:not(.dark) .divide-slate-800\/50> :not([hidden])~ :not([hidden]),
+:root:not(.dark) .divide-slate-800\/60> :not([hidden])~ :not([hidden]) {
+  border-color: var(--border-divider) !important;
+}
 
 /* Línea divisoria destacada del encabezado de tabla */
-:root:not(.dark) thead { border-bottom-color: var(--border-strong) !important; }
+:root:not(.dark) thead {
+  border-bottom-color: var(--border-strong) !important;
+}
 
 /* Textos base: usan tokens para que claro y oscuro compartan jerarquía. */
 :root:not(.dark) .text-slate-100,
-:root:not(.dark) .text-slate-200 { color: var(--foreground) !important; }
+:root:not(.dark) .text-slate-200 {
+  color: var(--foreground) !important;
+}
+
 /* Tres niveles de texto: principal (#0f172a) > secundario (#334155) > apoyo (#475569). */
-:root:not(.dark) .text-slate-300 { color: var(--text-secondary) !important; }
+:root:not(.dark) .text-slate-300 {
+  color: var(--text-secondary) !important;
+}
+
 :root:not(.dark) .text-slate-400,
-:root:not(.dark) .text-slate-500 { color: var(--text-tertiary) !important; }
+:root:not(.dark) .text-slate-500 {
+  color: var(--text-tertiary) !important;
+}
 
 /* Asegurar contraste WCAG en textos muted / notas auxiliares */
-:root:not(.dark) .text-slate-400 { font-weight: 500; }
+:root:not(.dark) .text-slate-400 {
+  font-weight: 500;
+}
 
 /* Acentos oscurecidos sobre superficies claras. */
 :root:not(.dark) .text-emerald-100,
@@ -188,16 +265,30 @@ body {
 :root:not(.dark) .text-emerald-400,
 :root:not(.dark) [class*="text-emerald-400/"],
 :root:not(.dark) [class*="text-emerald-100/"],
-:root:not(.dark) [class*="text-emerald-200/"] { color: var(--accent-emerald) !important; }
+:root:not(.dark) [class*="text-emerald-200/"] {
+  color: var(--accent-emerald) !important;
+}
+
 :root:not(.dark) .text-amber-300,
 :root:not(.dark) .text-amber-400,
-:root:not(.dark) .text-amber-500 { color: var(--accent-amber) !important; }
+:root:not(.dark) .text-amber-500 {
+  color: var(--accent-amber) !important;
+}
+
 :root:not(.dark) .text-rose-300,
-:root:not(.dark) .text-rose-400 { color: var(--accent-rose) !important; }
+:root:not(.dark) .text-rose-400 {
+  color: var(--accent-rose) !important;
+}
+
 :root:not(.dark) .text-teal-300,
-:root:not(.dark) .text-teal-400 { color: var(--accent-teal) !important; }
+:root:not(.dark) .text-teal-400 {
+  color: var(--accent-teal) !important;
+}
+
 :root:not(.dark) .text-purple-300,
-:root:not(.dark) .text-purple-400 { color: var(--accent-purple) !important; }
+:root:not(.dark) .text-purple-400 {
+  color: var(--accent-purple) !important;
+}
 
 /*
  * Insignias y estados en claro: los tintes al 10%/20% se veían casi blancos.
@@ -207,64 +298,123 @@ body {
 :root:not(.dark) .bg-emerald-500\/5,
 :root:not(.dark) .bg-emerald-500\/10,
 :root:not(.dark) .bg-emerald-500\/15,
-:root:not(.dark) .bg-emerald-500\/20 { background-color: #d1fae5 !important; }
+:root:not(.dark) .bg-emerald-500\/20 {
+  background-color: #d1fae5 !important;
+}
+
 :root:not(.dark) .bg-rose-500\/10,
-:root:not(.dark) .bg-rose-500\/20 { background-color: #ffe4e6 !important; }
+:root:not(.dark) .bg-rose-500\/20 {
+  background-color: #ffe4e6 !important;
+}
+
 :root:not(.dark) .bg-teal-500\/10,
-:root:not(.dark) .bg-teal-500\/20 { background-color: #ccfbf1 !important; }
+:root:not(.dark) .bg-teal-500\/20 {
+  background-color: #ccfbf1 !important;
+}
+
 :root:not(.dark) .bg-purple-500\/10,
-:root:not(.dark) .bg-purple-500\/20 { background-color: #f3e8ff !important; }
+:root:not(.dark) .bg-purple-500\/20 {
+  background-color: #f3e8ff !important;
+}
+
 :root:not(.dark) .bg-indigo-500\/10,
-:root:not(.dark) .bg-indigo-500\/20 { background-color: #e0e7ff !important; }
+:root:not(.dark) .bg-indigo-500\/20 {
+  background-color: #e0e7ff !important;
+}
 
 /* Callouts y cajas de alerta amarillas/ámbar en modo claro */
 :root:not(.dark) .bg-amber-500\/5,
 :root:not(.dark) .bg-amber-500\/10,
 :root:not(.dark) .bg-amber-500\/15,
-:root:not(.dark) .bg-amber-500\/20 { background-color: #fef3c7 !important; }
+:root:not(.dark) .bg-amber-500\/20 {
+  background-color: #fef3c7 !important;
+}
 
 :root:not(.dark) .border-emerald-500\/20,
 :root:not(.dark) .border-emerald-500\/30,
-:root:not(.dark) .border-emerald-500\/40 { border-color: #34d399 !important; }
+:root:not(.dark) .border-emerald-500\/40 {
+  border-color: #34d399 !important;
+}
+
 :root:not(.dark) .border-rose-500\/20,
-:root:not(.dark) .border-rose-500\/30 { border-color: #fda4af !important; }
+:root:not(.dark) .border-rose-500\/30 {
+  border-color: #fda4af !important;
+}
+
 :root:not(.dark) .border-teal-500\/20,
-:root:not(.dark) .border-teal-500\/30 { border-color: #5eead4 !important; }
+:root:not(.dark) .border-teal-500\/30 {
+  border-color: #5eead4 !important;
+}
+
 :root:not(.dark) .border-purple-500\/20,
-:root:not(.dark) .border-purple-500\/30 { border-color: #d8b4fe !important; }
+:root:not(.dark) .border-purple-500\/30 {
+  border-color: #d8b4fe !important;
+}
+
 :root:not(.dark) .border-indigo-500\/20,
-:root:not(.dark) .border-indigo-500\/30 { border-color: #a5b4fc !important; }
+:root:not(.dark) .border-indigo-500\/30 {
+  border-color: #a5b4fc !important;
+}
+
 :root:not(.dark) .border-amber-500\/20,
-:root:not(.dark) .border-amber-500\/30 { border-color: #fcd34d !important; }
+:root:not(.dark) .border-amber-500\/30 {
+  border-color: #fcd34d !important;
+}
 
 /* Textos dentro de cajas de alerta y callouts en modo claro (WCAG AAA) */
 :root:not(.dark) .text-amber-100,
 :root:not(.dark) .text-amber-200,
 :root:not(.dark) [class*="text-amber-100/"],
 :root:not(.dark) [class*="text-amber-200/"],
-:root:not(.dark) [class*="text-amber-400/"] { color: #78350f !important; font-weight: 500; }
+:root:not(.dark) [class*="text-amber-400/"] {
+  color: #78350f !important;
+  font-weight: 500;
+}
 
 :root:not(.dark) .text-rose-100,
 :root:not(.dark) .text-rose-200,
 :root:not(.dark) [class*="text-rose-100/"],
 :root:not(.dark) [class*="text-rose-200/"],
-:root:not(.dark) [class*="text-rose-300/"] { color: #9f1239 !important; font-weight: 500; }
+:root:not(.dark) [class*="text-rose-300/"] {
+  color: #9f1239 !important;
+  font-weight: 500;
+}
 
 /*
  * Modo oscuro: bajamos un escalón los acentos brillantes para evitar
  * halation (brillo alrededor de las letras) en textos pequeños.
  */
-:root.dark .text-emerald-300 { color: var(--accent-emerald) !important; }
-:root.dark .text-emerald-400 { color: var(--accent-emerald) !important; }
+:root.dark .text-emerald-300 {
+  color: var(--accent-emerald) !important;
+}
+
+:root.dark .text-emerald-400 {
+  color: var(--accent-emerald) !important;
+}
+
 :root.dark .text-amber-300,
-:root.dark .text-amber-400 { color: var(--accent-amber) !important; }
+:root.dark .text-amber-400 {
+  color: var(--accent-amber) !important;
+}
+
 :root.dark .text-rose-300,
-:root.dark .text-rose-400 { color: var(--accent-rose) !important; }
+:root.dark .text-rose-400 {
+  color: var(--accent-rose) !important;
+}
+
 :root.dark .text-teal-300,
-:root.dark .text-teal-400 { color: var(--accent-teal) !important; }
+:root.dark .text-teal-400 {
+  color: var(--accent-teal) !important;
+}
+
 :root.dark .text-purple-300,
-:root.dark .text-purple-400 { color: var(--accent-purple) !important; }
-:root.dark .text-slate-500 { color: var(--text-muted) !important; }
+:root.dark .text-purple-400 {
+  color: var(--accent-purple) !important;
+}
+
+:root.dark .text-slate-500 {
+  color: var(--text-muted) !important;
+}
 
 /*
  * text-white suele ser el valor de una KPI o botón sobre fondo propio.
@@ -273,11 +423,19 @@ body {
  */
 :root:not(.dark) .bg-white .text-white,
 :root:not(.dark) .bg-slate-50 .text-white,
-:root:not(.dark) .bg-slate-100 .text-white { color: #0f172a !important; }
+:root:not(.dark) .bg-slate-100 .text-white {
+  color: #0f172a !important;
+}
+
 :root:not(.dark) .bg-slate-800 .text-white,
 :root:not(.dark) .bg-slate-900 .text-white,
-:root:not(.dark) .bg-slate-950 .text-white { color: #0f172a !important; }
-:root:not(.dark) .hover\:text-white:hover { color: #0f172a !important; }
+:root:not(.dark) .bg-slate-950 .text-white {
+  color: #0f172a !important;
+}
+
+:root:not(.dark) .hover\:text-white:hover {
+  color: #0f172a !important;
+}
 
 /* Campos: fondo claro, borde visible y texto oscuro. */
 :root:not(.dark) input.bg-slate-800,
@@ -289,8 +447,11 @@ body {
   color: #0f172a !important;
   border-color: var(--border-subtle) !important;
 }
+
 :root:not(.dark) input::placeholder,
-:root:not(.dark) textarea::placeholder { color: #64748b !important; }
+:root:not(.dark) textarea::placeholder {
+  color: #64748b !important;
+}
 
 /*
  * Agrupaciones de KPI: mas respiro entre tarjetas y sombra propia en claro.
@@ -298,10 +459,18 @@ body {
  * secciones ni al modo oscuro.
  */
 :root:not(.dark) [class~="xl:grid-cols-4"],
-:root:not(.dark) [class~="xl:grid-cols-3"] { gap: 1.5rem !important; }
-:root:not(.dark) [class~="sm:grid-cols-3"] { gap: 1rem !important; }
-:root:not(.dark) [class~="xl:grid-cols-4"] > div { padding: 1.5rem !important; }
+:root:not(.dark) [class~="xl:grid-cols-3"] {
+  gap: 1.5rem !important;
+}
+
+:root:not(.dark) [class~="sm:grid-cols-3"] {
+  gap: 1rem !important;
+}
+
+:root:not(.dark) [class~="xl:grid-cols-4"]>div {
+  padding: 1.5rem !important;
+}
+
 :root:not(.dark) .shadow-sm {
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 24px -12px rgba(15, 23, 42, 0.14) !important;
 }
-
