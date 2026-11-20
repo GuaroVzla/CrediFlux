@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Shield, Key, Lock, User, Users, Smartphone, DollarSign,
+  Shield, Key, Lock, User, Users, Smartphone, DollarSign, Menu,
   TrendingUp, AlertTriangle, CheckCircle, Clock, Calendar, History,
   CreditCard, Search, Plus, Trash2, Edit3, Eye, EyeOff, FileText,
   Upload, Sparkles, RefreshCw, LogOut, Sun, Moon, ArrowUpRight,
@@ -3147,8 +3147,7 @@ export default function CrediFluxApp() {
                 <div className="overflow-x-auto">
                   <table className="w-full rounded-lg overflow-x-auto sm:overflow-visible md:overflow-hidden text-left text-xs">
   {/* Scroll horizontal suave en móvil, visible en desktop */}
-</table>
-                    <thead className={`border-b-2 ${themeDark ? 'border-slate-700 bg-slate-800' : 'border-slate-300 bg-slate-100'}`}>
+  <thead className={`border-b-2 ${themeDark ? 'border-slate-700 bg-slate-800' : 'border-slate-300 bg-slate-100'}`}>
                       <tr className="align-middle whitespace-nowrap">
                         <th className={`sticky left-0 z-20 w-12 py-3 px-2 text-center align-middle ${stickyHead}`}>
                           <span className={headerMain}>#</span>
