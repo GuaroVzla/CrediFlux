@@ -2,7 +2,80 @@ import { NextResponse } from 'next/server';
 import {
   computeLoanStatus, normalizeDni, checkWritePermission, getRequestUser, canAccessRecord,
   getStateForRequest, saveStateForRequest, buildLoansBody, normalizeDashboardState,
+  computeLoanPlan, getLoanItems, applyLoanEdit,
 } from '@/modules/loans/service';
+
+function today() {
+  return new Date().toISOString().split('T')[0];
+}
+
+/** Unifica el payload de alta y edición para no duplicar normalizaciones. */
+function readLoanPayload(body) {
+  const rawItems = Array.isArray(body.items) ? body.items : [];
+  const items = rawItems.length
+    ? rawItems
+    : body.productId ? [{ productId: body.productId, quantity: 1 }] : [];
+  return {
+    clientId: body.clientId,
+    type: body.type === 'producto' ? 'producto' : 'dinero',
+    items,
+    manualPrincipal: body.principal,
+    downPayment: body.downPayment ?? 0,
+    interestMode: body.interestMode === 'fixed' ? 'fixed' : 'percent',
+    interestRate: body.interestRate ?? 0,
+    interestAmount: body.interestAmount,
+    installmentCount: body.installmentCount ?? 4,
+    frequency: body.frequency ?? 'quincenal',
+    startDate: body.startDate || today(),
+    notes: body.notes ?? '',
+  };
+}
+
+/**
+ * La edición está restringida a condiciones de pago. Si el cliente intenta
+ * cambiar datos congelados se rechaza la petición en vez de ignorarlos en
+ * silencio.
+ */
+function lockedFieldsError(body, loan) {
+  const changed = [];
+  const sameId = (a, b) => a === undefined || a === null || String(a) === String(b || '');
+  const sameNumber = (a, b) => a === undefined || Number(a) === Number(b || 0);
+
+  if (!sameId(body.clientId, loan.clientId)) changed.push('cliente');
+  if (body.type !== undefined && body.type !== loan.type) changed.push('modalidad');
+  if (!sameId(body.productId, loan.productId)) changed.push('productos');
+  if (Array.isArray(body.items) &&
+      JSON.stringify(body.items) !== JSON.stringify(getLoanItems(loan))) changed.push('productos');
+  if (!sameNumber(body.principal, loan.principal)) changed.push('monto base');
+  if (!sameNumber(body.downPayment, loan.downPayment)) changed.push('enganche');
+  if (body.notes !== undefined && String(body.notes) !== String(loan.notes || '')) changed.push('notas');
+
+  return changed.length
+    ? `No se pueden modificar: ${changed.join(', ')}. Solo se editan las condiciones de pago.`
+    : null;
+}
+
+function productAccessError(db, user, items) {
+  for (const item of items) {
+    const product = (db.products || []).find(p => String(p?.id) === String(item.productId));
+    if (!product) return 'Producto no encontrado en catálogo';
+    if (!canAccessRecord(user, product)) return 'No autorizado para usar este producto';
+  }
+  return null;
+}
+
+function planErrorResponse(error) {
+  const message = error?.message || 'Datos del financiamiento inválidos';
+  const status = /stock|cuotas|enganche|producto|monto|total|abonado|interés|interes/i.test(message) ? 409 : 400;
+  return NextResponse.json({ success: false, error: message }, { status });
+}
+
+function prepareState(db) {
+  if (!Array.isArray(db.loans)) db.loans = [];
+  if (!Array.isArray(db.clients)) db.clients = [];
+  if (!Array.isArray(db.products)) db.products = [];
+  if (!Array.isArray(db.blacklist)) db.blacklist = [];
+}
 
 export async function GET(request) {
   try {
@@ -22,10 +95,7 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const db = await getStateForRequest(request);
-    if (!Array.isArray(db.loans)) db.loans = [];
-    if (!Array.isArray(db.clients)) db.clients = [];
-    if (!Array.isArray(db.products)) db.products = [];
-    if (!Array.isArray(db.blacklist)) db.blacklist = [];
+    prepareState(db);
     const perm = checkWritePermission(request, db);
     if (!perm.allowed) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
@@ -35,105 +105,62 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
     }
 
-    const body = await request.json();
-    const {
-      clientId,
-      type, // 'producto' | 'dinero'
-      productId,
-      principal,
-      downPayment = 0,
-      interestRate = 15, // %
-      installmentCount = 4,
-      frequency = 'quincenal', // 'semanal' | 'quincenal' | 'mensual'
-      startDate,
-      notes = ''
-    } = body;
-
-    const client = (db.clients || []).find(c => c.id === clientId);
+    const cfg = readLoanPayload(await request.json());
+    const client = db.clients.find(c => c.id === cfg.clientId);
     if (!client) {
       return NextResponse.json({ success: false, error: 'Cliente no encontrado' }, { status: 404 });
     }
     if (!canAccessRecord(user, client)) {
       return NextResponse.json({ success: false, error: 'No autorizado para usar este cliente' }, { status: 403 });
     }
-
-    let productName = 'Préstamo en Efectivo';
-    let basePrice = Number(principal) || 0;
-
-    if (type === 'producto') {
-      const product = (db.products || []).find(p => p.id === productId);
-      if (!product) {
-        return NextResponse.json({ success: false, error: 'Producto no encontrado en catálogo' }, { status: 404 });
-      }
-      if (!canAccessRecord(user, product)) {
-        return NextResponse.json({ success: false, error: 'No autorizado para usar este producto' }, { status: 403 });
-      }
-      productName = product.name;
-      // Para financiamientos originados en inventario, el monto base es el costo registrado del producto
-      basePrice = Number(product.costPrice) || 0;
-
-      // Decrement stock if available
-      if (product.stock > 0) {
-        product.stock -= 1;
-      }
+    if (cfg.type === 'producto') {
+      const accessError = productAccessError(db, user, cfg.items);
+      if (accessError) return NextResponse.json({ success: false, error: accessError }, { status: 403 });
     }
 
-    const numericDownPayment = Number(downPayment) || 0;
-    const numericRate = Number(interestRate) || 0;
-    // Regla de negocio: Total a Pagar = (Monto Base + Intereses/Porcentaje de Ganancia) - Inicial
-    // donde Intereses = Monto Base * (Porcentaje / 100)
-    const totalInterest = (basePrice * numericRate) / 100;
-    const totalAmount = Number(Math.max(0, (basePrice + totalInterest) - numericDownPayment).toFixed(2));
-    const financedAmount = Math.max(0, basePrice - numericDownPayment);
-    const count = parseInt(installmentCount, 10) || 1;
-    const installmentAmount = Number((totalAmount / count).toFixed(2));
+    let plan;
+    try {
+      plan = computeLoanPlan({ ...cfg, products: db.products, existingItems: [], existingInstallments: [] });
+    } catch (error) {
+      return planErrorResponse(error);
+    }
 
-    // Generate schedule dates
-    const start = startDate ? new Date(startDate) : new Date();
-    const installments = [];
-
-    for (let i = 1; i <= count; i++) {
-      const dueDate = new Date(start);
-      if (frequency === 'semanal') {
-        dueDate.setDate(dueDate.getDate() + (i * 7));
-      } else if (frequency === 'quincenal') {
-        dueDate.setDate(dueDate.getDate() + (i * 14));
-      } else {
-        dueDate.setMonth(dueDate.getMonth() + i);
-      }
-
-      installments.push({
-        number: i,
-        dueDate: dueDate.toISOString().split('T')[0],
-        amount: installmentAmount,
-        paid: false,
-        paidDate: null,
-        receiptRef: null
-      });
+    // El alta descuenta el inventario reservado por los productos del plan.
+    for (const delta of plan.stockDeltas) {
+      const product = db.products.find(p => String(p?.id) === delta.productId);
+      if (product) product.stock = Math.floor(Number(product.stock) || 0) - delta.delta;
     }
 
     const ownerId = client.userId || user?.id || 'usr_admin';
     const newLoan = {
       id: 'ln_' + Date.now(),
       userId: ownerId,
-      clientId,
+      clientId: cfg.clientId,
       clientName: client.name,
-      type,
-      productId: type === 'producto' ? productId : null,
-      productName,
-      principal: basePrice,
-      downPayment: numericDownPayment,
-      financedAmount,
-      interestRate: numericRate,
-      totalAmount,
-      installmentCount: count,
-      installmentAmount,
-      frequency,
-      startDate: start.toISOString().split('T')[0],
-      notes,
+      type: cfg.type,
+      productId: plan.productId,
+      productName: plan.productName,
+      items: plan.items,
+      principal: plan.principal,
+      downPayment: plan.downPayment,
+      financedAmount: plan.financedAmount,
+      interestRate: plan.interestRate,
+      interestMode: plan.interestMode,
+      interestAmount: plan.interestAmount,
+      totalAmount: plan.totalAmount,
+      installmentCount: plan.installmentCount,
+      installmentAmount: plan.installmentAmount,
+      frequency: cfg.frequency,
+      startDate: plan.startDate,
+      notes: cfg.notes,
       status: 'al_dia',
-      installments,
-      createdAt: new Date().toISOString()
+      installments: plan.installments,
+      metadata: {
+        items: plan.items,
+        interestMode: plan.interestMode,
+        interestAmount: plan.interestAmount,
+      },
+      createdAt: new Date().toISOString(),
     };
 
     db.loans.unshift(newLoan);
@@ -150,13 +177,113 @@ export async function POST(request) {
   }
 }
 
+/**
+ * Edita únicamente las condiciones de pago de un financiamiento existente:
+ * interés, cantidad de cuotas, frecuencia y fecha de inicio.
+ *
+ * Cliente, productos, inventario, monto base y enganche quedan congelados.
+ * Los abonos confirmados (`payments`) son la fuente de verdad: sus cuotas se
+ * conservan y el saldo se recalcula restando ese total pagado.
+ */
+export async function PATCH(request) {
+  try {
+    const db = await getStateForRequest(request);
+    prepareState(db);
+    const perm = checkWritePermission(request, db);
+    if (!perm.allowed) {
+      return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
+    }
+    const user = perm.user || getRequestUser(request, db);
+    if (!user) {
+      return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id') || body.id;
+    if (!id) return NextResponse.json({ success: false, error: 'ID requerido' }, { status: 400 });
+
+    const loan = db.loans.find(l => String(l?.id) === String(id));
+    if (!loan) {
+      return NextResponse.json({ success: false, error: 'Financiamiento no encontrado' }, { status: 404 });
+    }
+    if (!canAccessRecord(user, loan)) {
+      return NextResponse.json({ success: false, error: 'No autorizado para editar este financiamiento' }, { status: 403 });
+    }
+    if (loan.archived) {
+      return NextResponse.json({ success: false, error: 'Este financiamiento fue dado de baja y no admite cambios' }, { status: 400 });
+    }
+
+    const lockedError = lockedFieldsError(body, loan);
+    if (lockedError) {
+      return NextResponse.json({ success: false, error: lockedError }, { status: 400 });
+    }
+
+    // Sólo se leen campos editables del body; el resto se toma del préstamo
+    // guardado para que ningún pago, producto o monto histórico se reescriba.
+    const cfg = readLoanPayload({
+      clientId: loan.clientId,
+      type: loan.type,
+      items: getLoanItems(loan),
+      productId: loan.productId,
+      principal: loan.principal,
+      downPayment: loan.downPayment,
+      interestMode: body.interestMode ?? loan.interestMode ?? 'percent',
+      interestRate: body.interestRate ?? loan.interestRate,
+      interestAmount: body.interestAmount ?? loan.interestAmount,
+      installmentCount: body.installmentCount ?? loan.installmentCount,
+      frequency: body.frequency ?? loan.frequency,
+      startDate: body.startDate ?? loan.startDate,
+      notes: loan.notes,
+    });
+
+    const paidAmount = (db.payments || [])
+      .filter(p => String(p?.loanId || p?.loan_id) === String(loan.id))
+      .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+    let plan;
+    try {
+      plan = computeLoanPlan({
+        ...cfg,
+        products: db.products,
+        existingItems: getLoanItems(loan),
+        existingInstallments: Array.isArray(loan.installments) ? loan.installments : [],
+        paidAmountOverride: paidAmount,
+        fixedPrincipal: loan.principal,
+        fixedProductName: loan.productName || '',
+      });
+    } catch (error) {
+      return planErrorResponse(error);
+    }
+
+    try {
+      await applyLoanEdit({ request, db, loan, plan, frequency: cfg.frequency });
+    } catch (error) {
+      console.error('Loans PATCH persist error:', error);
+      const message = error?.message || 'No se pudo guardar el financiamiento';
+      const status = /total|abonado|cuotas|no está instalada|no autenticado|no encontrado/i.test(message) ? 409 : 500;
+      return NextResponse.json({ success: false, error: message }, { status });
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Condiciones de pago actualizadas exitosamente',
+      loanId: loan.id,
+      paidAmount: plan.paidAmount,
+      remainingAmount: plan.remainingAmount,
+      installmentAmount: plan.installmentAmount,
+      loanStatus: computeLoanStatus(loan),
+    });
+  } catch (error) {
+    console.error('Loans PATCH error:', error);
+    return NextResponse.json({ success: false, error: 'Error al actualizar financiamiento' }, { status: 500 });
+  }
+}
+
 export async function DELETE(request) {
   try {
     const db = await getStateForRequest(request);
-    if (!Array.isArray(db.loans)) db.loans = [];
-    if (!Array.isArray(db.clients)) db.clients = [];
-    if (!Array.isArray(db.products)) db.products = [];
-    if (!Array.isArray(db.blacklist)) db.blacklist = [];
+    prepareState(db);
     const perm = checkWritePermission(request, db);
     if (!perm.allowed) {
       return NextResponse.json({ success: false, error: perm.error, licenseExpired: true }, { status: 403 });
@@ -270,4 +397,3 @@ export async function DELETE(request) {
     return NextResponse.json({ success: false, error: 'Error al dar de baja el financiamiento' }, { status: 500 });
   }
 }
-

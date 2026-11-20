@@ -6,7 +6,7 @@ import { isSupabaseConfigured } from '@/server/supabase/env';
 import { profileToLegacyUser, resolveRequestAuth, type RequestAuth } from '@/server/auth/request-auth';
 import { decryptStateSecretsInMemory, encryptStateSecretsAtRest } from '@/server/security/security.js';
 import { normalizeTrustConfig } from '@/modules/trust/service.js';
-import { getRequestUser } from '@/shared/lib/db.js';
+import { computeLoanStatus, getRequestUser } from '@/shared/lib/db.js';
 import {
   getAppState as legacyGetAppState,
   saveAppState as legacySaveAppState,
@@ -91,7 +91,7 @@ function badRequest(error: { message: string } | null, context: string) {
 const SCOPED_COLUMNS: Partial<Record<keyof Database['public']['Tables'], string>> = {
   clients: 'id, user_id, name, dni, phone, address, trust_level, credit_limit, notes, is_active, created_at, updated_at',
   products: 'id, user_id, name, category, cost_price, sale_price, profit_margin_percent, manual_sale_price, stock, created_at, updated_at',
-  loans: 'id, user_id, client_id, client_name, type, product_id, product_name, principal, down_payment, financed_amount, interest_rate, total_amount, installment_count, installment_amount, frequency, start_date, notes, status, archived, archived_at, archive_reason, final_status, created_at, updated_at',
+  loans: 'id, user_id, client_id, client_name, type, product_id, product_name, principal, down_payment, financed_amount, interest_rate, total_amount, installment_count, installment_amount, frequency, start_date, notes, status, archived, archived_at, archive_reason, final_status, metadata, created_at, updated_at',
   loan_installments: 'id, loan_id, installment_number, due_date, amount, paid, paid_date, receipt_ref',
   payments: 'id, user_id, loan_id, client_id, installment_number, amount, payment_date, metadata, method, reference, notes, created_at, updated_at',
   ecommerce_transactions: 'id, user_id, type, title, amount_bs, amount_usd, bcv_rate, bank_origin, bank_destination, reference, transaction_date, receipt_url, ocr_provider, raw_ocr, created_at, updated_at',
@@ -130,6 +130,59 @@ function emptyState() {
     capitalMovements: [],
     __currentUser: null as AnyRecord | null,
   };
+}
+
+/**
+ * Actualización atómica de un financiamiento en Supabase.
+ *
+ * La RPC bloquea la fila del préstamo, valida propiedad y montos, reescribe
+ * sólo el cronograma pendiente y actualiza las condiciones de pago en una
+ * sola transacción. No recibe products/stock: inventario, cliente y monto base
+ * quedan congelados. La tabla `payments` nunca se toca.
+ */
+export async function updateLoanPlanAtomic(args: {
+  request: Request;
+  loan: AnyRecord;
+  plan: import('@/modules/loans/plan').LoanPlanResult;
+}): Promise<void> {
+  const { request, loan, plan } = args;
+  const auth = await resolveRequestAuth(request);
+  if (!auth.userId || !auth.supabase) throw new Error('No autenticado');
+
+  const userId = toUuid(auth.userId);
+  const loanId = toUuid(loan.id);
+  // Sólo se envían cuotas pendientes; la RPC deja intactas las pagadas.
+  const installments = plan.installments
+    .filter((inst: AnyRecord) => !inst.paid)
+    .map((inst: AnyRecord) => ({
+      id: isUuid(inst.id) ? inst.id : toUuid(`installment:${loanId}:${inst.number}`),
+      number: inst.number,
+      dueDate: dateOnly(inst.dueDate),
+      amount: num(inst.amount),
+    }));
+
+  const { error } = await (auth.supabase as any).rpc('update_loan_plan', {
+    p_loan_id: loanId,
+    p_user_id: userId,
+    p_interest_rate: plan.interestRate,
+    p_interest_mode: plan.interestMode,
+    p_interest_amount: plan.interestAmount,
+    p_total_amount: plan.totalAmount,
+    p_installment_count: plan.installmentCount,
+    p_installment_amount: plan.installmentAmount,
+    p_frequency: ['diario', 'semanal', 'quincenal', 'mensual'].includes(loan.frequency) ? loan.frequency : 'mensual',
+    p_start_date: plan.startDate,
+    p_status: computeLoanStatus({ ...loan, installments: plan.installments }),
+    p_installments: installments,
+  });
+
+  if (error) {
+    const message = error.message || String(error);
+    if (/could not find the function|schema cache|does not exist/i.test(message)) {
+      throw new Error('La función update_loan_plan no está instalada en Supabase. Ejecuta la migración 20261120000200_edit_loan_plan_rpc.sql.');
+    }
+    throw new Error(message);
+  }
 }
 
 export async function getStateForRequest(request: Request): Promise<AnyRecord> {
@@ -341,6 +394,10 @@ function mapLoan(row: AnyRecord, installments: any[]) {
     archivedAt: row.archived_at,
     archiveReason: row.archive_reason,
     finalStatus: row.final_status,
+    metadata: jsonObject(row.metadata),
+    items: Array.isArray(row.metadata?.items) ? row.metadata.items : [],
+    interestMode: row.metadata?.interestMode === 'fixed' ? 'fixed' : 'percent',
+    interestAmount: num(row.metadata?.interestAmount, num(row.interest_rate ? (num(row.principal) * num(row.interest_rate)) / 100 : 0)),
     installments: installments.sort((a, b) => a.number - b.number),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -758,6 +815,17 @@ function loanRow(userId: string, loan: AnyRecord, clientIds: Set<string>, produc
     archived_at: loan.archivedAt ? timestampOrNow(loan.archivedAt) : null,
     archive_reason: text(loan.archiveReason),
     final_status: text(loan.finalStatus),
+    metadata: {
+      ...(jsonObject(loan.metadata) as AnyRecord),
+      items: Array.isArray(loan.items) && loan.items.length > 0
+        ? loan.items.map((item: AnyRecord) => ({
+            productId: toUuid(item?.productId || item?.product_id),
+            quantity: Math.max(1, int(item?.quantity, 1)),
+          }))
+        : type === 'producto' && productId ? [{ productId, quantity: 1 }] : [],
+      interestMode: loan.interestMode === 'fixed' ? 'fixed' : 'percent',
+      interestAmount: num(loan.interestAmount, 0),
+    } as Json,
   };
 }
 

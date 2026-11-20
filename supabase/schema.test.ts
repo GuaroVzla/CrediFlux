@@ -54,4 +54,22 @@ describe('M-008: supabase/schema.sql — RLS, políticas y bucket de comprobante
     expect(sql).toContain("bucket_id = 'receipts'")
     expect(sql).toContain("(storage.foldername(name))[1] = (select auth.uid())::text")
   })
+
+  it('incluye la RPC atómica para editar condiciones de pago', () => {
+    expect(sql).toContain('create or replace function public.update_loan_plan(')
+    expect(sql).toContain('for update')
+    expect(sql).toContain('from public.payments')
+    expect(sql).toContain('no puede ser menor al monto ya abonado')
+    expect(sql).toContain('grant execute on function public.update_loan_plan to authenticated, service_role')
+  })
+
+  it('la RPC no expone parámetros de inventario ni de datos congelados', () => {
+    const rpc = sql.slice(sql.indexOf('create or replace function public.update_loan_plan('))
+    for (const forbidden of [
+      'p_stock_deltas', 'p_client_id', 'p_product_id', 'p_principal', 'p_down_payment',
+      'update public.products', 'update public.clients', 'insert into public.payments',
+    ]) {
+      expect(rpc).not.toContain(forbidden)
+    }
+  })
 })

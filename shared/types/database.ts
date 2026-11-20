@@ -856,6 +856,23 @@ export type Database = {
     Functions: {
       is_admin: { Args: never; Returns: boolean }
       normalize_dni: { Args: { value: string }; Returns: string }
+      update_loan_plan: {
+        Args: {
+          p_loan_id: string
+          p_user_id: string
+          p_interest_rate: number
+          p_interest_mode: string
+          p_interest_amount: number
+          p_total_amount: number
+          p_installment_count: number
+          p_installment_amount: number
+          p_frequency: string
+          p_start_date: string
+          p_status: string
+          p_installments: Json
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never

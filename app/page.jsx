@@ -209,6 +209,7 @@ export default function CrediFluxApp() {
   const [clientModal, setClientModal] = useState({ open: false, data: null });
   const [productModal, setProductModal] = useState({ open: false, data: null });
   const [loanModal, setLoanModal] = useState({ open: false, data: null });
+  const [loanSaving, setLoanSaving] = useState(false);
   const [quickPayModal, setQuickPayModal] = useState({ open: false, loan: null });
   const [quickPaySelection, setQuickPaySelection] = useState(''); // 'all' o número de cuota
   const [expandedLoanId, setExpandedLoanId] = useState(null);
@@ -3429,7 +3430,17 @@ export default function CrediFluxApp() {
                                 </span>
                               </td>
                               <td className="py-2.5 px-3 text-center align-middle">
-                                <div className="inline-flex items-center justify-center gap-1">
+                                <div className="inline-flex items-center gap-0.5 rounded-xl border border-slate-700/60 bg-slate-900/40 p-0.5 shadow-sm">
+                                  <button
+                                    type="button"
+                                    onClick={() => setExpandedLoanId(isExpanded ? null : loan.id)}
+                                    title={isExpanded ? 'Ocultar cronograma' : 'Ver cronograma de cuotas'}
+                                    aria-label={isExpanded ? 'Ocultar cronograma' : 'Ver cronograma de cuotas'}
+                                    className="h-9 w-9 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                                  >
+                                    {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                                  </button>
+                                  <span className="mx-0.5 h-5 w-px bg-slate-700/70" aria-hidden="true" />
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -3440,19 +3451,33 @@ export default function CrediFluxApp() {
                                     }}
                                     title="Registrar abono o pago de cuota"
                                     aria-label="Registrar abono o pago de cuota"
-                                    className="p-2 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-emerald-400 hover:text-emerald-400 hover:bg-slate-800 transition-colors"
+                                    className="h-9 w-9 inline-flex items-center justify-center rounded-lg text-emerald-400 hover:bg-emerald-500/10 transition-colors"
                                   >
                                     <Wallet className="w-4 h-4" />
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={() => setExpandedLoanId(isExpanded ? null : loan.id)}
-                                    title={isExpanded ? 'Ocultar cronograma' : 'Ver cronograma de cuotas'}
-                                    aria-label={isExpanded ? 'Ocultar cronograma' : 'Ver cronograma de cuotas'}
-                                    className="p-2 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                                    onClick={() => {
+                                      if (isUserExpired) { notify(SUPPORT_CONTACT_TEXT, 'error'); return; }
+                                      setLoanModal({
+                                        open: true,
+                                        data: {
+                                          ...loan,
+                                          items: Array.isArray(loan.items) && loan.items.length
+                                            ? loan.items
+                                            : (loan.productId ? [{ productId: loan.productId, quantity: 1 }] : []),
+                                          interestMode: loan.interestMode || 'percent',
+                                          interestAmount: loan.interestAmount ?? Number(((Number(loan.principal) || 0) * (Number(loan.interestRate) || 0) / 100).toFixed(2))
+                                        }
+                                      });
+                                    }}
+                                    title="Editar condiciones de pago"
+                                    aria-label="Editar financiamiento"
+                                    className="h-9 w-9 inline-flex items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-300 ring-1 ring-inset ring-emerald-500/30 hover:bg-emerald-500/20 hover:text-emerald-200 transition-colors"
                                   >
-                                    {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                                    <Edit3 className="w-4 h-4" />
                                   </button>
+                                  <span className="mx-0.5 h-5 w-px bg-slate-700/70" aria-hidden="true" />
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -3461,7 +3486,7 @@ export default function CrediFluxApp() {
                                     }}
                                     title="Eliminar financiamiento"
                                     aria-label="Eliminar financiamiento"
-                                    className="p-2 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-rose-400 hover:text-rose-300 hover:bg-slate-800 transition-colors"
+                                    className="h-9 w-9 inline-flex items-center justify-center rounded-lg text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 transition-colors"
                                   >
                                     <Trash2 className="w-4 h-4" />
                                   </button>
@@ -7025,9 +7050,12 @@ export default function CrediFluxApp() {
           clientId: '',
           type: 'producto',
           productId: '',
+          items: [],
           principal: '',
           downPayment: 0,
           interestRate: 15,
+          interestMode: 'percent',
+          interestAmount: 0,
           interestRateUnlocked: false,
           installmentCount: 4,
           frequency: 'quincenal',
@@ -7035,23 +7063,52 @@ export default function CrediFluxApp() {
           notes: ''
         };
         const setDraft = (patch) => setLoanModal(prev => ({ ...prev, data: { ...(prev.data || draft), ...patch } }));
+        const isEdit = Boolean(draft.id);
+        const productItems = Array.isArray(draft.items) ? draft.items : [];
+        const setItems = (nextItems) => setDraft({ items: nextItems, productId: nextItems[0]?.productId || '' });
+        const pricedItems = productItems.map(item => {
+          const prod = (products || []).find(p => String(p.id) === String(item.productId));
+          const qty = Math.max(1, parseInt(item.quantity, 10) || 1);
+          return { ...item, product: prod, quantity: qty, subtotal: (Number(prod?.costPrice) || 0) * qty };
+        });
+        const availableProducts = (products || []).filter(p =>
+          (Number(p.stock) || 0) > 0 || productItems.some(it => String(it.productId) === String(p.id))
+        );
         const base = Number(draft.principal) || 0;
         const down = Number(draft.downPayment) || 0;
         const rate = Number(draft.interestRate) || 0;
-        const interesMonto = base * (rate / 100);
-        const totalAPagar = Math.max(0, (base + interesMonto) - down);
-        const selectedProduct = (products || []).find(p => p.id === draft.productId);
-        const availableProducts = (products || []).filter(p => (Number(p.stock) || 0) > 0);
+        const interestMode = draft.interestMode === 'fixed' ? 'fixed' : 'percent';
+        const fixedInterest = Number(draft.interestAmount) || 0;
+        const interesMonto = interestMode === 'fixed' ? fixedInterest : base * (rate / 100);
+        const totalAPagar = Math.max(0, base + interesMonto - down);
+        const paidCount = (draft.installments || []).filter(i => i.paid).length;
+        // Los abonos confirmados son inmutables y se leen de `payments`.
+        const paidAmount = isEdit
+          ? (payments || [])
+              .filter(p => String(p?.loanId || p?.loan_id) === String(draft.id))
+              .reduce((sum, p) => sum + (Number(p.amount) || 0), 0)
+          : 0;
+        const remainingAmount = Math.max(0, totalAPagar - paidAmount);
+        const installmentCountNum = parseInt(draft.installmentCount, 10) || 1;
+        const remainingInstallments = Math.max(0, installmentCountNum - paidCount);
+        const perInstallment = remainingInstallments > 0 ? remainingAmount / remainingInstallments : 0;
+        const totalBelowPaid = isEdit && totalAPagar + 0.01 < paidAmount;
+        const clientName = clients.find(c => String(c.id) === String(draft.clientId))?.name || draft.clientName || '—';
         const inputCls = `w-full px-3 py-2 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`;
+        const readOnlyCls = 'w-full px-3 py-2 rounded-xl border border-slate-700/60 bg-slate-900/40 text-slate-300 text-xs font-semibold tabular-nums cursor-not-allowed opacity-90';
         const labelCls = 'block text-slate-300 font-semibold mb-1 text-xs';
 
         return (
-        <div role="dialog" aria-modal="true" aria-label="Nuevo financiamiento" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className={`w-full max-w-4xl ${settingsModalCls} border rounded-3xl p-4 sm:p-5 shadow-2xl max-h-[94vh] overflow-y-auto`}>
+        <div role="dialog" aria-modal="true" aria-label={isEdit ? 'Editar condiciones de pago' : 'Nuevo financiamiento'} tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className={`w-full max-w-5xl ${settingsModalCls} border rounded-3xl p-4 sm:p-5 shadow-2xl max-h-[94vh] overflow-y-auto`}>
             <div className={`flex items-center justify-between pb-3 border-b ${settingsModalBorderCls}`}>
               <div>
-                <h3 className="font-bold text-base text-slate-200">Nuevo Financiamiento o Préstamo</h3>
-                <p className="text-xs text-slate-400">Captura compacta con cálculos automáticos y resumen financiero.</p>
+                <h3 className="font-bold text-base text-slate-200">{isEdit ? 'Editar Condiciones de Pago' : 'Nuevo Financiamiento o Préstamo'}</h3>
+                <p className="text-xs text-slate-400">
+                  {isEdit
+                    ? 'Sólo cambian interés, cuotas, frecuencia e inicio. Los abonos y el histórico se conservan.'
+                    : 'Captura compacta con cálculos automáticos y resumen financiero.'}
+                </p>
               </div>
               <button type="button" onClick={() => setLoanModal({ open: false, data: null })} className="p-1.5 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white" title="Cerrar">
                 <X className="w-5 h-5" />
@@ -7062,259 +7119,412 @@ export default function CrediFluxApp() {
               onSubmit={async (e) => {
                 e.preventDefault();
                 if (isUserExpired) { notify(SUPPORT_CONTACT_TEXT, 'error'); return; }
-                const payload = {
+                if (!isEdit) {
+                  if (!draft.clientId) { notify('Selecciona un cliente', 'error'); return; }
+                  if (draft.type === 'producto' && productItems.length === 0) { notify('Agrega al menos un producto', 'error'); return; }
+                  if (draft.type === 'producto' && productItems.some(item => !item.productId)) { notify('Selecciona el producto en todas las filas', 'error'); return; }
+                  if (draft.type === 'dinero' && !(Number(draft.principal) > 0)) { notify('Ingresa un monto base válido', 'error'); return; }
+                  if (down > base) { notify('El enganche no puede superar el monto base', 'error'); return; }
+                }
+                if (installmentCountNum < 1) { notify('La cantidad de cuotas debe ser al menos 1', 'error'); return; }
+                if (installmentCountNum < paidCount) { notify(`Las cuotas no pueden ser menos a las ${paidCount} ya pagadas`, 'error'); return; }
+                if (totalBelowPaid) { notify(`El nuevo total no puede ser menor al monto ya abonado ($${paidAmount.toFixed(2)})`, 'error'); return; }
+
+                const condiciones = {
+                  interestMode,
+                  interestRate: rate,
+                  interestAmount: fixedInterest,
+                  installmentCount: installmentCountNum,
+                  frequency: draft.frequency || 'quincenal',
+                  startDate: draft.startDate || new Date().toISOString().split('T')[0]
+                };
+                const payload = isEdit ? condiciones : {
                   clientId: draft.clientId,
                   type: draft.type,
-                  productId: draft.type === 'producto' ? (draft.productId || null) : null,
-                  principal: Number(draft.principal) || 0,
-                  downPayment: Number(draft.downPayment) || 0,
-                  interestRate: Number(draft.interestRate) || 0,
-                  installmentCount: parseInt(draft.installmentCount, 10) || 1,
-                  frequency: draft.frequency || 'quincenal',
-                  startDate: draft.startDate || new Date().toISOString().split('T')[0],
-                  notes: draft.notes || ''
+                  productId: draft.type === 'producto' ? (productItems[0]?.productId || null) : null,
+                  items: draft.type === 'producto'
+                    ? productItems.map(item => ({ productId: item.productId, quantity: Number(item.quantity) || 1 }))
+                    : [],
+                  principal: Number(base) || 0,
+                  downPayment: down,
+                  notes: draft.notes || '',
+                  ...condiciones
                 };
-                if (!payload.clientId) { notify('Selecciona un cliente', 'error'); return; }
-                if (payload.type === 'producto' && !payload.productId) { notify('Selecciona un producto del catálogo', 'error'); return; }
-                if (!(payload.principal > 0)) { notify('Ingresa un monto base válido', 'error'); return; }
 
-                const res = await fetch('/api/loans', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser.id },
-                  body: JSON.stringify(payload)
-                });
-                const d = await res.json();
-                if (d.licenseExpired) { notify(SUPPORT_CONTACT_TEXT, 'error'); return; }
-                if (d.success) {
-                  notify(d.message);
-                  setLoanModal({ open: false, data: null });
-                  fetchAllData();
-                } else {
-                  notify(d.error || 'Error al crear financiamiento', 'error');
+                setLoanSaving(true);
+                try {
+                  const res = await fetch(isEdit ? `/api/loans?id=${encodeURIComponent(draft.id)}` : '/api/loans', {
+                    method: isEdit ? 'PATCH' : 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser.id },
+                    body: JSON.stringify(payload)
+                  });
+                  const d = await res.json();
+                  if (d.licenseExpired) { notify(SUPPORT_CONTACT_TEXT, 'error'); return; }
+                  if (d.success) {
+                    notify(d.message || (isEdit ? 'Condiciones de pago actualizadas' : 'Financiamiento creado'));
+                    setLoanModal({ open: false, data: null });
+                    fetchAllData();
+                  } else {
+                    notify(d.error || 'Error al guardar financiamiento', 'error');
+                  }
+                } catch (err) {
+                  notify(err?.message || 'Error de conexión al guardar', 'error');
+                } finally {
+                  setLoanSaving(false);
                 }
               }}
               className="mt-4 space-y-3"
             >
-              {/* Sección 1: Datos principales */}
-              <section className="rounded-2xl border border-slate-700/60 bg-slate-800/50 p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400">1. Datos principales</h4>
-                  <span className="text-xs text-slate-400">Cliente y producto</span>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className={labelCls}>Cliente *</label>
-                    <select
-                      value={draft.clientId || ''}
-                      onChange={(e) => setDraft({ clientId: e.target.value })}
-                      required
-                      className={inputCls}
-                    >
-                      <option value="">-- Elige un cliente --</option>
-                      {clients.map(c => (
-                        <option key={c.id} value={c.id}>{c.name} ({c.dni})</option>
-                      ))}
-                    </select>
+              {isEdit ? (
+                <section className="rounded-2xl border border-slate-700/60 bg-slate-800/50 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400">Datos congelados</h4>
+                    <span className="inline-flex items-center gap-1 text-xs text-amber-400/90"><Lock className="w-3.5 h-3.5" /> Solo lectura</span>
                   </div>
-                  <div className={draft.type === 'producto' ? 'grid grid-cols-1 md:grid-cols-2 gap-2' : ''}>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <div>
-                      <label className={labelCls}>Modalidad</label>
-                      <select
-                        value={draft.type || 'producto'}
-                        onChange={(e) => {
-                          const nextType = e.target.value;
-                          if (nextType === 'dinero') {
-                            setDraft({ type: nextType, productId: '', interestRateUnlocked: false });
-                          } else {
-                            setDraft({ type: nextType });
-                          }
-                        }}
-                        className={inputCls}
-                      >
-                        <option value="producto">Equipo / producto</option>
-                        <option value="dinero">Dinero / efectivo</option>
-                      </select>
+                      <span className={labelCls}>Cliente</span>
+                      <div className={readOnlyCls}>{clientName}</div>
                     </div>
-                    {draft.type === 'producto' && (
+                    <div>
+                      <span className={labelCls}>Productos / modalidad</span>
+                      <div className={readOnlyCls}>
+                        {draft.type === 'producto'
+                          ? pricedItems.map(item => `${item.product?.name || item.productId} ×${item.quantity}`).join(', ') || '—'
+                          : 'Dinero / efectivo'}
+                      </div>
+                    </div>
+                    <div>
+                      <span className={labelCls}>Monto base original</span>
+                      <div className={readOnlyCls}>${base.toFixed(2)}</div>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-400">
+                    Productos, inventario, cliente, monto base y enganche no se modifican. Los pagos registrados se conservan íntegros.
+                  </p>
+                </section>
+              ) : (
+                <>
+                  {/* Datos principales (sólo alta) */}
+                  <section className="rounded-2xl border border-slate-700/60 bg-slate-800/50 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400">1. Datos principales</h4>
+                      <span className="text-xs text-slate-400">Cliente y producto</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div>
-                        <label className={labelCls}>Producto *</label>
-                        <select
-                          value={draft.productId || ''}
-                          onChange={(e) => {
-                            const pid = e.target.value;
-                            const prod = (products || []).find(p => p.id === pid);
-                            if (prod) {
-                              const margin = Number(prod.profitMarginPercent);
-                              const autoRate = Number.isFinite(margin) ? margin : 0;
-                              setDraft({
-                                productId: pid,
-                                // Monto base = costo registrado del producto (bloqueado para financiamientos de inventario)
-                                principal: Number(prod.costPrice) || 0,
-                                // Porcentaje de ganancia preconfigurado del producto
-                                interestRate: Number(Number(autoRate).toFixed(2)),
-                                interestRateUnlocked: false
-                              });
-                            } else {
-                              setDraft({ productId: '', principal: '', interestRate: 15, interestRateUnlocked: false });
-                            }
-                          }}
-                          className={inputCls}
-                        >
-                          <option value="">-- Seleccionar --</option>
-                          {availableProducts.map(p => (
-                            <option key={p.id} value={p.id}>{p.name} — ${Number(p.salePrice || 0).toFixed(2)}</option>
+                        <label className={labelCls}>Cliente *</label>
+                        <select value={draft.clientId || ''} onChange={(e) => setDraft({ clientId: e.target.value })} required className={inputCls}>
+                          <option value="">-- Elige un cliente --</option>
+                          {clients.map(c => (
+                            <option key={c.id} value={c.id}>{c.name} ({c.dni})</option>
                           ))}
                         </select>
                       </div>
+                      <div>
+                        <label className={labelCls}>Modalidad</label>
+                        <select
+                          value={draft.type || 'producto'}
+                          onChange={(e) => setDraft({ type: e.target.value, productId: '', items: [], interestRateUnlocked: false })}
+                          className={inputCls}
+                        >
+                          <option value="producto">Equipo / producto</option>
+                          <option value="dinero">Dinero / efectivo</option>
+                        </select>
+                      </div>
+                    </div>
+                    {draft.type === 'producto' && (
+                      <div className="mt-3 rounded-xl border border-slate-700/60 bg-slate-900/30 p-2.5">
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <span className="text-xs font-bold uppercase tracking-wide text-slate-400">Productos financiados ({productItems.length})</span>
+                          <button
+                            type="button"
+                            onClick={() => setItems([...productItems, { productId: '', quantity: 1 }])}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-500/40 text-emerald-400 text-xs font-bold hover:bg-emerald-500/10"
+                          >
+                            <Plus className="w-3.5 h-3.5" /> Agregar producto
+                          </button>
+                        </div>
+                        {pricedItems.length === 0 ? (
+                          <p className="text-xs text-slate-400">Agrega al menos un producto del catálogo para calcular el monto base.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {pricedItems.map((item, index) => (
+                              <div key={`${item.productId || 'nuevo'}-${index}`} className="grid grid-cols-[1fr_72px_88px_36px] gap-2 items-center">
+                                <select
+                                  value={item.productId || ''}
+                                  onChange={(e) => {
+                                    const next = [...productItems];
+                                    next[index] = { ...next[index], productId: e.target.value };
+                                    setItems(next);
+                                  }}
+                                  className={inputCls}
+                                  aria-label={`Producto ${index + 1}`}
+                                >
+                                  <option value="">-- Producto --</option>
+                                  {availableProducts.map(p => (
+                                    <option key={p.id} value={p.id}>{p.name} — stock {Number(p.stock) || 0}</option>
+                                  ))}
+                                </select>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max="999"
+                                  value={item.quantity}
+                                  onChange={(e) => {
+                                    const next = [...productItems];
+                                    next[index] = { ...next[index], quantity: Math.max(1, parseInt(e.target.value, 10) || 1) };
+                                    setItems(next);
+                                  }}
+                                  className={inputCls}
+                                  title="Cantidad"
+                                  aria-label={`Cantidad del producto ${index + 1}`}
+                                />
+                                <div className="text-xs text-right text-slate-300 font-semibold tabular-nums">${item.subtotal.toFixed(2)}</div>
+                                <button
+                                  type="button"
+                                  onClick={() => setItems(productItems.filter((_, i) => i !== index))}
+                                  className="p-2 min-h-[36px] min-w-[36px] inline-flex items-center justify-center rounded-lg text-rose-400 hover:bg-rose-500/10"
+                                  title="Quitar producto"
+                                  aria-label="Quitar producto"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     )}
-                  </div>
-                </div>
-                {draft.type === 'producto' && selectedProduct && (
-                  <p className="mt-1.5 text-xs text-emerald-400/90">Monto base (costo) y % de ganancia cargados automáticamente desde el catálogo.</p>
-                )}
-              </section>
+                  </section>
 
-              {/* Sección 2: Cálculos y montos */}
-              <section className="rounded-2xl border border-slate-700/60 bg-slate-800/50 p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400">2. Cálculos y montos</h4>
-                  <span className="text-xs text-slate-400">Base, ganancia e inicial</span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className={labelCls}>Monto Base / Precio ($) *</label>
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      value={draft.principal === '' ? '' : draft.principal}
-                      onChange={(e) => setDraft({ principal: e.target.value === '' ? '' : Number(e.target.value) })}
-                      required
-                      readOnly={draft.type === 'producto' && Boolean(draft.productId)}
-                      title={draft.type === 'producto' && draft.productId ? 'El monto base se toma del costo del producto y no es editable' : undefined}
-                      className={`${inputCls} font-bold ${draft.type === 'producto' && draft.productId ? 'opacity-70 cursor-not-allowed bg-slate-800/70' : ''}`}
-                      placeholder="Ej. 700"
-                    />
-                    {draft.type === 'producto' && draft.productId && (
-                      <p className="mt-1 text-xs text-slate-400">Bloqueado: usa el costo registrado del producto.</p>
+                  <section className="rounded-2xl border border-slate-700/60 bg-slate-800/50 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400">2. Cálculos y montos</h4>
+                      <span className="text-xs text-slate-400">Base, ganancia e inicial</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className={labelCls}>Monto Base / Precio ($) *</label>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={draft.principal === '' ? '' : draft.principal}
+                          onChange={(e) => setDraft({ principal: e.target.value === '' ? '' : Number(e.target.value) })}
+                          required
+                          className={`${inputCls} font-bold`}
+                          placeholder="Ej. 700"
+                        />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Inicial / Enganche ($)</label>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={draft.downPayment ?? 0}
+                          onChange={(e) => setDraft({ downPayment: e.target.value === '' ? 0 : Number(e.target.value) })}
+                          className={inputCls}
+                        />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Notas / condiciones</label>
+                        <input
+                          type="text"
+                          value={draft.notes || ''}
+                          onChange={(e) => setDraft({ notes: e.target.value })}
+                          className={inputCls}
+                        />
+                      </div>
+                    </div>
+                  </section>
+                </>
+              )}
+
+              {/* Condiciones de pago (siempre editables) + resumen financiero */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <section className="rounded-2xl border border-slate-700/60 bg-slate-800/50 p-3 sm:p-4">
+                  <div className="flex items-start justify-between gap-2 mb-3">
+                    <div>
+                      <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                        {isEdit ? 'Condiciones de pago (editables)' : '3. Condiciones de pago'}
+                      </h4>
+                      <p className="mt-0.5 text-xs text-slate-400">
+                        {isEdit ? 'Únicos campos que se actualizan al guardar.' : 'Define el interés y el calendario de cobros.'}
+                      </p>
+                    </div>
+                    {isEdit && (
+                      <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-400 ring-1 ring-inset ring-emerald-500/30">
+                        4 campos
+                      </span>
                     )}
                   </div>
-                  <div>
-                    <label className={labelCls}>% Ganancia / Interés</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        step="any"
-                        min="0"
-                        value={draft.interestRate === '' ? '' : draft.interestRate}
-                        onChange={(e) => setDraft({ interestRate: e.target.value === '' ? '' : Number(e.target.value) })}
-                        disabled={draft.type === 'producto' && draft.productId && !draft.interestRateUnlocked}
-                        className={`${inputCls} font-bold text-emerald-400 ${draft.type === 'producto' && draft.productId && !draft.interestRateUnlocked ? 'opacity-70 cursor-not-allowed' : ''}`}
-                      />
-                      {draft.type === 'producto' && draft.productId ? (
-                        <label className="shrink-0 inline-flex items-center gap-1 text-xs text-slate-300" title="Editar porcentaje excepcionalmente">
+
+                  <div className="space-y-3">
+                    {/* Interés */}
+                    <div className="rounded-xl border border-slate-700/50 bg-slate-900/25 p-2.5">
+                      <div className="flex items-center gap-1.5 mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                        <Coins className="w-3.5 h-3.5 text-emerald-400" /> Interés
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-[130px_1fr] gap-2">
+                        <div>
+                          <label className={labelCls}>Modalidad</label>
+                          <select
+                            value={interestMode}
+                            onChange={(e) => setDraft({ interestMode: e.target.value })}
+                            className={inputCls}
+                            title="Modalidad de interés"
+                            aria-label="Modalidad de interés"
+                          >
+                            <option value="percent">Porcentaje</option>
+                            <option value="fixed">Monto fijo</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className={labelCls}>{interestMode === 'fixed' ? 'Monto fijo ($)' : 'Tasa de interés (%)'}</label>
+                          <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={interestMode === 'fixed'
+                              ? (draft.interestAmount ?? 0)
+                              : (draft.interestRate === '' ? '' : draft.interestRate)}
+                            onChange={(e) => setDraft(interestMode === 'fixed'
+                              ? { interestAmount: e.target.value === '' ? 0 : Number(e.target.value) }
+                              : { interestRate: e.target.value === '' ? '' : Number(e.target.value) })}
+                            disabled={!isEdit && draft.type === 'producto' && productItems.length > 0 && !draft.interestRateUnlocked && interestMode === 'percent'}
+                            className={`${inputCls} font-bold text-emerald-400`}
+                          />
+                        </div>
+                      </div>
+                      {!isEdit && draft.type === 'producto' && productItems.length > 0 && interestMode === 'percent' && (
+                        <label className="mt-2 inline-flex items-center gap-1.5 text-xs text-slate-300" title="Editar porcentaje excepcionalmente">
                           <input
                             type="checkbox"
                             checked={Boolean(draft.interestRateUnlocked)}
                             onChange={(e) => setDraft({ interestRateUnlocked: e.target.checked })}
                             className="accent-emerald-500"
                           />
-                          Editar
+                          Permitir editar la tasa sugerida
                         </label>
-                      ) : null}
+                      )}
                     </div>
-                  </div>
-                  <div>
-                    <label className={labelCls}>Inicial / Enganche ($)</label>
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      value={draft.downPayment ?? 0}
-                      onChange={(e) => setDraft({ downPayment: e.target.value === '' ? 0 : Number(e.target.value) })}
-                      className={inputCls}
-                    />
-                  </div>
-                </div>
-                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
-                  <span>Intereses: <span className="text-teal-400 font-semibold">${interesMonto.toFixed(2)}</span></span>
-                  <span>Base a financiar: <span className="text-slate-200 font-semibold">${Math.max(0, base - down).toFixed(2)}</span></span>
-                </div>
-              </section>
 
-              {/* Condiciones + Resumen */}
-              <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] gap-3">
-                <section className="rounded-2xl border border-slate-700/60 bg-slate-800/50 p-3">
-                  <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2">Condiciones de pago</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                    <div>
-                      <label className={labelCls}>Cuotas</label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={36}
-                        value={draft.installmentCount ?? 4}
-                        onChange={(e) => setDraft({ installmentCount: e.target.value })}
-                        className={`${inputCls} font-bold`}
-                      />
+                    {/* Calendario de cuotas */}
+                    <div className="rounded-xl border border-slate-700/50 bg-slate-900/25 p-2.5">
+                      <div className="flex items-center gap-1.5 mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                        <Calendar className="w-3.5 h-3.5 text-emerald-400" /> Calendario de cuotas
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div>
+                          <label className={labelCls}>Cantidad</label>
+                          <input
+                            type="number"
+                            min={Math.max(1, paidCount)}
+                            max={360}
+                            value={draft.installmentCount ?? 4}
+                            onChange={(e) => setDraft({ installmentCount: e.target.value })}
+                            className={`${inputCls} font-bold`}
+                          />
+                        </div>
+                        <div>
+                          <label className={labelCls}>Frecuencia</label>
+                          <select value={draft.frequency || 'quincenal'} onChange={(e) => setDraft({ frequency: e.target.value })} className={inputCls}>
+                            <option value="semanal">Semanal</option>
+                            <option value="quincenal">Quincenal</option>
+                            <option value="mensual">Mensual</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className={labelCls}>Inicio / próximo cobro</label>
+                          <input
+                            type="date"
+                            value={draft.startDate || new Date().toISOString().split('T')[0]}
+                            onChange={(e) => setDraft({ startDate: e.target.value })}
+                            className={inputCls}
+                          />
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <label className={labelCls}>Frecuencia</label>
-                      <select
-                        value={draft.frequency || 'quincenal'}
-                        onChange={(e) => setDraft({ frequency: e.target.value })}
-                        className={inputCls}
-                      >
-                        <option value="semanal">Semanal</option>
-                        <option value="quincenal">Quincenal</option>
-                        <option value="mensual">Mensual</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className={labelCls}>Inicio</label>
-                      <input
-                        type="date"
-                        value={draft.startDate || new Date().toISOString().split('T')[0]}
-                        onChange={(e) => setDraft({ startDate: e.target.value })}
-                        className={inputCls}
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-2">
-                    <label className={labelCls}>Notas / condiciones</label>
-                    <input
-                      type="text"
-                      value={draft.notes || ''}
-                      onChange={(e) => setDraft({ notes: e.target.value })}
-                      placeholder="Garantías, serie, observaciones..."
-                      className={inputCls}
-                    />
+
+                    {isEdit && (paidCount > 0 || totalBelowPaid) && (
+                      <div className={`rounded-xl border px-3 py-2 text-xs ${
+                        totalBelowPaid
+                          ? 'border-rose-500/40 bg-rose-500/10 text-rose-300'
+                          : 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300/90'
+                      }`}>
+                        <div className="flex items-start gap-2">
+                          {totalBelowPaid
+                            ? <AlertCircle className="mt-0.5 w-3.5 h-3.5 shrink-0" />
+                            : <CheckCircle className="mt-0.5 w-3.5 h-3.5 shrink-0" />}
+                          <p>
+                            {totalBelowPaid
+                              ? 'El nuevo total es menor a lo ya abonado. Ajusta el interés para continuar.'
+                              : `${paidCount} cuota(s) pagadas ($${paidAmount.toFixed(2)}) y sus comprobantes se conservan. El saldo se distribuye entre ${remainingInstallments} cuota(s) pendiente(s).`}
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </section>
 
-                {/* Sección 3: Resumen financiero */}
-                <section className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-3 flex flex-col justify-between">
+                {/* Resumen financiero en tiempo real */}
+                <section className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-3 sm:p-4 flex flex-col justify-between">
                   <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wide text-emerald-400/80 mb-2">3. Resumen financiero</h4>
+                    <h4 className="text-xs font-bold uppercase tracking-wide text-emerald-400/80 mb-2">Resumen financiero</h4>
                     <div className="space-y-1.5 text-xs">
-                      <div className="flex items-center justify-between text-slate-300"><span>Monto base</span><span className="font-semibold tabular-nums">${base.toFixed(2)}</span></div>
-                      <div className="flex items-center justify-between text-slate-300"><span>+ Intereses ({rate || 0}%)</span><span className="font-semibold text-teal-400 tabular-nums">${interesMonto.toFixed(2)}</span></div>
-                      <div className="flex items-center justify-between text-slate-300"><span>− Inicial</span><span className="font-semibold text-amber-400 tabular-nums">${down.toFixed(2)}</span></div>
+                      <div className="flex items-center justify-between text-slate-300">
+                        <span>Monto Base Original <span className="text-slate-500">(solo lectura)</span></span>
+                        <span className="font-semibold tabular-nums">${base.toFixed(2)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-300">
+                        <span>Nuevos Intereses Calculados {interestMode === 'fixed' ? '(fijo)' : `(${rate || 0}%)`}</span>
+                        <span className="font-semibold text-teal-400 tabular-nums">${interesMonto.toFixed(2)}</span>
+                      </div>
+                      {isEdit && down > 0 && (
+                        <div className="flex items-center justify-between text-slate-300">
+                          <span>Enganche original</span>
+                          <span className="font-semibold text-amber-400 tabular-nums">− ${down.toFixed(2)}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <div className="mt-3 pt-3 border-t border-emerald-500/20">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-emerald-400/80">Total a pagar</p>
-                    <p className="mt-0.5 text-2xl font-extrabold text-slate-200 tabular-nums leading-none">${totalAPagar.toFixed(2)}</p>
-                    <p className="mt-1 text-xs text-slate-400">(Monto Base + Intereses/Porcentaje de Ganancia) − Inicial</p>
+                  <div className={`mt-3 pt-3 border-t space-y-1.5 ${totalBelowPaid ? 'border-rose-500/40' : 'border-emerald-500/20'}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-emerald-400/80">Nuevo Total del Financiamiento</span>
+                      <span className="text-lg font-extrabold text-slate-200 tabular-nums leading-none">${totalAPagar.toFixed(2)}</span>
+                    </div>
+                    {isEdit && (
+                      <div className="flex items-center justify-between rounded-lg bg-emerald-500/10 px-2 py-1.5">
+                        <span className="text-xs text-slate-300">Total Abonado / Pagado <span className="text-emerald-400">(inmutable)</span></span>
+                        <span className="text-sm font-bold text-emerald-400 tabular-nums">− ${paidAmount.toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between rounded-lg bg-amber-500/10 px-2 py-1.5">
+                      <span className="text-xs text-slate-300">Saldo Pendiente Real</span>
+                      <span className="text-base font-extrabold text-amber-400 tabular-nums">${remainingAmount.toFixed(2)}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-slate-300">
+                      <span>Nuevo Valor por Cuota</span>
+                      <span className="font-semibold text-slate-200 tabular-nums">
+                        ${perInstallment.toFixed(2)} × {remainingInstallments}
+                      </span>
+                    </div>
                   </div>
                 </section>
               </div>
 
               <div className="pt-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <p className="text-xs text-slate-400">Obligatorios: cliente, monto base y producto (si aplica).</p>
+                <p className="text-xs text-slate-400">
+                  {isEdit ? 'Al guardar se recalculan sólo las cuotas pendientes y se actualiza la tabla automáticamente.' : 'Obligatorios: cliente, monto base y producto (si aplica).'}
+                </p>
                 <div className="flex items-center gap-2 justify-end">
-                  <button type="button" onClick={() => setLoanModal({ open: false, data: null })} className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold text-xs">Cancelar</button>
-                  <button type="submit" className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs">Generar Contrato</button>
+                  <button type="button" disabled={loanSaving} onClick={() => setLoanModal({ open: false, data: null })} className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold text-xs disabled:opacity-50">Cancelar</button>
+                  <button type="submit" disabled={loanSaving} className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-bold text-xs inline-flex items-center gap-2">
+                    {loanSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                    {loanSaving ? 'Guardando…' : (isEdit ? 'Guardar condiciones' : 'Generar Contrato')}
+                  </button>
                 </div>
               </div>
             </form>
@@ -7322,7 +7532,6 @@ export default function CrediFluxApp() {
         </div>
         );
       })()}
-
       {/* MODAL: ABONO RÁPIDO / PAGO DE CUOTA                            */}
       {/* ============================================================== */}
       {quickPayModal.open && quickPayModal.loan && (
