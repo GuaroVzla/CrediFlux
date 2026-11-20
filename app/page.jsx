@@ -1646,9 +1646,9 @@ export default function CrediFluxApp() {
             </div>
             <div>
               <div className="flex items-center gap-1.5 leading-none">
-                <span className="font-black text-xl tracking-tight text-white">CREDI</span>
-                <span className="font-black text-xl tracking-tight bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">FLUX</span>
-                <span className="ml-1 text-xs px-1.5 py-0.5 rounded-full font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">PRO</span>
+                <span className={`font-black text-xl tracking-tight ${themeDark ? 'text-white' : 'text-slate-900'}`}>CREDI</span>
+                <span className={`font-black text-xl tracking-tight ${themeDark ? 'bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent' : 'text-emerald-700'}`}>FLUX</span>
+                <span className={`ml-1 text-xs px-1.5 py-0.5 rounded-full font-bold border ${themeDark ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' : 'bg-emerald-100 text-emerald-900 border-emerald-300'}`}>PRO</span>
               </div>
               <div className="flex items-center gap-2 mt-1">
                 <span className={`w-1.5 h-1.5 rounded-full motion-safe:animate-pulse ${isUserExpired ? 'bg-rose-500' : 'bg-emerald-400'}`}></span>
@@ -2612,35 +2612,35 @@ export default function CrediFluxApp() {
                         data: { clientId: '', type: 'producto', productId: '', principal: '', downPayment: 0, interestRate: 15, interestRateUnlocked: false, installmentCount: 4, frequency: 'quincenal', startDate: new Date().toISOString().split('T')[0], notes: '' }
                       });
                     }}
-                    className="w-full flex items-center justify-between p-3 rounded-2xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 font-semibold text-xs transition-all"
+                    className={`w-full flex items-center justify-between p-3 rounded-2xl font-semibold text-xs transition-all border ${themeDark ? 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/20 text-emerald-400' : 'bg-emerald-50 hover:bg-emerald-100 border-emerald-300 text-emerald-900 shadow-sm'}`}
                   >
                     <span className="flex items-center gap-2"><Plus className="w-4 h-4" />Nuevo financiamiento</span>
                     <ArrowUpRight className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => { if (isUserExpired) { notify(SUPPORT_CONTACT_TEXT, 'error'); return; } setClientModal({ open: true, data: null }); }}
-                    className="w-full flex items-center justify-between p-3 rounded-2xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-slate-200 font-semibold text-xs transition-all"
+                    className={`w-full flex items-center justify-between p-3 rounded-2xl font-semibold text-xs transition-all border ${themeDark ? 'bg-slate-800/80 hover:bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-50 hover:bg-slate-100 border-slate-300 text-slate-800 shadow-sm'}`}
                   >
                     <span className="flex items-center gap-2"><User className="w-4 h-4" />Registrar cliente</span>
                     <ArrowUpRight className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => { if (isUserExpired) { notify(SUPPORT_CONTACT_TEXT, 'error'); return; } setProductModal({ open: true, data: null }); }}
-                    className="w-full flex items-center justify-between p-3 rounded-2xl bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 text-indigo-300 font-semibold text-xs transition-all"
+                    className={`w-full flex items-center justify-between p-3 rounded-2xl font-semibold text-xs transition-all border ${themeDark ? 'bg-indigo-500/10 hover:bg-indigo-500/20 border-indigo-500/20 text-indigo-300' : 'bg-indigo-50 hover:bg-indigo-100 border-indigo-300 text-indigo-950 shadow-sm'}`}
                   >
                     <span className="flex items-center gap-2"><Smartphone className="w-4 h-4" />Crear producto</span>
                     <ArrowUpRight className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => setActiveTab('ecommerce')}
-                    className="w-full flex items-center justify-between p-3 rounded-2xl bg-teal-500/10 hover:bg-teal-500/20 border border-teal-500/20 text-teal-300 font-semibold text-xs transition-all"
+                    className={`w-full flex items-center justify-between p-3 rounded-2xl font-semibold text-xs transition-all border ${themeDark ? 'bg-teal-500/10 hover:bg-teal-500/20 border-teal-500/20 text-teal-300' : 'bg-teal-50 hover:bg-teal-100 border-teal-300 text-teal-950 shadow-sm'}`}
                   >
                     <span className="flex items-center gap-2"><Upload className="w-4 h-4" />Subir comprobante (OCR)</span>
                     <ArrowUpRight className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => setActiveTab('loans')}
-                    className="w-full flex items-center justify-between p-3 rounded-2xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-slate-200 font-semibold text-xs transition-all"
+                    className={`w-full flex items-center justify-between p-3 rounded-2xl font-semibold text-xs transition-all border ${themeDark ? 'bg-slate-800/80 hover:bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-50 hover:bg-slate-100 border-slate-300 text-slate-800 shadow-sm'}`}
                   >
                     <span className="flex items-center gap-2"><Wallet className="w-4 h-4" />Registrar abono / cuota</span>
                     <ArrowUpRight className="w-4 h-4" />
@@ -2958,15 +2958,15 @@ export default function CrediFluxApp() {
 
               <div className={`rounded-2xl border p-4 ${themeDark ? 'bg-rose-950/20 border-rose-500/30' : 'bg-rose-50 border-rose-200'}`}>
                 <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-rose-300/80">Pendiente de morosos</p>
-                  <span className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400">
+                  <p className={`text-xs font-semibold uppercase tracking-wide ${themeDark ? 'text-rose-300/80' : 'text-rose-900 font-bold'}`}>Pendiente de morosos</p>
+                  <span className={`p-1.5 rounded-lg ${themeDark ? 'bg-rose-500/10 text-rose-400' : 'bg-rose-100 text-rose-800 border border-rose-200'}`}>
                     <AlertTriangle className="w-4 h-4" />
                   </span>
                 </div>
-                <p className="mt-2 text-xl font-bold leading-none tabular-nums text-rose-400">
+                <p className={`mt-2 text-xl font-bold leading-none tabular-nums ${themeDark ? 'text-rose-400' : 'text-rose-700'}`}>
                   ${morosoPending.toFixed(2)}
                 </p>
-                <p className="mt-1 text-xs text-slate-400">{morosoLoans.length} financiamiento(s) en mora</p>
+                <p className={`mt-1 text-xs ${themeDark ? 'text-slate-400' : 'text-slate-600 font-medium'}`}>{morosoLoans.length} financiamiento(s) en mora</p>
               </div>
             </div>
 
