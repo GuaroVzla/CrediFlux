@@ -8,6 +8,9 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
+import { matchBankByVisualSignature as matchVisualPattern } from '@/shared/lib/visual-signature.js';
+
+export { matchBankByVisualSignature } from '@/shared/lib/visual-signature.js';
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -516,7 +519,7 @@ export function matchBankWithPatterns(detectedText, detectedBank, patterns = [])
 /**
  * Estructura el texto plano devuelto por OCR en los campos financieros esperados.
  */
-export function structurePlainOcrText(rawText, registeredPatterns = []) {
+export function structurePlainOcrText(rawText, registeredPatterns = [], visualBankName = null) {
   const text = String(rawText || '');
   const activePatterns = getActiveRecognitionPatterns(registeredPatterns);
 
@@ -568,7 +571,7 @@ export function structurePlainOcrText(rawText, registeredPatterns = []) {
     if (codeName) line = codeName[1].trim();
     detectedBank = line.replace(/\s*[:].*$/, '').trim();
   }
-  const bancoOrigen = matchBankWithPatterns(text, detectedBank, activePatterns);
+  const bancoOrigen = visualBankName || matchBankWithPatterns(text, detectedBank, activePatterns);
   const bancoDestino = 'Desconocido';
 
   // Regla específica del banco detectado: el patrón activo puede afinar la
@@ -600,6 +603,7 @@ export function structurePlainOcrText(rawText, registeredPatterns = []) {
     referencia,
     bancoOrigen,
     bancoDestino,
+    bankMatchSource: visualBankName ? 'visual-pattern' : (activePatterns.length > 0 ? 'text-pattern' : 'model'),
     textoIdentificado: text.slice(0, 500),
     confianza: monto > 0 ? '85%' : '0%'
   };
@@ -730,11 +734,18 @@ export async function parseReceiptWithAI({
   ocrSpaceApiKey = null,
   endpoint = null,
   model = null,
-  confidenceThreshold = null
+  confidenceThreshold = null,
+  visualSignature = null
 }) {
   const base64Data = imageBuffer.toString('base64');
 
   const activePatterns = getActiveRecognitionPatterns(registeredPatterns);
+
+  // Comparación visual FIRST: la imagen del comprobante se coteja con las
+  // firmas de los patrones antes de cualquier interpretación del texto.
+  const visualMatch = visualSignature ? matchVisualPattern(visualSignature, registeredPatterns) : null;
+  const visualBankName = visualMatch?.bankName || null;
+  const fallbackBankSource = activePatterns.length > 0 ? 'text-pattern' : 'model';
   const patternBankList = activePatterns.map(p => p.bankName).filter(Boolean);
   const patternFormatList = activePatterns
     .filter(p => p.bankName && p.referenceFormat)
@@ -742,10 +753,14 @@ export async function parseReceiptWithAI({
   const patternBankContext = patternBankList.length > 0
     ? `Bancos prioritarios reconocidos en el sistema: [${patternBankList.join(', ')}]. Formatos de referencia esperados: [${patternFormatList.join('; ')}]. Si el membrete, colores o logotipo coinciden con alguno, usa ese nombre exacto.`
     : '';
+  const visualContext = visualMatch
+    ? `COMPARACIÓN VISUAL CON PATRÓN REGISTRADO: la imagen coincide con el patrón de ${visualMatch.bankName} (similitud ${(visualMatch.similarity * 100).toFixed(1)}%). El banco emisor (bancoOrigen) DEBE ser "${visualMatch.bankName}" exactamente, aunque el texto mencione otros bancos.`
+    : '';
 
   const SYSTEM_PROMPT = `Eres un perito bancario auditor y especialista en comprobantes de Pago Móvil (P2P/C2P) y transferencias de bancos venezolanos (Banesco, Banco de Venezuela BDV, Mercantil, BBVA Provincial, Bancaribe, BNC, Banco Bicentenario, etc.).
 
 ${patternBankContext}
+${visualContext}
 
 REGLAS ESTRICTAS DE EXTRACCIÓN FINANCIERA VENEZOLANA:
 1. MONTO EXACTO (montoBs):
@@ -808,7 +823,7 @@ Responde ÚNICAMENTE en JSON válido con este formato:
           const parsed = JSON.parse(content);
           const rawMonto = parsed.montoBs !== undefined ? parsed.montoBs : parsed.monto;
           const cleanMonto = extractVenezuelanAmount(rawMonto);
-          const matchedBankOrigin = matchBankWithPatterns(parsed.textoIdentificado || parsed.bancoOrigen, parsed.bancoOrigen, registeredPatterns);
+          const matchedBankOrigin = visualBankName || matchBankWithPatterns(parsed.textoIdentificado || parsed.bancoOrigen, parsed.bancoOrigen, registeredPatterns);
           return {
             success: true,
             provider: `OpenAI (${openAiModel})`,
@@ -818,6 +833,8 @@ Responde ÚNICAMENTE en JSON válido con este formato:
               referencia: parsed.referencia || 'N/A',
               bancoOrigen: matchedBankOrigin,
               bancoDestino: parsed.bancoDestino || 'Desconocido',
+              bankMatchSource: visualBankName ? 'visual-pattern' : fallbackBankSource,
+              visualSimilarity: visualMatch?.similarity ?? null,
               confianza: parsed.confianza || '98%'
             }
           };
@@ -855,7 +872,7 @@ Responde ÚNICAMENTE en JSON válido con este formato:
           const parsed = JSON.parse(cleanText);
           const rawMonto = parsed.montoBs !== undefined ? parsed.montoBs : parsed.monto;
           const cleanMonto = extractVenezuelanAmount(rawMonto);
-          const matchedBankOrigin = matchBankWithPatterns(parsed.textoIdentificado || parsed.bancoOrigen, parsed.bancoOrigen, registeredPatterns);
+          const matchedBankOrigin = visualBankName || matchBankWithPatterns(parsed.textoIdentificado || parsed.bancoOrigen, parsed.bancoOrigen, registeredPatterns);
           return {
             success: true,
             provider: `Google Gemini (${geminiModel})`,
@@ -865,6 +882,8 @@ Responde ÚNICAMENTE en JSON válido con este formato:
               referencia: parsed.referencia || 'N/A',
               bancoOrigen: matchedBankOrigin,
               bancoDestino: parsed.bancoDestino || 'Desconocido',
+              bankMatchSource: visualBankName ? 'visual-pattern' : fallbackBankSource,
+              visualSimilarity: visualMatch?.similarity ?? null,
               confianza: parsed.confianza || '99%'
             }
           };
@@ -918,7 +937,10 @@ Responde ÚNICAMENTE en JSON válido con este formato:
       }
       const rawText = rawResult.ParsedResults?.[0]?.ParsedText || '';
       if (!rawText.trim()) return { success: false, provider: 'OCR.space (API)', error: 'No se detectó texto en la imagen. Sube una foto más nítida.', data: emptyOcrData() };
-      const structured = structurePlainOcrText(rawText, registeredPatterns);
+      const structured = structurePlainOcrText(rawText, registeredPatterns, visualBankName);
+      if (visualMatch) {
+        structured.visualSimilarity = visualMatch.similarity;
+      }
       if (structured.monto <= 0) return { success: false, provider: 'OCR.space (API)', error: 'No se pudo identificar el monto con certeza. Regístralo manualmente o sube una foto más nítida.', data: structured, rawOcrText: rawText };
       return { success: true, provider: 'OCR.space (API)', data: structured, rawOcrText: rawText };
     } catch (err) {
@@ -935,7 +957,10 @@ Responde ÚNICAMENTE en JSON válido con este formato:
       if (!rawText.trim()) {
         return { success: false, provider: 'Tesseract.js (Motor Local)', error: 'No se detectó texto en la imagen con el motor local. Sube una foto más nítida y bien iluminada.', data: emptyOcrData() };
       }
-      const structured = structurePlainOcrText(rawText, registeredPatterns);
+      const structured = structurePlainOcrText(rawText, registeredPatterns, visualBankName);
+      if (visualMatch) {
+        structured.visualSimilarity = visualMatch.similarity;
+      }
       if (Number.isFinite(rec.confidence) && rec.confidence > 0) structured.confianza = `${Math.round(rec.confidence)}%`;
       if (structured.monto <= 0) {
         return { success: false, provider: 'Tesseract.js (Motor Local)', error: 'El motor local leyó la imagen pero no pudo identificar el monto con certeza. Regístralo manualmente o sube una foto más clara.', data: structured, rawOcrText: rawText };

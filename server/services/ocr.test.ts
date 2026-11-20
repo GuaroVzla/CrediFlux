@@ -8,6 +8,7 @@ import {
   createTestReceiptPngBuffer,
   extractVenezuelanAmount,
   getInternalOcrConfig,
+  matchBankByVisualSignature,
   matchBankWithPatterns,
   parseVenezuelanNumber,
   structurePlainOcrText,
@@ -67,6 +68,55 @@ describe('M-004: ocrEngine.js — funciones puras y configuración', () => {
     })
   })
 
+  describe('matchBankByVisualSignature', () => {
+    const signature = (hash: string, aspectRatio = 0.56) => ({
+      algorithm: 'dhash-9x8',
+      version: 1,
+      hash,
+      width: 720,
+      height: 1280,
+      aspectRatio,
+    })
+
+    const patterns = [
+      {
+        id: 'provincial',
+        bankName: 'Banco Provincial',
+        keywords: ['banco provincial'],
+        isActive: true,
+        extra: { visualSignature: signature('0000000000000000') },
+      },
+      {
+        id: 'mercantil',
+        bankName: 'Mercantil',
+        keywords: ['mercantil'],
+        isActive: true,
+        extra: { visualSignature: signature('ffffffffffffffff') },
+      },
+    ]
+
+    it('da prioridad al patrón visual aunque el texto mencione otro banco', () => {
+      const match = matchBankByVisualSignature(signature('0000000000000001'), patterns)
+      expect(match?.bankName).toBe('Banco Provincial')
+      expect(match?.distance).toBe(1)
+      expect(match?.similarity).toBeGreaterThan(0.98)
+    })
+
+    it('ignora patrones inactivos y firmas ausentes', () => {
+      const inactive = patterns.map((pattern) => ({ ...pattern, isActive: false }))
+      expect(matchBankByVisualSignature(signature('0000000000000000'), inactive)).toBeNull()
+      expect(matchBankByVisualSignature(signature('0000000000000000'), [{ bankName: 'Mercantil' }])).toBeNull()
+    })
+
+    it('no decide cuando dos patrones empatan visualmente', () => {
+      const ambiguous = [
+        { bankName: 'A', isActive: true, extra: { visualSignature: signature('0000000000001111') } },
+        { bankName: 'B', isActive: true, extra: { visualSignature: signature('1111000000000000') } },
+      ]
+      expect(matchBankByVisualSignature(signature('0000000000000000'), ambiguous)).toBeNull()
+    })
+  })
+
   describe('structurePlainOcrText', () => {
     it('estructura monto, fecha, referencia y banco del texto OCR', () => {
       const text = [
@@ -85,6 +135,13 @@ describe('M-004: ocrEngine.js — funciones puras y configuración', () => {
       expect(result.bancoDestino).toBe('Desconocido')
       expect(result.confianza).toBe('85%')
       expect(result.textoIdentificado).toContain('Banco: Banesco')
+    })
+
+    it('respeta el banco impuesto por la comparación visual', () => {
+      const text = 'Banco: Mercantil\nMonto: 100,00\nReferencia: 123456789'
+      const result = structurePlainOcrText(text, [], 'Banco Provincial')
+      expect(result.bancoOrigen).toBe('Banco Provincial')
+      expect(result.bankMatchSource).toBe('visual-pattern')
     })
 
     it('usa la referencia personalizada de un patrón activo coincidente', () => {

@@ -18,6 +18,7 @@ import PaginationControls from '@/components/ui/PaginationControls.jsx';
 import { checkIsExpired, calculateLicenseProgress } from '@/modules/license/service.js';
 import { getProductMargin, getAutoSalePrice } from '@/modules/products/pricing.js';
 import { fmtUsd, fmtBs } from '@/shared/lib/format.js';
+import { computeVisualSignature } from '@/shared/lib/visual-signature-client.js';
 
 const PATTERN_FALLBACK_IMAGE = '/uploads/sample-voucher.svg';
 
@@ -1204,7 +1205,11 @@ export default function CrediFluxApp() {
         formData.append('bcvRate', dolarRates.oficial.toString());
       }
       if (ocrForm.date) formData.append('date', ocrForm.date);
-      if (ocrForm.file) formData.append('receiptFile', ocrForm.file);
+      if (ocrForm.file) {
+        formData.append('receiptFile', ocrForm.file);
+        const visualSignature = await computeVisualSignature(ocrForm.file);
+        if (visualSignature) formData.append('visualSignature', JSON.stringify(visualSignature));
+      }
 
       const res = await fetch('/api/ecommerce', {
         method: 'POST',
@@ -1493,6 +1498,7 @@ export default function CrediFluxApp() {
     isActive: true,
     file: null,
     filePreview: null,
+    visualSignature: null,
     processing: false
   });
 
@@ -1512,7 +1518,8 @@ export default function CrediFluxApp() {
       keywords: Array.isArray(pattern?.keywords) ? pattern.keywords.join(', ') : '',
       notes: pattern?.notes || '',
       isActive: pattern ? pattern.isActive !== false : true,
-      filePreview: pattern?.imageUrl || null
+      filePreview: pattern?.imageUrl || null,
+      visualSignature: pattern?.extra?.visualSignature || pattern?.visualSignature || null
     });
     if (patternFileInputRef.current) patternFileInputRef.current.value = '';
     setPatternModal(true);
@@ -1530,6 +1537,10 @@ export default function CrediFluxApp() {
     const isEditing = Boolean(editingPatternId);
     setPatternForm(prev => ({ ...prev, processing: true }));
     try {
+      const visualSignature = patternForm.file
+        ? (patternForm.visualSignature || await computeVisualSignature(patternForm.file))
+        : patternForm.visualSignature;
+
       const fd = new FormData();
       fd.append('bankName', patternForm.bankName);
       fd.append('isActive', String(patternForm.isActive));
@@ -1537,6 +1548,7 @@ export default function CrediFluxApp() {
       if (patternForm.keywords) fd.append('keywords', patternForm.keywords);
       if (patternForm.notes) fd.append('notes', patternForm.notes);
       if (patternForm.file) fd.append('patternImage', patternForm.file);
+      if (visualSignature) fd.append('visualSignature', JSON.stringify(visualSignature));
 
       const res = await fetch(
         isEditing ? `/api/receipt-patterns?id=${encodeURIComponent(editingPatternId)}` : '/api/receipt-patterns',
@@ -7607,8 +7619,12 @@ export default function CrediFluxApp() {
                           return {
                             ...prev,
                             file,
-                            filePreview: URL.createObjectURL(file)
+                            filePreview: URL.createObjectURL(file),
+                            visualSignature: null
                           };
+                        });
+                        computeVisualSignature(file).then((signature) => {
+                          setPatternForm(prev => prev.file === file ? { ...prev, visualSignature: signature } : prev);
                         });
                       }
                     }}

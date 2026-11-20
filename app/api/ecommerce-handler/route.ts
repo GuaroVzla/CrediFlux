@@ -5,6 +5,7 @@ import {
   getStateForRequest, saveStateForRequest, persistenceInfo,
   buildEcommerceBody, normalizeDashboardState, saveUpload, resolveUploadUrl, resolveUploadUrls,
 } from '@/modules/ecommerce/service';
+import { parseVisualSignature } from '@/shared/lib/visual-signature.js';
 
 // El OCR local (Tesseract.js) y las llamadas a proveedores externos pueden tardar;
 // 300 s es el máximo de Hobby. Límite de payload de Vercel: 4.5 MB.
@@ -60,6 +61,7 @@ export async function POST(request: Request) {
     const manualBankOrigin = String(formData.get('bankOrigin') || '').trim();
     const manualReference = String(formData.get('reference') || '').trim();
     const file = formData.get('receiptFile');
+    const visualSignature = parseVisualSignature(formData.get('visualSignature'));
 
     let receiptUrl: string | null = null;
     let ocrResult = null;
@@ -123,7 +125,8 @@ export async function POST(request: Request) {
         ocrSpaceApiKey: ocrApiKeys.ocrspace || process.env.OCR_SPACE_API_KEY || null,
         endpoint: db.settings?.ocrEndpoints?.[activeProvider] || db.settings?.providerConfig?.endpoints?.[activeProvider] || undefined,
         model: db.settings?.ocrModels?.[activeProvider] || db.settings?.providerConfig?.models?.[activeProvider] || undefined,
-        confidenceThreshold: db.settings?.ocrConfidenceMin ?? db.settings?.ocrThresholds?.ocrConfidenceMin ?? 0.8
+        confidenceThreshold: db.settings?.ocrConfidenceMin ?? db.settings?.ocrThresholds?.ocrConfidenceMin ?? 0.8,
+        visualSignature
       });
     }
 

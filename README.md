@@ -79,6 +79,7 @@ Plataforma SaaS financiera de alta gama, moderna y privada diseñada para la adm
 - Input de tipo archivo (`<input type="file" />`) con drag-and-drop y previsualización.
 - Envío automático a la API de backend (`/api/ecommerce`).
 - **Análisis con Visión IA:** Extrae automáticamente monto, fecha, referencia bancaria y banco emisor.
+- **Comparación visual de patrones:** el comprobante se coteja primero contra las firmas visuales de los patrones activos; si coincide con uno, ese banco emisor gana sobre el texto OCR.
 - Almacenamiento seguro del archivo en `public/uploads/`.
 - **Cálculo de Rentabilidad Financiera:**
   - Capital Asignado (editable desde Ajustes).

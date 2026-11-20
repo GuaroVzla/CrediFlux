@@ -4,6 +4,7 @@ import { getStateForRequest, saveStateForRequest, persistenceInfo } from '@/serv
 import { syncAdminStateToNormalized, logAudit, ensureAdminConfigSeed, hasDatabase, enrichReceiptPattern } from '@/server/admin/config.js';
 import { saveUpload, deleteUpload, resolveUploadUrl, resolveUploadUrls } from '@/server/services/uploads.js';
 import { checkWritePermission, getRequestUser } from '@/shared/lib/db.js';
+import { parseVisualSignature } from '@/shared/lib/visual-signature.js';
 
 function findUser(db, request) {
   return getRequestUser(request, db);
@@ -94,6 +95,7 @@ export async function POST(request) {
     const keywordsRaw = String(formData.get('keywords') || '');
     const notes = String(formData.get('notes') || '').trim();
     const file = formData.get('patternImage');
+    const visualSignature = parseVisualSignature(formData.get('visualSignature'));
 
     if (!bankName) {
       return NextResponse.json({ success: false, error: 'El nombre del banco emisor es obligatorio' }, { status: 400 });
@@ -143,6 +145,7 @@ export async function POST(request) {
       notes: notes || 'Patrón oficial de comprobante para validación cruzada OCR',
       isActive: true,
       createdAt: new Date().toISOString(),
+      extra: visualSignature ? { visualSignature } : {},
     });
 
     if (!Array.isArray(db.receiptPatterns)) db.receiptPatterns = [];
@@ -242,6 +245,11 @@ export async function PATCH(request) {
       changes.imageUrl = uploaded.url;
       changes.imageKey = uploaded.key || null;
       changes.imageMime = imageValidation.mime;
+    }
+
+    const visualSignature = parseVisualSignature(formData.get('visualSignature'));
+    if (visualSignature) {
+      changes.extra = { ...(changes.extra || {}), visualSignature };
     }
 
     const updated = enrichReceiptPattern(changes);
