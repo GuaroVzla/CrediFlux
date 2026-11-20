@@ -92,6 +92,7 @@ const EMPTY_PURGE_TARGETS = Object.fromEntries(PURGE_TARGET_KEYS.map((key) => [k
 export default function CrediFluxApp() {
   // Authentication & Session
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [loginInput, setLoginInput] = useState({ username: '', password: '' });
   const [authError, setAuthError] = useState('');
@@ -1786,6 +1787,17 @@ export default function CrediFluxApp() {
               )}
             </div>
 
+            {/* Hamburger Button - Solo visible en móvil */}
+            <button
+              id="mobileMenuToggle"
+              type="button"
+              onClick={() => setMobileMenuOpen(prev => !prev)}
+              title="Abrir menú"
+              className="sm:hidden flex items-center justify-center p-2 rounded-lg hover:bg-slate-800/50 transition-colors min-h-[44px] min-w-[44px]"
+            >
+              <Menu className="w-5 h-5 text-emerald-400" />
+            </button>
+
             <button
               type="button"
               onClick={handleLogout}
@@ -1832,6 +1844,59 @@ export default function CrediFluxApp() {
           })}
         </div>
       </header>
+
+      {/* MOBILE MENU DRAWER */}
+      {isAuthenticated && (
+        <div
+          className={`fixed inset-0 top-0 left-0 w-64 bg-slate-950/95 backdrop-blur-xl shadow-2xl ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform duration-300 z-50 border-r border-slate-800/50 min-h-screen flex flex-col pt-16`}
+        >
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(false)}
+            className="absolute top-4 left-4 w-10 h-10 rounded-lg bg-slate-800/50 backdrop-blur flex items-center justify-center text-slate-400 hover:text-emerald-400"
+          >
+            <X className="w-5 h-5" />
+          </button>
+          <div className="flex flex-col pt-6 flex-1 gap-6">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Menú</h2>
+            <div className="flex flex-1 flex-col gap-4">
+              {[
+                { id: 'dashboard', label: 'Dashboard General', icon: TrendingUp, active: activeTab === 'dashboard' },
+                { id: 'loans', label: 'Financiamientos y Deudas', icon: CreditCard, active: activeTab === 'loans' },
+                { id: 'clients', label: 'Clientes', icon: Users, active: activeTab === 'clients' },
+                { id: 'products', label: 'Productos', icon: Smartphone, active: activeTab === 'products' },
+                { id: 'ecommerce', label: 'E-Commerce & OCR IA', icon: ShoppingBag, active: activeTab === 'ecommerce' },
+                { id: 'settings', label: currentUser?.role === 'admin' ? 'Ajustes Admin' : 'Mi Cuenta', icon: Lock, active: activeTab === 'settings' }
+              ].map(nav => {
+                const Icon = nav.icon;
+                return (
+                  <button
+                    type="button"
+                    key={nav.id}
+                    onClick={() => {
+                      setActiveTab(nav.id);
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`flex items-center gap-3 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${nav.active ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'text-slate-300 hover:text-slate-200 hover:bg-slate-800/40'}`}
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span>{nav.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="mt-auto border-t border-slate-800/50 pt-4">
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-xl transition-all min-h-[44px] min-w-full"
+            >
+              Cerrar sesión
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* MAIN VIEW CONTENT CONTAINER */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full">
@@ -2201,7 +2266,7 @@ export default function CrediFluxApp() {
                     </div>
                     <span className="p-2 rounded-xl bg-rose-500/10 text-rose-400"><ArrowDownRight className="w-5 h-5" /></span>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 mb-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
                     <div className="p-2.5 rounded-xl bg-slate-800/40 border border-slate-700/50">
                       <p className="text-xs text-slate-400">Total USD</p>
                       <p className="text-lg font-extrabold text-slate-200 tabular-nums">{fmtUsd(totalEgresosUsd)}</p>
@@ -2269,7 +2334,7 @@ export default function CrediFluxApp() {
                     </div>
                     <span className="p-2 rounded-xl bg-teal-500/10 text-teal-400"><TrendingUp className="w-5 h-5" /></span>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 mb-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
                     <div className="p-2.5 rounded-xl bg-teal-500/10 border border-teal-500/20">
                       <p className="text-xs text-slate-400">Total USD</p>
                       <p className="text-lg font-extrabold text-teal-400 tabular-nums">{fmtUsd(totalGananciasUsd)}</p>
@@ -2382,7 +2447,7 @@ export default function CrediFluxApp() {
                                 {m.type === 'APORTE_CAPITAL' ? '+' : '−'}{fmtUsd(m.amountUsd)}
                               </td>
                               <td className="py-2 px-3 text-slate-400">{m.currencyOrigin || 'USD'}</td>
-                              <td className="py-2 px-3 text-slate-400 max-w-[16rem] truncate" title={m.notes || ''}>{m.notes || '—'}</td>
+                              <td className="py-2 px-3 text-slate-400 truncate" title={m.notes || ''}>{m.notes || '—'}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -2434,7 +2499,7 @@ export default function CrediFluxApp() {
                   </div>
 
                   <div className="p-5 space-y-4">
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                       <div className="p-2.5 rounded-xl border border-emerald-500/20 bg-emerald-500/10">
                         <p className="text-xs uppercase tracking-wide text-emerald-400/80 font-semibold">Capital neto</p>
                         <p className="text-sm font-extrabold text-slate-200 tabular-nums">{fmtUsd(capitalSummary.netCapital)}</p>
@@ -2468,7 +2533,7 @@ export default function CrediFluxApp() {
                       <div className="space-y-3">
                         <div>
                           <label className="block text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1.5">Tipo de movimiento</label>
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                             <button
                               onClick={() => setCapitalModal(prev => ({ ...prev, type: 'APORTE_CAPITAL' }))}
                               className={`py-2 rounded-xl text-xs font-bold transition-all border ${capitalModal.type === 'APORTE_CAPITAL' ? 'bg-emerald-500 text-slate-950 border-emerald-400' : 'bg-transparent text-slate-400 border-emerald-500/20 hover:text-emerald-400'}`}
@@ -2569,7 +2634,7 @@ export default function CrediFluxApp() {
                                     {m.type === 'APORTE_CAPITAL' ? '+' : '−'}{fmtUsd(m.amountUsd)}
                                   </td>
                                   <td className="py-2 px-3 text-slate-400">{m.currencyOrigin || 'USD'}</td>
-                                  <td className="py-2 px-3 text-slate-400 max-w-[15rem] truncate" title={m.notes || ''}>{m.notes || '—'}</td>
+                                  <td className="py-2 px-3 text-slate-400 truncate" title={m.notes || ''}>{m.notes || '—'}</td>
                                   <td className="py-2 px-2 text-right">
                                     <button
                                       type="button"
@@ -3080,7 +3145,9 @@ export default function CrediFluxApp() {
             <div>
               <div className={`rounded-3xl border overflow-hidden ${themeDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'}`}>
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[1080px] text-left text-xs">
+                  <table className="w-full rounded-lg overflow-x-auto sm:overflow-visible md:overflow-hidden text-left text-xs">
+  {/* Scroll horizontal suave en móvil, visible en desktop */}
+</table>
                     <thead className={`border-b-2 ${themeDark ? 'border-slate-700 bg-slate-800' : 'border-slate-300 bg-slate-100'}`}>
                       <tr className="align-middle whitespace-nowrap">
                         <th className={`sticky left-0 z-20 w-12 py-3 px-2 text-center align-middle ${stickyHead}`}>
@@ -3443,7 +3510,7 @@ export default function CrediFluxApp() {
             <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_260px] gap-6 items-start">
               <div className={`rounded-3xl border overflow-hidden ${themeDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'}`}>
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[920px] text-left text-xs">
+                  <table className="w-full rounded-lg overflow-x-auto sm:overflow-visible md:overflow-hidden text-left text-xs">
                     <thead className={`border-b-2 ${themeDark ? 'border-slate-700 bg-slate-800' : 'border-slate-300 bg-slate-100'}`}>
                       <tr className="align-middle whitespace-nowrap">
                         <th className={`sticky left-0 z-20 w-12 py-3 px-2 text-center align-middle ${themeDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
@@ -3496,14 +3563,14 @@ export default function CrediFluxApp() {
                               </div>
                               <div className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-400">
                                 <MapPin className="w-3 h-3 shrink-0" />
-                                <span className="max-w-[180px] truncate" title={client.address || ''}>
+                                <span className="truncate" title={client.address || ''}>
                                   {client.address || 'Sin dirección registrada'}
                                 </span>
                               </div>
                             </td>
                             <td className="py-2.5 px-3 align-middle">
                               <div className="text-slate-300">{formatClientDate(client.createdAt)}</div>
-                              <div className="mt-0.5 max-w-[180px] truncate text-xs text-slate-400" title={client.notes || ''}>
+                              <div className="mt-0.5 truncate text-xs text-slate-400" title={client.notes || ''}>
                                 {client.notes || 'Sin notas'}
                               </div>
                             </td>
@@ -3531,7 +3598,7 @@ export default function CrediFluxApp() {
                                   <TrustIcon className="w-3 h-3" />
                                   {trust.label}
                                 </span>
-                                <span className="max-w-[160px] text-center text-xs leading-tight text-slate-400" title={trust.reason}>
+                                <span className="text-center text-xs leading-tight text-slate-400" title={trust.reason}>
                                   {trust.reason}
                                 </span>
                               </div>
@@ -3770,7 +3837,7 @@ export default function CrediFluxApp() {
             <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_260px] gap-6 items-start">
               <div className={`rounded-3xl border overflow-hidden ${themeDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'}`}>
                 <div className="overflow-x-auto">
-                <table className="w-full min-w-[800px] text-left text-xs">
+                <table className="w-full rounded-lg overflow-x-auto sm:overflow-visible md:overflow-hidden text-left text-xs">
                   <thead className={`border-b-2 ${themeDark ? 'border-slate-700 bg-slate-800' : 'border-slate-300 bg-slate-100'}`}>
                     <tr className="align-middle whitespace-nowrap">
                       <th className={`sticky left-0 z-20 w-12 py-3 px-2 text-center align-middle ${themeDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
@@ -4356,7 +4423,7 @@ export default function CrediFluxApp() {
                       <label className="block text-xs font-semibold uppercase tracking-wide text-slate-300 mb-1.5">
                         Tipo de Operación
                       </label>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                         <button
                           type="button"
                           onClick={() => setOcrForm({ ...ocrForm, type: 'venta_usdt' })}
@@ -5885,7 +5952,7 @@ export default function CrediFluxApp() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="new-user-username" className={settingsLabelCls}>Usuario de Acceso *</label>
                   <input
@@ -5916,7 +5983,7 @@ export default function CrediFluxApp() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="new-user-phone" className={settingsLabelCls}>Teléfono</label>
                   <input
@@ -6267,7 +6334,7 @@ export default function CrediFluxApp() {
               </div>
 
               <div className="flex-1 overflow-y-auto">
-                <table className="w-full min-w-[980px] text-left text-xs">
+                <table className="w-full rounded-lg overflow-x-auto sm:overflow-visible md:overflow-hidden text-left text-xs">
                   <thead className={`sticky top-0 z-10 border-b-2 ${settingsTableTheadCls}`}>
                     <tr className="whitespace-nowrap">
                       <th className="w-12 py-3 px-2 text-center align-middle"><span className="block text-xs font-bold text-slate-100">#</span></th>
@@ -6545,7 +6612,7 @@ export default function CrediFluxApp() {
               </div>
 
               <div className="flex-1 overflow-y-auto">
-                <table className="w-full min-w-[900px] text-left text-xs">
+                <table className="w-full rounded-lg overflow-x-auto sm:overflow-visible md:overflow-hidden text-left text-xs">
                   <thead className={`sticky top-0 z-10 border-b-2 ${settingsTableTheadCls}`}>
                     <tr className="whitespace-nowrap">
                       <th className="w-12 py-3 px-2 text-center align-middle">
@@ -6723,7 +6790,7 @@ export default function CrediFluxApp() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="client-dni" className="block text-slate-300 font-semibold mb-1">Cédula / DNI *</label>
                   <input
@@ -6898,7 +6965,7 @@ export default function CrediFluxApp() {
                       ))}
                     </select>
                   </div>
-                  <div className={draft.type === 'producto' ? 'grid grid-cols-2 gap-2' : ''}>
+                  <div className={draft.type === 'producto' ? 'grid grid-cols-1 md:grid-cols-2 gap-2' : ''}>
                     <div>
                       <label className={labelCls}>Modalidad</label>
                       <select
@@ -7028,7 +7095,7 @@ export default function CrediFluxApp() {
               <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] gap-3">
                 <section className="rounded-2xl border border-slate-700/60 bg-slate-800/50 p-3">
                   <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2">Condiciones de pago</h4>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                     <div>
                       <label className={labelCls}>Cuotas</label>
                       <input
@@ -7172,7 +7239,7 @@ export default function CrediFluxApp() {
                       />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-slate-300 font-semibold mb-1">Método de Pago</label>
                         <select
@@ -7433,7 +7500,7 @@ export default function CrediFluxApp() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className={settingsLabelCls}>
                     Formato de Referencia
@@ -7752,7 +7819,7 @@ export default function CrediFluxApp() {
 
               <div>
                 <label className={settingsLabelCls}>Tipo de operación *</label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => setManualRecord(prev => ({ ...prev, type: 'compra' }))}
