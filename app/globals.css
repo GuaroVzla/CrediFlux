@@ -18,7 +18,7 @@
   --text-muted: #334155;
   --text-secondary: #334155;
   --text-tertiary: #475569;
-  --accent-emerald: #047857;
+  --accent-emerald: #064e3b;
   --accent-amber: #b45309;
   --accent-rose: #be123c;
   --accent-teal: #0f766e;
@@ -160,8 +160,13 @@ body {
 :root:not(.dark) .text-slate-500 { color: var(--text-tertiary) !important; }
 
 /* Acentos oscurecidos sobre superficies claras. */
+:root:not(.dark) .text-emerald-100,
+:root:not(.dark) .text-emerald-200,
 :root:not(.dark) .text-emerald-300,
-:root:not(.dark) .text-emerald-400 { color: var(--accent-emerald) !important; }
+:root:not(.dark) .text-emerald-400,
+:root:not(.dark) [class*="text-emerald-400/"],
+:root:not(.dark) [class*="text-emerald-100/"],
+:root:not(.dark) [class*="text-emerald-200/"] { color: var(--accent-emerald) !important; }
 :root:not(.dark) .text-amber-300,
 :root:not(.dark) .text-amber-400,
 :root:not(.dark) .text-amber-500 { color: var(--accent-amber) !important; }
@@ -177,13 +182,18 @@ body {
  * Los reemplazamos por tonos pastel solidos con borde definido, manteniendo
  * el texto de acento oscurecido (contraste >= 4.5:1 sobre el pastel).
  */
-:root:not(.dark) .bg-emerald-500\/10 { background-color: #d1fae5 !important; }
+:root:not(.dark) .bg-emerald-500\/5,
+:root:not(.dark) .bg-emerald-500\/10,
+:root:not(.dark) .bg-emerald-500\/15,
+:root:not(.dark) .bg-emerald-500\/20 { background-color: #d1fae5 !important; }
 :root:not(.dark) .bg-rose-500\/10 { background-color: #ffe4e6 !important; }
 :root:not(.dark) .bg-teal-500\/10 { background-color: #ccfbf1 !important; }
 :root:not(.dark) .bg-purple-500\/10 { background-color: #f3e8ff !important; }
 :root:not(.dark) .bg-amber-500\/5 { background-color: #fffbeb !important; }
 
-:root:not(.dark) .border-emerald-500\/20 { border-color: #6ee7b7 !important; }
+:root:not(.dark) .border-emerald-500\/20,
+:root:not(.dark) .border-emerald-500\/30,
+:root:not(.dark) .border-emerald-500\/40 { border-color: #34d399 !important; }
 :root:not(.dark) .border-rose-500\/20 { border-color: #fda4af !important; }
 :root:not(.dark) .border-teal-500\/20 { border-color: #5eead4 !important; }
 :root:not(.dark) .border-purple-500\/20 { border-color: #d8b4fe !important; }
