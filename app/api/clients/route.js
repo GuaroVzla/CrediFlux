@@ -1,88 +1,17 @@
 import { NextResponse } from 'next/server';
-import { computeLoanStatus, checkWritePermission, normalizeDni, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
+import { computeLoanStatus, checkWritePermission, normalizeDni, getRequestUser, canAccessRecord } from '../../../lib/db.js';
 import { getStateForRequest, saveStateForRequest } from '../../../lib/server/supabase-store';
-import { getTrustLevelConfig, computeClientTrust } from '../../../lib/trust.js';
+import { buildClientsBody, normalizeDashboardState } from '../../../lib/server/dashboard-builders';
 
 export async function GET(request) {
   try {
     const db = await getStateForRequest(request);
-    if (!Array.isArray(db.clients)) db.clients = [];
-    if (!Array.isArray(db.loans)) db.loans = [];
-    if (!Array.isArray(db.blacklist)) db.blacklist = [];
+    normalizeDashboardState(db);
     const user = getRequestUser(request, db);
     if (!user) {
       return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
     }
-    const trustConfig = getTrustLevelConfig(db.settings);
-
-    const visibleClients = scopeRecords(db.clients || [], user);
-    const visibleLoans = scopeRecords(db.loans || [], user);
-    const visibleBlacklist = scopeRecords(db.blacklist || [], user);
-
-    // Enrich clients with real-time financial stats (scoped)
-    const enrichedClients = visibleClients.map(client => {
-      const allClientLoans = visibleLoans.filter(l => l.clientId === client.id);
-      // Los financiamientos archivados no participan en la deuda activa,
-      // pero se conservan en el récord crediticio del cliente.
-      const clientLoans = allClientLoans.filter(l => !l.archived);
-
-      const totalFinanced = allClientLoans.reduce((sum, l) => sum + (l.financedAmount || 0), 0);
-      const activeLoans = clientLoans.filter(l => computeLoanStatus(l) !== 'completado');
-
-      let activeDebt = 0;
-      let overdueDebt = 0;
-      let paidInstallmentsCount = 0;
-      let totalInstallmentsCount = 0;
-
-      clientLoans.forEach(loan => {
-        (loan.installments || []).forEach(inst => {
-          totalInstallmentsCount++;
-          if (inst.paid) {
-            paidInstallmentsCount++;
-          } else {
-            activeDebt += inst.amount;
-            const now = new Date();
-            now.setHours(0, 0, 0, 0);
-            const dueDate = new Date(inst.dueDate);
-            dueDate.setHours(0, 0, 0, 0);
-            if (dueDate < now) {
-              overdueDebt += inst.amount;
-            }
-          }
-        });
-      });
-
-      return {
-        ...client,
-        // Nivel de confianza calculado automáticamente según el comportamiento de pago
-        trust: computeClientTrust(clientLoans, trustConfig),
-        stats: {
-          totalLoansCount: allClientLoans.length,
-          activeLoansCount: activeLoans.length,
-          totalFinanced,
-          activeDebt: Number(activeDebt.toFixed(2)),
-          overdueDebt: Number(overdueDebt.toFixed(2)),
-          paidRatio: totalInstallmentsCount > 0 ? Math.round((paidInstallmentsCount / totalInstallmentsCount) * 100) : 100
-        },
-        creditHistory: allClientLoans.map(l => ({
-          id: l.id,
-          productName: l.productName,
-          type: l.type,
-          totalAmount: l.totalAmount,
-          status: computeLoanStatus(l),
-          archived: Boolean(l.archived),
-          startDate: l.startDate,
-          installmentsCount: (l.installments || []).length,
-          paidCount: (l.installments || []).filter(i => i.paid).length
-        }))
-      };
-    });
-
-    return NextResponse.json({
-      success: true,
-      clients: enrichedClients,
-      blacklist: visibleBlacklist
-    });
+    return NextResponse.json(buildClientsBody(db, user));
   } catch (error) {
     console.error('Clients GET error:', error);
     return NextResponse.json({ success: false, error: 'Error al obtener clientes' }, { status: 500 });

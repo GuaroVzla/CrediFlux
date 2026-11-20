@@ -1,30 +1,17 @@
 import { NextResponse } from 'next/server';
-import { checkWritePermission, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
+import { checkWritePermission, getRequestUser, canAccessRecord } from '../../../lib/db.js';
 import { getStateForRequest, saveStateForRequest } from '../../../lib/server/supabase-store';
+import { buildProductsBody, normalizeDashboardState } from '../../../lib/server/dashboard-builders';
 
 export async function GET(request) {
   try {
     const db = await getStateForRequest(request);
-    if (!Array.isArray(db.products)) db.products = [];
+    normalizeDashboardState(db);
     const user = getRequestUser(request, db);
     if (!user) {
       return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
     }
-    const scoped = scopeRecords(db.products, user);
-    const enrichedProducts = scoped.map(prod => {
-      const cost = Number(prod.costPrice) || 0;
-      const sale = Number(prod.salePrice) || 0;
-      const profitMarginAmount = Number((sale - cost).toFixed(2));
-      const profitMarginPercent = cost > 0 ? Number(((profitMarginAmount / cost) * 100).toFixed(1)) : 0;
-
-      return {
-        ...prod,
-        profitMarginAmount,
-        profitMarginPercent
-      };
-    });
-
-    return NextResponse.json({ success: true, products: enrichedProducts });
+    return NextResponse.json(buildProductsBody(db, user));
   } catch (error) {
     console.error('Products GET error:', error);
     return NextResponse.json({ success: false, error: 'Error al obtener productos' }, { status: 500 });

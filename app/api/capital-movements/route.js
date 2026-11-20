@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { checkWritePermission, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
+import { checkWritePermission, getRequestUser, canAccessRecord } from '../../../lib/db.js';
 import { getStateForRequest, saveStateForRequest } from '../../../lib/server/supabase-store';
+import { buildCapitalBody, normalizeDashboardState } from '../../../lib/server/dashboard-builders';
 
 const MOVEMENT_TYPES = ['APORTE_CAPITAL', 'RETIRO_CAPITAL'];
 const CURRENCIES = ['USD', 'USDT', 'VES'];
@@ -14,45 +15,15 @@ function round2(value) {
   return Math.round((Number(value) || 0) * 100) / 100;
 }
 
-/**
- * Resumen contable del capital.
- * Capital Invertido Neto = SUM(APORTE_CAPITAL) - SUM(RETIRO_CAPITAL).
- * No interviene en Ganancias Netas ni en transacciones comerciales.
- */
-function summarize(movements) {
-  const list = Array.isArray(movements) ? movements : [];
-  const aportes = round2(
-    list.filter((m) => m.type === 'APORTE_CAPITAL').reduce((sum, m) => sum + count(m.amountUsd), 0)
-  );
-  const retiros = round2(
-    list.filter((m) => m.type === 'RETIRO_CAPITAL').reduce((sum, m) => sum + count(m.amountUsd), 0)
-  );
-  return {
-    aportes,
-    retiros,
-    netCapital: round2(aportes - retiros),
-    count: list.length,
-  };
-}
-
 export async function GET(request) {
   try {
     const db = await getStateForRequest(request);
-    if (!Array.isArray(db.capitalMovements)) db.capitalMovements = [];
+    normalizeDashboardState(db);
     const user = getRequestUser(request, db);
     if (!user) {
       return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
     }
-
-    const movements = scopeRecords(db.capitalMovements, user)
-      .slice()
-      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-
-    return NextResponse.json({
-      success: true,
-      movements,
-      summary: summarize(movements),
-    });
+    return NextResponse.json(buildCapitalBody(db, user));
   } catch (error) {
     console.error('Capital movements GET error:', error);
     return NextResponse.json(

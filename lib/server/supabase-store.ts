@@ -81,8 +81,28 @@ function badRequest(error: { message: string } | null, context: string) {
   if (error) throw new Error(`${context}: ${error.message}`);
 }
 
+/**
+ * Proyección exacta de columnas consumidas por los mappers de getScopedState.
+ * Recortar el payload reduce latencia y memoria sin alterar el shape devuelto.
+ * `user_settings.data`, `payments.metadata`, `exchange_rates` y
+ * `receipt_patterns` se conservan completos porque el mapper los necesita.
+ */
+const SCOPED_COLUMNS: Partial<Record<keyof Database['public']['Tables'], string>> = {
+  clients: 'id, user_id, name, dni, phone, address, trust_level, credit_limit, notes, is_active, created_at, updated_at',
+  products: 'id, user_id, name, category, cost_price, sale_price, profit_margin_percent, manual_sale_price, stock, created_at, updated_at',
+  loans: 'id, user_id, client_id, client_name, type, product_id, product_name, principal, down_payment, financed_amount, interest_rate, total_amount, installment_count, installment_amount, frequency, start_date, notes, status, archived, archived_at, archive_reason, final_status, created_at, updated_at',
+  loan_installments: 'id, loan_id, installment_number, due_date, amount, paid, paid_date, receipt_ref',
+  payments: 'id, user_id, loan_id, client_id, installment_number, amount, payment_date, metadata, method, reference, notes, created_at, updated_at',
+  ecommerce_transactions: 'id, user_id, type, title, amount_bs, amount_usd, bcv_rate, bank_origin, bank_destination, reference, transaction_date, receipt_url, ocr_provider, raw_ocr, created_at, updated_at',
+  blacklist_entries: 'id, user_id, client_id, name, dni, phone, address, reason, notes, created_at, updated_at',
+  receipt_patterns: 'id, user_id, bank_name, keywords, reference_format, reference_regex, notes, image_key, image_url, image_mime, is_active, version, created_by, extra, created_at, updated_at',
+  exchange_rates: 'id, user_id, source, base_currency, quote_currency, rate, buy_rate, sell_rate, is_manual, fetched_at, raw, created_at, updated_at',
+  p2p_transactions: 'id, user_id, side, amount_usdt, amount_ves, rate, counterparty, bank, reference, status, occurred_at, notes, created_at, updated_at',
+  capital_movements: 'id, user_id, type, amount_usd, currency_origin, exchange_rate, notes, created_at, updated_at',
+};
+
 async function readAll<T>(supabase: DbClient, table: keyof Database['public']['Tables'], userId: string, order?: { column: string; ascending?: boolean }) {
-  let query = (supabase as any).from(table).select('*').eq('user_id', userId);
+  let query = (supabase as any).from(table).select(SCOPED_COLUMNS[table] || '*').eq('user_id', userId);
   if (order) query = query.order(order.column, { ascending: order.ascending ?? false });
   const { data, error } = await query;
   badRequest(error, `No se pudo leer ${String(table)}`);
@@ -156,9 +176,15 @@ async function getScopedState(auth: RequestAuth): Promise<AnyRecord> {
 
   const [profileResult, settingsResult, trustResult, clients, products, loans, installments, payments, ecommerce, blacklist, patterns, rates, p2p, capital] =
     await Promise.all([
-      supabase.from('profiles').select('*').order('created_at', { ascending: true }),
-      supabase.from('user_settings').select('*').eq('user_id', userId).maybeSingle(),
-      supabase.from('trust_level_configs').select('*').eq('user_id', userId).order('sort_order', { ascending: true }),
+      supabase.from('profiles')
+        .select('id, username, full_name, company_name, email, address, phone, role, is_active, license_key, license_status, license_assigned_at, license_expires_at, license_duration_months, monthly_capitals, created_at, updated_at')
+        .order('created_at', { ascending: true }),
+      supabase.from('user_settings')
+        .select('data, company_name, currency, timezone, ecommerce_capital, ai_provider, ai_auto_assign_enabled, ai_routing_rules, ocr_confidence_min, ocr_api_keys, provider_config, system_license_key')
+        .eq('user_id', userId).maybeSingle(),
+      supabase.from('trust_level_configs')
+        .select('tier, label, description, sort_order')
+        .eq('user_id', userId).order('sort_order', { ascending: true }),
       readAll<any>(supabase, 'clients', userId, { column: 'created_at', ascending: false }),
       readAll<any>(supabase, 'products', userId, { column: 'created_at', ascending: false }),
       readAll<any>(supabase, 'loans', userId, { column: 'created_at', ascending: false }),

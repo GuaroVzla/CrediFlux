@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import path from 'path';
-import { checkWritePermission, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
+import { checkWritePermission, getRequestUser, canAccessRecord } from '../../../lib/db.js';
 import { parseReceiptWithAI } from '../../../lib/ocrEngine.js';
 import { getStateForRequest, saveStateForRequest, persistenceInfo } from '../../../lib/server/supabase-store';
+import { buildEcommerceBody, normalizeDashboardState } from '../../../lib/server/dashboard-builders';
 import { saveUpload, resolveUploadUrl, resolveUploadUrls } from '../../../lib/storage/uploads.js';
 
 // El OCR local (Tesseract.js) y las llamadas a proveedores externos pueden tardar;
@@ -13,107 +14,19 @@ const MAX_RECEIPT_BYTES = 4 * 1024 * 1024; // 4 MB (margen bajo el límite de Ve
 export async function GET(request: Request) {
   try {
     const db = await getStateForRequest(request);
+    normalizeDashboardState(db);
     const currentUser = getRequestUser(request, db);
     if (!currentUser) {
       return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
     }
 
-    // Obtener capital mensual asignado del usuario correspondiente al mes en curso (YYYY-MM).
-    // No se inventa un capital por defecto: si el usuario no tiene un valor configurado,
-    // el capital asignado es 0. Evita reportar $5.000 que no existen en ningún lado.
-    const currentMonthKey = new Date().toISOString().slice(0, 7);
-    const configuredCapital = currentUser?.monthlyCapitals?.[currentMonthKey]?.capital;
-    const assignedCapital = Number.isFinite(Number(configuredCapital))
-      ? Math.max(0, Number(configuredCapital))
-      : 0;
-
-    // Query params for period filtering
-    const { searchParams } = new URL(request.url);
-    const period = searchParams.get('period'); // 'day' | 'month' | 'year'
-    const dateParam = searchParams.get('date'); // YYYY-MM-DD | YYYY-MM | YYYY
-
-    const scopedTransactions = scopeRecords(db.ecommerce || [], currentUser);
-    const chronological = scopedTransactions.slice().reverse(); // oldest first
+    const chronological = db.ecommerce.slice().reverse(); // oldest first
     // El bucket `receipts` es privado: convertimos las referencias `supabase://`
     // guardadas en BD en URLs firmadas vigentes para que el navegador las abra.
-    const resolvedReceiptUrls = await resolveUploadUrls(chronological.map((t) => t.receiptUrl));
-    const allTransactions = chronological.map((t, index) => ({
-      ...t,
-      receiptUrl: resolvedReceiptUrls[index] || t.receiptUrl
-    }));
+    const resolvedReceiptUrls = await resolveUploadUrls(chronological.map((t: any) => t.receiptUrl));
+    const { searchParams } = new URL(request.url);
 
-    // Filter transactions by period
-    let transactions = allTransactions;
-    if (period && dateParam) {
-      transactions = allTransactions.filter(t => {
-        const txDate = t.date || (t.createdAt ? t.createdAt.slice(0, 10) : '');
-        if (period === 'day') return txDate === dateParam;
-        if (period === 'month') return txDate.startsWith(dateParam); // YYYY-MM
-        if (period === 'year') return txDate.startsWith(dateParam);  // YYYY
-        return true;
-      });
-    }
-
-    // Bs totals (con 2 decimales exactos)
-    const totalPurchasesBs = transactions
-      .filter(t => t.type === 'compra')
-      .reduce((sum, t) => sum + (Number(t.amountBs) || Number(t.amount) || 0), 0);
-
-    const totalSalesBs = transactions
-      .filter(t => t.type === 'venta')
-      .reduce((sum, t) => sum + (Number(t.amountBs) || Number(t.amount) || 0), 0);
-
-    const netProfitBs = Number((totalSalesBs - totalPurchasesBs - assignedCapital).toFixed(2));
-
-    // USD totals (estrictamente 2 decimales)
-    const totalPurchasesUSD = transactions
-      .filter(t => t.type === 'compra')
-      .reduce((sum, t) => sum + (Number(t.amountUSD) || 0), 0);
-
-    const totalSalesUSD = transactions
-      .filter(t => t.type === 'venta')
-      .reduce((sum, t) => sum + (Number(t.amountUSD) || 0), 0);
-
-    const grossNetUSD = totalSalesUSD - totalPurchasesUSD; // margen bruto (base para ROI y margen)
-    const netProfitUSD = Number((totalSalesUSD - totalPurchasesUSD - assignedCapital).toFixed(2));
-
-    // Legacy USD totals
-    const totalPurchases = Number(totalPurchasesUSD.toFixed(2)) || transactions
-      .filter(t => t.type === 'compra')
-      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-    const totalSales = Number(totalSalesUSD.toFixed(2)) || transactions
-      .filter(t => t.type === 'venta')
-      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-    const netProfit = Number((totalSales - totalPurchases - assignedCapital).toFixed(2));
-    const profitMargin = totalPurchases > 0 ? Number(((grossNetUSD / totalPurchases) * 100).toFixed(1)) : 0;
-    const capitalRoi = assignedCapital > 0 ? Number(((grossNetUSD / assignedCapital) * 100).toFixed(1)) : 0;
-    const remainingCapital = Number((assignedCapital - totalPurchases + totalSales).toFixed(2));
-
-    return NextResponse.json({
-      success: true,
-      summary: {
-        assignedCapital: Number(assignedCapital.toFixed(2)),
-        currentMonthKey,
-        // Bs
-        totalPurchasesBs: Number(totalPurchasesBs.toFixed(2)),
-        totalSalesBs: Number(totalSalesBs.toFixed(2)),
-        netProfitBs,
-        // USD (con 2 decimales)
-        totalPurchasesUSD: Number(totalPurchasesUSD.toFixed(2)),
-        totalSalesUSD: Number(totalSalesUSD.toFixed(2)),
-        netProfitUSD,
-        // Legacy / capital
-        totalPurchases: Number(totalPurchases.toFixed(2)),
-        totalSales: Number(totalSales.toFixed(2)),
-        netProfit,
-        profitMargin,
-        capitalRoi,
-        remainingCapital,
-        totalTransactions: allTransactions.length
-      },
-      transactions: allTransactions, // always return all in chronological order
-      persistence: persistenceInfo(),
-    });
+    return NextResponse.json(buildEcommerceBody(db, currentUser, resolvedReceiptUrls, searchParams));
   } catch (error) {
     console.error('Ecommerce GET error:', error);
     return NextResponse.json({ success: false, error: 'Error al obtener transacciones' }, { status: 500 });

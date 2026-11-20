@@ -1,18 +1,17 @@
 import { NextResponse } from 'next/server';
-import { computeLoanStatus, checkWritePermission, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
+import { computeLoanStatus, checkWritePermission, getRequestUser, canAccessRecord } from '../../../lib/db.js';
 import { getStateForRequest, saveStateForRequest } from '../../../lib/server/supabase-store';
+import { buildPaymentsBody, normalizeDashboardState } from '../../../lib/server/dashboard-builders';
 
 export async function GET(request) {
   try {
     const db = await getStateForRequest(request);
-    if (!Array.isArray(db.payments)) db.payments = [];
-    if (!Array.isArray(db.loans)) db.loans = [];
+    normalizeDashboardState(db);
     const user = getRequestUser(request, db);
     if (!user) {
       return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
     }
-    const payments = scopeRecords(db.payments || [], user);
-    return NextResponse.json({ success: true, payments });
+    return NextResponse.json(buildPaymentsBody(db, user));
   } catch (error) {
     console.error('Payments GET error:', error);
     return NextResponse.json({ success: false, error: 'Error al obtener pagos' }, { status: 500 });

@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
-import { checkWritePermission, getDefaultMonthlyCapital, MONTH_NAMES } from '../../../lib/db.js';
-import { getTrustLevelConfig, normalizeTrustConfig } from '../../../lib/trust.js';
-import { INTERNAL_OCR_CONFIG, createTestReceiptPngBuffer, runTesseractRecognition } from '../../../lib/ocrEngine.js';
+import { checkWritePermission, MONTH_NAMES } from '../../../lib/db.js';
+import { normalizeTrustConfig } from '../../../lib/trust.js';
+import { createTestReceiptPngBuffer, runTesseractRecognition } from '../../../lib/ocrEngine.js';
 import { getStateForRequest, saveStateForRequest, saveStateForRequestWithResult, persistenceInfo } from '../../../lib/server/supabase-store';
 import {
   syncAdminStateToNormalized,
@@ -12,9 +12,20 @@ import {
   DEFAULT_OCR_ENDPOINTS,
   DEFAULT_OCR_MODELS,
   DEFAULT_OCR_THRESHOLDS,
-  DEFAULT_AI_ROUTING_RULES,
-  enrichReceiptPattern
+  DEFAULT_AI_ROUTING_RULES
 } from '../../../lib/server/admin-config.js';
+import {
+  buildSettingsBody,
+  getReceiptPatternImageUrls,
+  normalizeDashboardState,
+  prepareSettings
+} from '../../../lib/server/dashboard-builders';
+import {
+  ALLOWED_PROVIDERS,
+  getInternalLicenseStatus,
+  getStoredOcrKeys,
+  maskKey
+} from '../../../lib/server/settings-shared';
 import { hashPassword } from '../../../lib/server/security.js';
 import { setLegacyPasswordPreview, storePasswordPreview } from '../../../lib/server/password-preview.js';
 import { getSupabaseAdminClientOrNull } from '../../../lib/supabase/admin';
@@ -35,45 +46,9 @@ import {
 // 300 s es el máximo de Hobby; el timeout interno responde mucho antes del corte.
 export const maxDuration = 300;
 
-const ALLOWED_PROVIDERS = ['openai', 'gemini', 'ocrspace', 'tesseract'];
-
-function maskKey(key: string | undefined | null) {
-  if (!key) return '';
-  const value = String(key);
-  if (!value) return '';
-  if (value.length <= 8) return '********';
-  return `${value.slice(0, 4)}...${value.slice(-4)}`;
-}
-
-function getStoredOcrKeys(db: any) {
-  const s = db?.settings || {};
-  const map = (s.ocrApiKeys && typeof s.ocrApiKeys === 'object') ? s.ocrApiKeys : {};
-  const legacyAi = typeof s.aiApiKey === 'string' ? s.aiApiKey : '';
-  const legacyOcr = typeof s.ocrSpaceApiKey === 'string' ? s.ocrSpaceApiKey : '';
-  return {
-    openai: typeof map.openai === 'string' && map.openai ? map.openai : legacyAi,
-    gemini: typeof map.gemini === 'string' && map.gemini ? map.gemini : legacyAi,
-    ocrspace: typeof map.ocrspace === 'string' && map.ocrspace ? map.ocrspace : legacyOcr,
-    tesseract: ''
-  } as Record<string, string>;
-}
-
 function auditUserSnapshot(user: any) {
   const { password, passwordHash, passwordLegacy, passwordEncrypted, ...rest } = user || {};
   return rest;
-}
-
-function getInternalLicenseStatus(provider: string) {
-  const cfg: any = (INTERNAL_OCR_CONFIG as any)?.[provider];
-  if (provider === 'tesseract') {
-    return {
-      active: true,
-      loaded: true,
-      label: cfg?.licenseLabel || 'Licencia interna: No requerida (motor local integrado, sin límites de API)',
-      providerName: cfg?.name || 'Tesseract.js (Motor Local)'
-    };
-  }
-  return null;
 }
 
 async function testProviderConnection(provider: string, apiKey: string | undefined, storedKeys?: Record<string, string>) {
@@ -168,134 +143,16 @@ async function testProviderConnection(provider: string, apiKey: string | undefin
 export async function GET(request: Request) {
   try {
     const db = await getStateForRequest(request);
-    if (!db.settings) db.settings = {};
-    const currentUser: any = db.__currentUser || null;
-    const isAdmin = currentUser?.role === 'admin';
+    normalizeDashboardState(db);
+    // Autocuración de un aiProvider inválido (efecto colateral del GET legado).
+    await prepareSettings(db, request);
 
-    const currentMonthKey = new Date().toISOString().slice(0, 7);
-    const userCurrentCapital = currentUser?.monthlyCapitals?.[currentMonthKey]?.capital ?? db.settings?.ecommerceCapital ?? 5000;
+    const patternUrls = getReceiptPatternImageUrls(db);
+    const resolvedPatternUrls = patternUrls.length
+      ? await resolveUploadUrls(patternUrls)
+      : [];
 
-    const rawProvider = db.settings?.aiProvider;
-    const activeProvider = ALLOWED_PROVIDERS.includes(rawProvider) ? rawProvider : 'openai';
-    if (rawProvider && !ALLOWED_PROVIDERS.includes(rawProvider)) {
-      db.settings.aiProvider = activeProvider;
-      await saveStateForRequest(request, db);
-    }
-    const ocrKeys = getStoredOcrKeys(db);
-
-    const ocrEndpoints = db.settings?.ocrEndpoints || db.settings?.providerConfig?.endpoints || { ...DEFAULT_OCR_ENDPOINTS };
-    const ocrModels = db.settings?.ocrModels || db.settings?.providerConfig?.models || { ...DEFAULT_OCR_MODELS };
-    const ocrThresholds = db.settings?.ocrThresholds || db.settings?.providerConfig?.thresholds || { ...DEFAULT_OCR_THRESHOLDS };
-    const ocrConfidenceMin = Number.isFinite(Number(db.settings?.ocrConfidenceMin))
-      ? Number(db.settings.ocrConfidenceMin)
-      : (Number.isFinite(Number(ocrThresholds.ocrConfidenceMin)) ? Number(ocrThresholds.ocrConfidenceMin) : 0.8);
-    const aiRoutingRules = db.settings?.aiRoutingRules || { ...DEFAULT_AI_ROUTING_RULES };
-    const systemLicenseKey = db.settings?.systemLicenseKey || db.settings?.licenseKey || 'CREDIFLUX-FINTECH-2026';
-
-    const safeSettings: any = {
-      companyName: db.settings?.companyName || 'CrediFlux',
-      timezone: db.settings?.timezone || 'America/Caracas',
-      currency: db.settings?.currency || '$',
-      ecommerceCapital: userCurrentCapital,
-      aiProvider: activeProvider,
-      trustLevelConfig: getTrustLevelConfig(db.settings),
-      internalOcrLicenses: { tesseract: getInternalLicenseStatus('tesseract') },
-      ocrEndpoints,
-      ocrModels,
-      ocrThresholds,
-      ocrConfidenceMin,
-      aiRoutingRules,
-      aiAutoAssignEnabled: db.settings?.aiAutoAssignEnabled !== false,
-      systemLicenseKey,
-      licenseKey: systemLicenseKey
-    };
-
-    if (isAdmin) {
-      safeSettings.hasAiKey = Boolean(ocrKeys.openai || ocrKeys.gemini);
-      safeSettings.aiApiKeyMasked = maskKey(ocrKeys.openai || ocrKeys.gemini);
-      safeSettings.hasOcrSpaceKey = Boolean(ocrKeys.ocrspace);
-      safeSettings.ocrSpaceKeyMasked = maskKey(ocrKeys.ocrspace);
-      safeSettings.ocrKeys = {
-        openai: ocrKeys.openai || '',
-        gemini: ocrKeys.gemini || '',
-        ocrspace: ocrKeys.ocrspace || '',
-        tesseract: ''
-      };
-      safeSettings.ocrKeysMasked = {
-        openai: maskKey(ocrKeys.openai),
-        gemini: maskKey(ocrKeys.gemini),
-        ocrspace: maskKey(ocrKeys.ocrspace),
-        tesseract: ''
-      };
-      // No exponer secretos en claro: las claves se gestionan en Usuarios del sistema / /api/auth.
-      safeSettings.monthlyCapitals = currentUser?.monthlyCapitals || {};
-
-      const allUsers = (db.users || []).map((u: any, i: number) => {
-        const role = String(u.role || 'user').toLowerCase() === 'admin' ? 'admin' : (String(u.role || '').toLowerCase() === 'operator' || String(u.role || '').toLowerCase() === 'operador' ? 'operator' : 'user');
-        const defaultPermissions = role === 'admin'
-          ? ['all', 'admin', 'manage_users', 'manage_settings', 'manage_loans', 'manage_payments', 'manage_ecommerce', 'manage_receipt_patterns']
-          : (role === 'operator' ? ['operator', 'manage_loans', 'manage_payments', 'manage_ecommerce', 'read_clients', 'read_reports'] : ['read_write', 'manage_loans', 'manage_payments', 'manage_ecommerce']);
-
-        return {
-          id: u.id,
-          username: u.username,
-          name: u.name || u.username,
-          companyName: u.companyName || '',
-          email: u.email || '',
-          role,
-          isActive: u.isActive !== false,
-          permissions: Array.isArray(u.permissions) && u.permissions.length > 0 ? u.permissions : defaultPermissions,
-          address: u.address || '',
-          phone: u.phone || '',
-          hasPassword: Boolean(u.passwordHash || u.password || u.passwordLegacy || u.passwordEncrypted),
-          licenseKey: u.licenseKey || (role === 'admin' ? 'N/A (Admin)' : ''),
-          licenseAssignedAt: u.licenseAssignedAt || null,
-          licenseExpiresAt: u.licenseExpiresAt || null,
-          licenseDurationMonths: u.licenseDurationMonths || 1,
-          monthlyCapitals: u.monthlyCapitals || getDefaultMonthlyCapital(5000),
-          createdAt: u.createdAt,
-          updatedAt: u.updatedAt
-        };
-      });
-
-      const enrichedPatterns = (db.receiptPatterns || []).map((p: any) => enrichReceiptPattern(p));
-      // La UI consume este endpoint (no /api/receipt-patterns), así que aquí
-      // deben resolverse las referencias `supabase://` a URLs firmadas.
-      const resolvedPatternUrls = await resolveUploadUrls(enrichedPatterns.map((p: any) => p.imageUrl));
-      const responsePatterns = enrichedPatterns.map((p: any, index: number) => ({
-        ...p,
-        imageUrl: resolvedPatternUrls[index] || p.imageUrl,
-      }));
-
-      return NextResponse.json({
-        success: true,
-        isAdmin: true,
-        settings: safeSettings,
-        users: allUsers,
-        receiptPatterns: responsePatterns,
-        persistence: persistenceInfo(),
-      });
-    }
-
-    return NextResponse.json({
-      success: true,
-      isAdmin: false,
-      settings: safeSettings,
-      persistence: persistenceInfo(),
-      currentUserInfo: currentUser ? {
-        id: currentUser.id,
-        username: currentUser.username,
-        name: currentUser.name,
-        role: currentUser.role,
-        address: currentUser.address,
-        phone: currentUser.phone,
-        licenseKey: currentUser.licenseKey,
-        licenseExpiresAt: currentUser.licenseExpiresAt,
-        licenseAssignedAt: currentUser.licenseAssignedAt,
-        licenseDurationMonths: currentUser.licenseDurationMonths,
-        monthlyCapitals: currentUser.monthlyCapitals || getDefaultMonthlyCapital(5000)
-      } : null
-    });
+    return NextResponse.json(buildSettingsBody(db, resolvedPatternUrls));
   } catch (error) {
     console.error('Settings GET error:', error);
     return NextResponse.json({ success: false, error: 'Error al obtener configuración' }, { status: 500 });

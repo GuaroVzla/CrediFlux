@@ -635,15 +635,32 @@ export default function CrediFluxApp() {
 
       const headers = { 'x-user-id': userId };
 
-      const [resClients, resProducts, resLoans, resPayments, resEcom, resSettings, resCapital] = await Promise.all([
-        fetch('/api/clients', { headers }).then(r => r.json()),
-        fetch('/api/products', { headers }).then(r => r.json()),
-        fetch('/api/loans', { headers }).then(r => r.json()),
-        fetch('/api/payments', { headers }).then(r => r.json()),
-        fetch('/api/ecommerce', { headers }).then(r => r.json()),
-        fetch('/api/settings', { headers }).then(r => r.json()),
-        fetch('/api/capital-movements', { headers }).then(r => r.json())
-      ]);
+      // Una sola petición para los 7 módulos (una sola lectura del estado en el
+      // servidor). Si el endpoint agregado falla, se mantiene el comportamiento
+      // legado de 7 peticiones para no romper la sincronización.
+      let resClients, resProducts, resLoans, resPayments, resEcom, resSettings, resCapital;
+      try {
+        const resDashboard = await fetch('/api/dashboard', { headers });
+        const dashboard = await resDashboard.json();
+        if (!dashboard.success) throw new Error(dashboard.error || 'Dashboard no disponible');
+        resClients = dashboard.clients;
+        resProducts = dashboard.products;
+        resLoans = dashboard.loans;
+        resPayments = dashboard.payments;
+        resEcom = dashboard.ecommerce;
+        resSettings = dashboard.settings;
+        resCapital = dashboard.capitalMovements;
+      } catch (dashboardError) {
+        [resClients, resProducts, resLoans, resPayments, resEcom, resSettings, resCapital] = await Promise.all([
+          fetch('/api/clients', { headers }).then(r => r.json()),
+          fetch('/api/products', { headers }).then(r => r.json()),
+          fetch('/api/loans', { headers }).then(r => r.json()),
+          fetch('/api/payments', { headers }).then(r => r.json()),
+          fetch('/api/ecommerce', { headers }).then(r => r.json()),
+          fetch('/api/settings', { headers }).then(r => r.json()),
+          fetch('/api/capital-movements', { headers }).then(r => r.json())
+        ]);
+      }
 
       if (resClients.success) {
         setClients(resClients.clients);

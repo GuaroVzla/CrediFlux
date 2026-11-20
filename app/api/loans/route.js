@@ -1,53 +1,17 @@
 import { NextResponse } from 'next/server';
-import { computeLoanStatus, checkWritePermission, normalizeDni, getRequestUser, scopeRecords, canAccessRecord } from '../../../lib/db.js';
+import { computeLoanStatus, checkWritePermission, normalizeDni, getRequestUser, canAccessRecord } from '../../../lib/db.js';
 import { getStateForRequest, saveStateForRequest } from '../../../lib/server/supabase-store';
+import { buildLoansBody, normalizeDashboardState } from '../../../lib/server/dashboard-builders';
 
 export async function GET(request) {
   try {
     const db = await getStateForRequest(request);
-    if (!Array.isArray(db.loans)) db.loans = [];
-    if (!Array.isArray(db.clients)) db.clients = [];
-    if (!Array.isArray(db.products)) db.products = [];
-    if (!Array.isArray(db.blacklist)) db.blacklist = [];
+    normalizeDashboardState(db);
     const user = getRequestUser(request, db);
     if (!user) {
       return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
     }
-    const visibleLoans = scopeRecords(db.loans || [], user);
-
-    // Map loans with updated computed status & amortization progress
-    const enrichedLoans = visibleLoans.map(loan => {
-      const status = computeLoanStatus(loan);
-      const installments = loan.installments || [];
-      const totalInstallments = installments.length;
-      const paidInstallments = installments.filter(i => i.paid);
-      const paidCount = paidInstallments.length;
-      const paidAmount = paidInstallments.reduce((sum, i) => sum + i.amount, 0);
-      const pendingAmount = installments.filter(i => !i.paid).reduce((sum, i) => sum + i.amount, 0);
-      const progressPercent = totalInstallments > 0 ? Math.round((paidCount / totalInstallments) * 100) : 0;
-
-      // Project profit
-      const baseCost = loan.type === 'producto'
-        ? ((db.products || []).find(p => p.id === loan.productId)?.costPrice || loan.principal * 0.75)
-        : loan.principal;
-      const projectedProfit = Math.max(0, (loan.totalAmount + (loan.downPayment || 0)) - baseCost);
-
-      return {
-        ...loan,
-        status,
-        stats: {
-          totalInstallments,
-          paidCount,
-          pendingCount: totalInstallments - paidCount,
-          paidAmount: Number(paidAmount.toFixed(2)),
-          pendingAmount: Number(pendingAmount.toFixed(2)),
-          progressPercent,
-          projectedProfit: Number(projectedProfit.toFixed(2))
-        }
-      };
-    });
-
-    return NextResponse.json({ success: true, loans: enrichedLoans });
+    return NextResponse.json(buildLoansBody(db, user));
   } catch (error) {
     console.error('Loans GET error:', error);
     return NextResponse.json({ success: false, error: 'Error al obtener financiamientos' }, { status: 500 });
