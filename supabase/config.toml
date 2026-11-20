@@ -278,8 +278,9 @@ max_frequency = "5s"
 
 # Configure logged in session timeouts.
 # Alineados con los timers del frontend (24 h absoluto / 30 min de inactividad).
-# En proyectos hosted de Supabase estos valores se configuran en
-# Authentication -> Settings -> Session (no se aplican desde este archivo).
+# En proyectos hosted de Supabase estos valores NO se leen de este archivo:
+# configurar en Dashboard -> Authentication -> Settings -> Sessions (plan Pro+).
+# Detalles y pasos de verificación: docs/TIMEOUTS_SESION.md
 [auth.sessions]
 # Force log out after the specified duration.
 timebox = "24h"

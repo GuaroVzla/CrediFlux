@@ -360,10 +360,12 @@ export default function CrediFluxApp() {
   // Paginación client-side (los totales para KPIs/chips se siguen calculando
   // sobre los arrays completos).
   const capitalPagingController = usePaginationController(8);
-  const loanPagingController = usePaginationController(10, debouncedLoanSearch);
+  // El reset incluye todos los filtros que reducen la lista, no solo la búsqueda:
+  // de lo contrario la página quedaría fuera de rango al filtrar por estado/tipo.
+  const loanPagingController = usePaginationController(10, `${debouncedLoanSearch}|${debtorStatusFilter}`);
   const clientPagingController = usePaginationController(10, debouncedClientSearch);
   const productPagingController = usePaginationController(10, debouncedProductSearch);
-  const txPagingController = usePaginationController(10, debouncedTxSearch);
+  const txPagingController = usePaginationController(10, `${debouncedTxSearch}|${txTypeFilter}`);
   const historyPagingController = usePaginationController(10, debouncedHistorySearch);
   const blacklistPagingController = usePaginationController(10, debouncedBlacklistSearch);
   const patternPagingController = usePaginationController(10);
@@ -3416,7 +3418,7 @@ export default function CrediFluxApp() {
                           <React.Fragment key={loan.id}>
                             <tr className="group hover:bg-slate-800/30 transition-colors">
                               <td className={`sticky left-0 z-10 w-12 py-2.5 px-2 text-center align-middle text-xs font-semibold tabular-nums ${stickyCell}`}>
-                                {index + 1}
+                                {loanPaging.from + index}
                               </td>
                               <td className="py-2.5 px-3 align-middle">
                                 <div className="flex items-center gap-2">
@@ -3732,7 +3734,7 @@ export default function CrediFluxApp() {
                         return (
                           <tr key={client.id} className="group hover:bg-slate-800/30 transition-colors">
                             <td className={`sticky left-0 z-10 w-12 py-2.5 px-2 text-center align-middle text-xs font-semibold tabular-nums ${themeDark ? 'bg-slate-900 text-slate-400 group-hover:bg-slate-800' : 'bg-white text-slate-400 group-hover:bg-slate-50'}`}>
-                              {index + 1}
+                              {clientPaging.from + index}
                             </td>
                             <td className="py-2.5 px-3 align-middle">
                               <div className="font-bold text-slate-200 text-sm leading-tight">{client.name}</div>
@@ -4083,7 +4085,7 @@ export default function CrediFluxApp() {
                     {productPaging.items.map((prod, index) => (
                       <tr key={prod.id} className="group hover:bg-slate-800/30 transition-colors">
                         <td className={`sticky left-0 z-10 w-12 py-2.5 px-2 text-center align-middle text-xs font-semibold tabular-nums ${themeDark ? 'bg-slate-900 text-slate-400 group-hover:bg-slate-800' : 'bg-white text-slate-400 group-hover:bg-slate-50'}`}>
-                          {index + 1}
+                          {productPaging.from + index}
                         </td>
                         <td className="py-2.5 px-3 align-middle">
                           <div className="font-bold text-slate-200 text-sm leading-tight">{prod.name}</div>
@@ -6540,7 +6542,7 @@ export default function CrediFluxApp() {
                   <tbody className="divide-y divide-slate-800/60">
                     {historyPaging.items.map((row, index) => (
                       <tr key={row.payment.id} className="hover:bg-slate-800/20 transition-colors">
-                        <td className="py-2.5 px-2 text-center align-middle text-xs font-semibold tabular-nums text-slate-400">{index + 1}</td>
+                        <td className="py-2.5 px-2 text-center align-middle text-xs font-semibold tabular-nums text-slate-400">{historyPaging.from + index}</td>
                         <td className="py-2.5 px-3 align-middle whitespace-nowrap">
                           <div className="text-slate-200 font-semibold">{formatDate(row.dateObj)}</div>
                           <div className="mt-0.5 text-xs text-slate-400">{row.payment.id}</div>
@@ -6839,7 +6841,7 @@ export default function CrediFluxApp() {
                       return (
                         <tr key={entry.id} className="hover:bg-slate-800/20 transition-colors">
                           <td className="py-2.5 px-2 text-center align-middle text-xs font-semibold tabular-nums text-slate-400">
-                            {index + 1}
+                            {blacklistPaging.from + index}
                           </td>
                           <td className="py-2.5 px-3 align-middle">
                             <div className="font-bold text-slate-200 text-sm leading-tight">{entry.name}</div>

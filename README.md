@@ -25,6 +25,7 @@ Plataforma SaaS financiera de alta gama, moderna y privada diseñada para la adm
 - Base de datos: Supabase (`vcsfrmmntmljeikidbkh`) con RLS y Auth.
 - Alias secundario: `proyectoricardo.vercel.app`.
 - Guía de despliegue y diagnóstico: [`docs/DESPLIEGUE_VERCEL.md`](docs/DESPLIEGUE_VERCEL.md).
+- Timeouts de sesión (30 min inactividad / 24 h absoluto): [`docs/TIMEOUTS_SESION.md`](docs/TIMEOUTS_SESION.md).
 
 ---
 
