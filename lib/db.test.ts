@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach , vi } from 'vitest'
 
 describe('M-006: DB Helpers Module', () => {
   beforeEach(() => {

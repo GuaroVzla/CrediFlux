@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach , vi } from 'vitest'
 const fs = require('fs')
 
 describe('M-009: UI Dashboard Module', () => {

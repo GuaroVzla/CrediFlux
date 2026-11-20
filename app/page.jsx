@@ -94,6 +94,10 @@ export default function CrediFluxApp() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
+  // Session lifecycle state
+  const [sessionStart, setSessionStart] = useState(Date.now());
+  const [idleTimeout, setIdleTimeout] = useState(30 * 60 * 1000); // 30 minutos en ms
+  const [absoluteTimeout, setAbsoluteTimeout] = useState(24 * 60 * 60 * 1000); // 24 horas en ms
   const [loginInput, setLoginInput] = useState({ username: '', password: '' });
   const [authError, setAuthError] = useState('');
   const [themeDark, setThemeDark] = useState(true);
@@ -385,6 +389,70 @@ export default function CrediFluxApp() {
     viewHistoryClient, manualRecord.open
   ]);
 
+  // --- Session lifecycle -------------------------------------------------
+  const idleTimerRef = useRef(null);
+  const absoluteTimerRef = useRef(null);
+
+  // Single logout implementation. Declared before the session effect so the
+  // timers can call it safely (no temporal-dead-zone reference).
+  const handleLogout = async (reason = 'user-initiated') => {
+    try {
+      await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'logout' })
+      });
+    } catch (e) {}
+
+    try {
+      ['crediflux_token', 'crediflux_user', 'ricardo_token', 'ricardo_user',
+        'session_start', 'idle_timeout', 'absolute_timeout'
+      ].forEach(key => localStorage.removeItem(key));
+    } catch (e) {}
+
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    if (absoluteTimerRef.current) clearTimeout(absoluteTimerRef.current);
+    idleTimerRef.current = null;
+    absoluteTimerRef.current = null;
+
+    setIsAuthenticated(false);
+    setCurrentUser(null);
+    notify('Sesión cerrada correctamente');
+  };
+
+  // Idle timeout (30 min) + absolute timeout (24 h) from session start.
+  useEffect(() => {
+    if (!isAuthenticated) return undefined;
+
+    const logout = (reason) => handleLogout(reason);
+
+    const resetIdleTimer = () => {
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = setTimeout(() => logout('idle-timeout'), idleTimeout);
+    };
+
+    const remainingAbsolute = absoluteTimeout - (Date.now() - sessionStart);
+    if (remainingAbsolute <= 0) {
+      logout('absolute-timeout');
+      return undefined;
+    }
+    absoluteTimerRef.current = setTimeout(() => logout('absolute-timeout'), remainingAbsolute);
+
+    const activityEvents = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+    activityEvents.forEach(event =>
+      window.addEventListener(event, resetIdleTimer, { passive: true })
+    );
+    resetIdleTimer();
+
+    return () => {
+      activityEvents.forEach(event => window.removeEventListener(event, resetIdleTimer));
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      if (absoluteTimerRef.current) clearTimeout(absoluteTimerRef.current);
+    };
+    // handleLogout is captured from the render that owns this session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, sessionStart, idleTimeout, absoluteTimeout]);
+
   // Preferencia de tema: persiste la elección y respeta la del sistema.
   useEffect(() => {
     try {
@@ -413,6 +481,12 @@ export default function CrediFluxApp() {
   // Inicializa y valida la sesión contra Supabase (cookie httpOnly gestionada por @supabase/ssr).
   useEffect(() => {
     const bootstrapSession = async () => {
+      // Restore the absolute-session clock from a previous tab reload.
+      try {
+        const storedStart = Number(localStorage.getItem('session_start'));
+        if (Number.isFinite(storedStart) && storedStart > 0) setSessionStart(storedStart);
+      } catch (e) {}
+
       const savedUser = localStorage.getItem('crediflux_user') || localStorage.getItem('ricardo_user');
       if (savedUser) {
         try {
@@ -909,10 +983,13 @@ export default function CrediFluxApp() {
       });
       const data = await res.json();
       if (data.success) {
+        const startedAt = Date.now();
         localStorage.setItem('crediflux_token', data.token);
         localStorage.setItem('crediflux_user', JSON.stringify(data.user));
+        localStorage.setItem('session_start', String(startedAt));
         localStorage.removeItem('ricardo_token');
         localStorage.removeItem('ricardo_user');
+        setSessionStart(startedAt);
         setCurrentUser(data.user);
         setIsAuthenticated(true);
         notify(`Bienvenido, ${data.user.name}`);
@@ -987,23 +1064,6 @@ export default function CrediFluxApp() {
     } catch (err) {
       console.error(err);
     }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await fetch('/api/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'logout' })
-      });
-    } catch (e) {}
-    localStorage.removeItem('crediflux_token');
-    localStorage.removeItem('crediflux_user');
-    localStorage.removeItem('ricardo_token');
-    localStorage.removeItem('ricardo_user');
-    setIsAuthenticated(false);
-    setCurrentUser(null);
-    notify('Sesión cerrada correctamente');
   };
 
   // Calculate Dashboard KPIs
