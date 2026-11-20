@@ -20,6 +20,10 @@
     "db:migrate-supabase": "node scripts/migrate-json-to-supabase.mjs",
     "vercel:check": "node scripts/vercel-setup.mjs",
     "vercel:fix": "node scripts/vercel-setup.mjs --apply",
+    "stress:dry": "node scripts/seed-stress-controlled.mjs --dry-run",
+    "stress:run": "node scripts/seed-stress-controlled.mjs --run",
+    "stress:cleanup": "node scripts/seed-stress-controlled.mjs --cleanup",
+    "stress:repair": "node scripts/seed-stress-controlled.mjs --repair",
     "test": "vitest run"
   },
   "keywords": [],
