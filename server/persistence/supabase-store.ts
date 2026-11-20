@@ -6,6 +6,7 @@ import { isSupabaseConfigured } from '@/server/supabase/env';
 import { profileToLegacyUser, resolveRequestAuth, type RequestAuth } from '@/server/auth/request-auth';
 import { decryptStateSecretsInMemory, encryptStateSecretsAtRest } from '@/server/security/security.js';
 import { normalizeTrustConfig } from '@/modules/trust/service.js';
+import { getRequestUser } from '@/shared/lib/db.js';
 import {
   getAppState as legacyGetAppState,
   saveAppState as legacySaveAppState,
@@ -133,7 +134,12 @@ function emptyState() {
 
 export async function getStateForRequest(request: Request): Promise<AnyRecord> {
   if (!isSupabaseConfigured()) {
-    return legacyGetAppState();
+    const state = await legacyGetAppState();
+    // En modo legado la identidad viene del header x-user-id (sólo dev/test).
+    // La capa de Supabase ya adjunta __currentUser; sin esto los builders ven
+    // un invitado y ocultan la lista de usuarios de Ajustes al administrador.
+    state.__currentUser = getRequestUser(request, state);
+    return state;
   }
 
   const auth = await resolveRequestAuth(request);
