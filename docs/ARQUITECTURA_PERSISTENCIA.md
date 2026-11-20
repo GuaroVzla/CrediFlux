@@ -80,6 +80,8 @@ Definir en Vercel (Project Settings → Environment Variables) y en `.env.local`
 - **Tesseract.js en Vercel:** los modelos `eng.traineddata`/`spa.traineddata` se versionan en `public/tessdata/`, se sirven como `/tessdata/*` y se incluyen en el bundle de las rutas OCR. El worker usa el core embebido `.wasm.js` y `maxDuration = 300`. Detalle completo en `docs/TESSERACT_VERCEL.md`.
 - **Importante:** definir `SETTINGS_ENCRYPTION_KEY` en todos los entornos persistentes antes de operar en producción; rotación de clave requiere proceso de re-cifrado controlado.
 
+> Nota (2026-11-20): el store activo en producción es **Supabase** (`lib/server/supabase-store.ts`). Prisma queda como capa opcional/legacy y sus migraciones sólo deben aplicarse cuando exista un `DATABASE_URL` apuntando a una base con el esquema `prisma/schema.prisma`. La migración de índices `20261120000000_perf_indexes` se retiró porque sus tablas (`ReceiptPattern`, `SettingAuditLog`) no existen en la base Supabase; los índices de las consultas reales están en `supabase/migrations/20261120000100_perf_indexes.sql`.
+
 ## Evolución recomendada
 
 - Completar migración total de rutas restantes para usar tablas normalizadas en lugar de `AppState`.

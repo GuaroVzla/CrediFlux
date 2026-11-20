@@ -72,6 +72,31 @@ const PatternImage = React.memo(function PatternImage({ src, alt, className = ''
 /** Préstamo activo: excluye completados y dados de baja (archivados/lista negra). */
 const isActiveLoan = (l) => Boolean(l) && !l.archived && l.status !== 'completado' && l.status !== 'archivado';
 
+/** El proxy firma el inicio de sesión en cf_session_start (24 h absoluto). */
+const SESSION_START_COOKIE = 'cf_session_start';
+const ABSOLUTE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+
+function getInitialSessionStart() {
+  if (typeof window === 'undefined') return Date.now();
+  try {
+    const value = Number(window.localStorage.getItem('session_start'));
+    if (Number.isFinite(value) && value > 0 && Date.now() - value < ABSOLUTE_TIMEOUT_MS) return value;
+  } catch (e) {}
+  return Date.now();
+}
+
+function getServerSessionStart() {
+  if (typeof document === 'undefined') return null;
+  try {
+    const match = document.cookie.match(/(?:^|;\s*)cf_session_start=([^;]+)/);
+    if (!match) return null;
+    const value = Number(decodeURIComponent(match[1]).split('.')[0]);
+    return Number.isFinite(value) && value > 0 && Date.now() - value < ABSOLUTE_TIMEOUT_MS ? value : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 /** Retrasa el valor usado en filtros sin retrasar el texto del input. */
 function useDebouncedValue(value, delay = 250) {
   const [debounced, setDebounced] = useState(value);
@@ -159,7 +184,7 @@ export default function CrediFluxApp() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   // Session lifecycle state
-  const [sessionStart, setSessionStart] = useState(Date.now());
+  const [sessionStart, setSessionStart] = useState(getInitialSessionStart);
   const [idleTimeout, setIdleTimeout] = useState(30 * 60 * 1000); // 30 minutos en ms
   const [absoluteTimeout, setAbsoluteTimeout] = useState(24 * 60 * 60 * 1000); // 24 horas en ms
   const [loginInput, setLoginInput] = useState({ username: '', password: '' });
@@ -506,6 +531,8 @@ export default function CrediFluxApp() {
       ['crediflux_token', 'crediflux_user', 'ricardo_token', 'ricardo_user',
         'session_start', 'idle_timeout', 'absolute_timeout'
       ].forEach(key => localStorage.removeItem(key));
+      document.cookie = `${SESSION_START_COOKIE}=; path=/; max-age=0`;
+      document.cookie = 'cf_last_activity=; path=/; max-age=0';
     } catch (e) {}
 
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
@@ -517,6 +544,14 @@ export default function CrediFluxApp() {
     setCurrentUser(null);
     notify('Sesión cerrada correctamente');
   }, [notify]);
+
+  // El proxy es la autoridad del reloj de sesión: su cookie firmada sobrevive a
+  // recargas y a login en otra pestaña (localStorage puede estar vacío).
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const serverStart = getServerSessionStart();
+    if (serverStart && serverStart !== sessionStart) setSessionStart(serverStart);
+  }, [isAuthenticated, sessionStart]);
 
   // Idle timeout (30 min) + absolute timeout (24 h) from session start.
   useEffect(() => {
