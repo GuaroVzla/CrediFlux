@@ -16,22 +16,44 @@ function applyNoStore(response: NextResponse) {
   return response;
 }
 
+/** Rutas API públicas: no requieren sesión (debe coincidir con middleware.ts). */
+const PUBLIC_API_PATHS = new Set(['/api/auth', '/api/binance-p2p', '/api/health']);
+
+function requiresApiAuth(pathname: string): boolean {
+  return (
+    pathname.startsWith('/api/') &&
+    !PUBLIC_API_PATHS.has(pathname) &&
+    !pathname.startsWith('/api/health')
+  );
+}
+
+function apiUnauthorized() {
+  return applyNoStore(
+    NextResponse.json(
+      { success: false, error: 'No autenticado', code: 'UNAUTHENTICATED' },
+      { status: 401 }
+    )
+  );
+}
+
 /**
  * Proxy de Next.js 16 (antes `middleware`): refresca la sesión de Supabase
  * en cada request y bloquea las rutas /api/* sin sesión válida.
  *
- * El módulo de sesión se importa dinámicamente y cualquier fallo se degrada a
- * "continuar la request" para que un problema de Supabase nunca tumbe el sitio.
+ * El módulo de sesión se importa dinámicamente. Un fallo del módulo NO puede
+ * dejar pasar una API protegida: en ese caso se devuelve 401 (fail-closed).
  */
 export async function proxy(request: NextRequest) {
-  const isApi = request.nextUrl.pathname.startsWith('/api/');
+  const pathname = request.nextUrl.pathname;
+  const isApi = pathname.startsWith('/api/');
   try {
     const { updateSession } = await import('@/lib/supabase/middleware');
     const response = await updateSession(request);
     return isApi ? applyNoStore(response) : response;
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    console.error(`[proxy] Error no controlado, se continúa sin refrescar sesión: ${detail}`);
+    console.error(`[proxy] Error no controlado al validar la sesión: ${detail}`);
+    if (requiresApiAuth(pathname)) return apiUnauthorized();
     const response = NextResponse.next({ request });
     return isApi ? applyNoStore(response) : response;
   }

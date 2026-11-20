@@ -1,49 +1,188 @@
-import { describe, it, expect, beforeEach, afterEach , vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-describe('M-003: API E-commerce Handler Module', () => {
+const scope = vi.hoisted(() => ({
+  allow: true,
+  user: { id: 'usr_1', role: 'admin' } as { id: string; role: string } | null,
+  saveCount: 0,
+}))
+
+vi.mock('next/server', () => ({
+  NextResponse: {
+    json: (body: unknown, init?: { status?: number }) => ({
+      status: init?.status ?? 200,
+      body,
+      json: async () => body,
+    }),
+  },
+}))
+
+vi.mock('../../../lib/db.js', () => ({
+  checkWritePermission: () => scope.allow
+    ? { allowed: true, user: scope.user, isAdmin: scope.user?.role === 'admin' }
+    : { allowed: false, error: 'Licencia del sistema caducada' },
+  getRequestUser: () => scope.user,
+  canAccessRecord: () => true,
+}))
+
+vi.mock('../../../lib/ocrEngine.js', () => ({
+  parseReceiptWithAI: vi.fn(async () => ({
+    success: true,
+    provider: 'Tesseract.js (Motor Local)',
+    data: {
+      monto: 100,
+      fecha: '2026-06-15',
+      referencia: '123456789',
+      bancoOrigen: 'Banesco',
+      bancoDestino: 'Desconocido',
+    },
+  })),
+}))
+
+vi.mock('../../../lib/server/supabase-store', () => ({
+  getStateForRequest: async () => ({
+    ecommerce: [],
+    users: [scope.user],
+    settings: { aiProvider: 'tesseract' },
+  }),
+  saveStateForRequest: async () => { scope.saveCount += 1; return true },
+  persistenceInfo: () => ({ mode: 'test' }),
+}))
+
+vi.mock('../../../lib/server/dashboard-builders', () => ({
+  normalizeDashboardState: () => {},
+  buildEcommerceBody: () => ({ success: true }),
+}))
+
+vi.mock('../../../lib/storage/uploads.js', () => ({
+  saveUpload: vi.fn(async () => ({ url: '/uploads/recibo.png' })),
+  resolveUploadUrl: async (url: string | null) => url || '',
+  resolveUploadUrls: async (urls: string[]) => urls,
+}))
+
+import { parseReceiptWithAI } from '../../../lib/ocrEngine.js'
+import { POST } from './route.js'
+
+function requestWith(fields: Record<string, unknown>): Request {
+  const form = new Map(Object.entries(fields))
+  return { formData: async () => form } as unknown as Request
+}
+
+const imageFile = {
+  size: 8,
+  type: 'image/png',
+  name: 'recibo.png',
+  arrayBuffer: async () => new Uint8Array([1, 2, 3, 4]).buffer,
+}
+
+describe('M-003: POST /api/ecommerce-handler — validación antes de OCR y persistencia', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    scope.allow = true
+    scope.user = { id: 'usr_1', role: 'admin' }
+    scope.saveCount = 0
+    vi.mocked(parseReceiptWithAI).mockClear()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
   })
 
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  it('test infrastructure verification', () => {
-    expect(true).toBe(true)
+  it('rechaza la petición sin usuario autenticado antes de invocar al OCR', async () => {
+    scope.user = null
+    const response = await POST(requestWith({ manual: 'true' }))
+
+    expect(response.status).toBe(401)
+    expect(await response.json()).toMatchObject({ success: false, error: 'No autenticado' })
+    expect(parseReceiptWithAI).not.toHaveBeenCalled()
+    expect(scope.saveCount).toBe(0)
   })
 
-  it('should verify transaction processing structure', () => {
-    // Mock transaction data structure from the module
-    const transaction = {
-      id: 'ecom_test_1',
-      type: 'compra' as const,
-      date: '2026-01-25',
+  it('devuelve 400 si el registro manual omite banco o referencia y no llama al OCR', async () => {
+    const response = await POST(requestWith({
+      manual: 'true',
+      amountBs: '100',
+      bcvRate: '40',
+      bankOrigin: '',
+      reference: '',
+    }))
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({
+      success: false,
+      code: 'MISSING_MANUAL_FIELDS',
+      error: 'El banco emisor y la referencia son obligatorios en el registro manual.',
+    })
+    expect(parseReceiptWithAI).not.toHaveBeenCalled()
+    expect(scope.saveCount).toBe(0)
+  })
+
+  it('devuelve 422 si no hay comprobante ni datos manuales, sin invocar al OCR', async () => {
+    const response = await POST(requestWith({ type: 'venta' }))
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toMatchObject({
+      success: false,
+      code: 'OCR_EXTRACTION_FAILED',
+    })
+    expect(parseReceiptWithAI).not.toHaveBeenCalled()
+    expect(scope.saveCount).toBe(0)
+  })
+
+  it('rechaza archivos que no son imágenes antes de leerlos o enviarlos al OCR', async () => {
+    const response = await POST(requestWith({
+      receiptFile: { size: 8, type: 'application/pdf', name: 'recibo.pdf' },
+    }))
+
+    expect(response.status).toBe(415)
+    expect(await response.json()).toMatchObject({ success: false, code: 'INVALID_FILE_TYPE' })
+    expect(parseReceiptWithAI).not.toHaveBeenCalled()
+  })
+
+  it('persiste un registro manual completo sin pasar por el OCR', async () => {
+    const response = await POST(requestWith({
+      manual: 'true',
+      type: 'venta',
+      amountBs: '100',
+      bcvRate: '40',
       bankOrigin: 'Banesco',
-      reference: 'REF-8837192',
-      amountBs: 2100,
-      amountUSD: 100,
-      bcvRate: 21,
-      receiptUrl: '/uploads/test.png',
-      manual: false,
-      ocrProvider: 'Manual',
-      createdAt: new Date().toISOString()
-    }
+      reference: 'REF-123456',
+      date: '2026-06-15',
+    }))
 
-    // Verify structure matches expected schema
-    expect(transaction.id).toBeDefined()
-    expect(transaction.type).toBe('compra')
-    expect(transaction.amountBs).toBe(2100)
-    expect(transaction.amountUSD).toBe(100)
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.transaction).toMatchObject({
+      userId: 'usr_1',
+      type: 'venta',
+      amountBs: 100,
+      amountUSD: 2.5,
+      bcvRate: 40,
+      bankOrigin: 'Banesco',
+      reference: 'REF-123456',
+      manual: true,
+      ocrProvider: 'Manual',
+    })
+    expect(scope.saveCount).toBe(1)
+    expect(parseReceiptWithAI).not.toHaveBeenCalled()
   })
 
-  it('should verify net profit calculation with sample data', () => {
-    // Sample: 3 purchases (2100+840+600=3540) and 3 sales (880+600+400=1880)
-    const totalPurchasesBs = 3540
-    const totalSalesBs = 1880
-    const netProfitBs = totalSalesBs - totalPurchasesBs
+  it('llama al OCR con el proveedor configurado cuando se sube una imagen', async () => {
+    const response = await POST(requestWith({ receiptFile: imageFile }))
 
-    // Net profit should be negative for these sample values
-    expect(netProfitBs).toBe(-1660)
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(parseReceiptWithAI).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(parseReceiptWithAI).mock.calls[0][0]).toMatchObject({
+      provider: 'tesseract',
+      mimeType: 'image/png',
+    })
+    expect(body.transaction).toMatchObject({
+      amountBs: 100,
+      bankOrigin: 'Banesco',
+      reference: '123456789',
+      receiptUrl: '/uploads/recibo.png',
+    })
+    expect(scope.saveCount).toBe(1)
   })
 })

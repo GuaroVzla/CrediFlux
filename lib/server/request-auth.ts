@@ -2,7 +2,7 @@ import type { SupabaseClient, User as SupabaseAuthUser } from '@supabase/supabas
 import type { Database, ProfileRow } from '@/lib/supabase/database.types';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getSupabaseAdminClientOrNull } from '@/lib/supabase/admin';
-import { emailToUsername, isSupabaseConfigured } from '@/lib/supabase/env';
+import { emailToUsername, isLegacyAuthAllowed, isSupabaseConfigured } from '@/lib/supabase/env';
 
 export interface RequestAuth {
   mode: 'supabase' | 'legacy';
@@ -26,12 +26,14 @@ export function resolveRequestAuth(request: Request): Promise<RequestAuth> {
 
 async function doResolveRequestAuth(request: Request): Promise<RequestAuth> {
   if (!isSupabaseConfigured()) {
+    // Sin Supabase en producción no hay sesión verificable: devolver userId
+    // nulo impide que un header `x-user-id` suplante a un usuario real.
     return {
       mode: 'legacy',
       supabase: null,
       authUser: null,
       profile: null,
-      userId: request.headers.get('x-user-id') || null,
+      userId: isLegacyAuthAllowed() ? request.headers.get('x-user-id') || null : null,
     };
   }
 

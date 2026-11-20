@@ -1,41 +1,40 @@
-import { describe, it, expect, beforeEach, afterEach , vi } from 'vitest'
-const fs = require('fs')
-const path = require('path')
+import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { beforeAll, describe, expect, it } from 'vitest'
 
-describe('M-007: Prisma Schema Module', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
+const schemaPath = fileURLToPath(new URL('./schema.prisma', import.meta.url))
+let schema = ''
+
+describe('M-007: prisma/schema.prisma — modelos e índices reales', () => {
+  beforeAll(() => {
+    schema = fs.readFileSync(schemaPath, 'utf8')
   })
 
-  afterEach(() => {
-    vi.restoreAllMocks()
+  it('define los modelos centrales de multi-tenancy, usuarios y licencias', () => {
+    expect(schema).toMatch(/\bmodel\s+Tenant\s*\{/)
+    expect(schema).toMatch(/\bmodel\s+User\s*\{/)
+    expect(schema).toMatch(/\bmodel\s+License\s*\{/)
+    expect(schema).toMatch(/\bmodel\s+AdminSetting\s*\{/)
   })
 
-  it('test infrastructure verification', () => {
-    expect(true).toBe(true)
+  it('conserva el almacén de estado JSON y la configuración de confianza', () => {
+    expect(schema).toMatch(/\bmodel\s+AppState\s*\{/)
+    expect(schema).toMatch(/\bdata\s+Json\b/)
+    expect(schema).toMatch(/\bmodel\s+TrustLevelConfig\s*\{/)
+    expect(schema).toMatch(/\bmodel\s+SettingAuditLog\s*\{/)
   })
 
-  it('should verify Prisma schema defines expected models', () => {
-    // We check the file structure and expected model names
-    const schemaPath = path.join(process.cwd(), 'prisma', 'schema.prisma')
-    
-    // Just verify the file exists and has content
-    expect(fs.existsSync(schemaPath)).toBe(true)
+  it('declara índices compuestos por tenant en las consultas frecuentes', () => {
+    const indexes = schema.match(/@@index\(/g) ?? []
+    expect(indexes.length).toBeGreaterThanOrEqual(5)
+    expect(schema).toContain('@@index([tenantId, role])')
+    expect(schema).toContain('@@index([tenantId, status, expiresAt])')
+    expect(schema).toContain('@@index([tenantId, entity, createdAt])')
+    expect(schema).toContain('@@unique([tenantId, username])')
   })
 
-  it('should verify expected Prisma model names', () => {
-    // Expected model names based on the application domain
-    const expectedModels = ['profiles', 'loans', 'payments', 'clients', 'products', 'ecommerce', 'blacklist']
-    
-    // Basic assertion that expected models concept exists
-    expect(expectedModels).toBeInstanceOf(Array)
-    expect(expectedModels.length).toBeGreaterThan(0)
-  })
-
-  it('should verify schema has timestamp fields', () => {
-    // All models should have createdAt and updatedAt
-    const timestampFields = ['createdAt', 'updatedAt']
-    expect(timestampFields).toBeInstanceOf(Array)
-    expect(timestampFields.length).toBe(2)
+  it('define los enum de roles y estados de licencia usados por la app', () => {
+    expect(schema).toMatch(/enum\s+UserRole\s*\{[\s\S]*?ADMIN[\s\S]*?USER[\s\S]*?\}/)
+    expect(schema).toMatch(/enum\s+LicenseStatus\s*\{[\s\S]*?ACTIVE[\s\S]*?EXPIRED[\s\S]*?\}/)
   })
 })

@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { generateRandomLicense, isUserLicenseExpired, getDefaultMonthlyCapital } from '../../../lib/db.js';
+import { generateRandomLicense, isUserLicenseExpired, getDefaultMonthlyCapital, getRequestUser } from '../../../lib/db.js';
 import { getStateForRequest, saveStateForRequest, persistenceInfo } from '../../../lib/server/supabase-store';
 import { hashPassword, verifyPassword, sanitizeUserForClient } from '../../../lib/server/security.js';
 import { createSupabaseServerClient, createSupabaseRouteClient } from '../../../lib/supabase/server';
 import { getSupabaseAdminClientOrNull } from '../../../lib/supabase/admin';
-import { isSupabaseConfigured, usernameToEmail } from '../../../lib/supabase/env';
+import { isLegacyAuthAllowed, isSupabaseConfigured, usernameToEmail } from '../../../lib/supabase/env';
 import { profileToLegacyUser, resolveRequestAuth } from '../../../lib/server/request-auth';
 import { setLegacyPasswordPreview, storePasswordPreview } from '../../../lib/server/password-preview.js';
 
@@ -12,6 +12,14 @@ function supabaseUnavailable() {
   return NextResponse.json({
     success: false,
     error: 'Supabase Auth no está configurado. Define NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY y SUPABASE_SERVICE_ROLE_KEY.'
+  }, { status: 503 });
+}
+
+/** En producción no existe el modo legado: no se emiten sesiones ni se muta por header. */
+function legacyUnavailable() {
+  return NextResponse.json({
+    success: false,
+    error: 'Modo legado deshabilitado en producción. Configura Supabase Auth para continuar.'
   }, { status: 503 });
 }
 
@@ -258,6 +266,13 @@ export async function POST(request) {
     if (!Array.isArray(db.users)) db.users = [];
     if (!db.settings || typeof db.settings !== 'object') db.settings = {};
 
+    // El modo legado (login con contraseña del JSON local, registro y funciones
+    // administrativas sin sesión) queda restringido a desarrollo/pruebas.
+    // `logout` se permite para que el cliente pueda limpiar su estado local.
+    if (!isSupabaseConfigured() && !isLegacyAuthAllowed() && action !== 'logout') {
+      return legacyUnavailable();
+    }
+
     // ACTION: LOGIN
     if (action === 'login') {
       if (isSupabaseConfigured()) {
@@ -337,7 +352,7 @@ export async function POST(request) {
           licenseDurationMonths, assignedLicenseKey,
         });
       }
-      const requester = db.__currentUser || null;
+      const requester = getRequestUser(request, db);
 
       if (!requester || requester.role !== 'admin') {
         return NextResponse.json(
@@ -436,8 +451,18 @@ export async function POST(request) {
         );
       }
 
-      const targetId = userId || 'usr_admin';
-      const user = db.users.find(u => u.id === targetId || (targetId === 'usr_admin' && u.role === 'admin'));
+      const requester = getRequestUser(request, db);
+      if (!requester) {
+        return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+      }
+      const targetId = userId || requester.id;
+      if (targetId !== requester.id && requester.role !== 'admin') {
+        return NextResponse.json(
+          { success: false, error: 'No autorizado para cambiar la contraseña de otro usuario' },
+          { status: 403 }
+        );
+      }
+      const user = db.users.find(u => u.id === targetId);
 
       if (!user) {
         return NextResponse.json({ success: false, error: 'Usuario no encontrado' }, { status: 404 });
@@ -499,7 +524,14 @@ export async function POST(request) {
         return NextResponse.json({ success: false, error: 'La clave de licencia es requerida' }, { status: 400 });
       }
 
-      const targetId = userId;
+      const requester = getRequestUser(request, db);
+      if (!requester) {
+        return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+      }
+      const targetId = userId || requester.id;
+      if (targetId !== requester.id && requester.role !== 'admin') {
+        return NextResponse.json({ success: false, error: 'No autorizado' }, { status: 403 });
+      }
       const user = db.users.find(u => u.id === targetId);
       if (!user) {
         return NextResponse.json({ success: false, error: 'Usuario no encontrado' }, { status: 404 });
@@ -538,7 +570,7 @@ export async function POST(request) {
 
     // ACTION: GENERATE NEW LICENSE CODE (Exclusivo para Admin)
     if (action === 'generate_license') {
-      const requester = db.__currentUser || null;
+      const requester = getRequestUser(request, db);
       if (!requester || requester.role !== 'admin') {
         return NextResponse.json({ success: false, error: 'Solo el administrador puede generar licencias' }, { status: 403 });
       }
@@ -552,8 +584,17 @@ export async function POST(request) {
     if (action === 'logout') {
       if (isSupabaseConfigured()) {
         const { supabase, applyCookies } = createSupabaseRouteClient(request);
-        await supabase.auth.signOut();
-        return applyCookies(NextResponse.json({ success: true, message: 'Sesión cerrada' }));
+        const { error } = await supabase.auth.signOut();
+        if (error) {
+          console.error('Logout error:', error.message);
+          return NextResponse.json({ success: false, error: 'No se pudo cerrar la sesión en el servidor' }, { status: 500 });
+        }
+        const response = NextResponse.json({ success: true, message: 'Sesión cerrada' });
+        // El proxy limpia estas cookies en la siguiente request; hacerlo aquí
+        // evita que una pestaña siga considerando la sesión activa.
+        response.cookies.set('cf_session_start', '', { path: '/', maxAge: 0, expires: new Date(0) });
+        response.cookies.set('cf_last_activity', '', { path: '/', maxAge: 0, expires: new Date(0) });
+        return applyCookies(response);
       }
       return NextResponse.json({ success: true, message: 'Sesión cerrada' });
     }

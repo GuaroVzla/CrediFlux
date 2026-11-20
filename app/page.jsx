@@ -121,6 +121,10 @@ function usePaginationController(pageSize = 10, resetKey = '') {
     const list = Array.isArray(array) ? array : [];
     const totalPages = Math.max(1, Math.ceil(list.length / pageSize));
     const safePage = Math.min(Math.max(1, page), totalPages);
+    // Tras borrar registros la lista puede encogerse sin que `resetKey` cambie.
+    // Ajustar el estado durante el render evita que "Anterior" opere sobre una
+    // página interna obsoleta (React re-renderiza inmediatamente este componente).
+    if (safePage !== page) setPage(safePage);
     const offset = (safePage - 1) * pageSize;
     return {
       items: list.slice(offset, offset + pageSize),
@@ -519,12 +523,14 @@ export default function CrediFluxApp() {
   // Single logout implementation. Declared before the session effect so the
   // timers can call it safely (no temporal-dead-zone reference).
   const handleLogout = useCallback(async (reason = 'user-initiated') => {
+    let serverLogoutOk = false;
     try {
-      await fetch('/api/auth', {
+      const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'logout' })
       });
+      serverLogoutOk = res.ok && Boolean((await res.json().catch(() => ({})))?.success);
     } catch (e) {}
 
     try {
@@ -542,7 +548,12 @@ export default function CrediFluxApp() {
 
     setIsAuthenticated(false);
     setCurrentUser(null);
-    notify('Sesión cerrada correctamente');
+    notify(
+      serverLogoutOk
+        ? 'Sesión cerrada correctamente'
+        : 'Sesión cerrada en este equipo, pero el servidor no pudo confirmarla. Vuelve a intentarlo si compartes el dispositivo.',
+      serverLogoutOk ? 'success' : 'error'
+    );
   }, [notify]);
 
   // El proxy es la autoridad del reloj de sesión: su cookie firmada sobrevive a

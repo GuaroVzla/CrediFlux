@@ -75,6 +75,17 @@ export async function POST(request) {
 
       const totalPending = Number(unpaidInstallments.reduce((sum, i) => sum + (Number(i.amount) || 0), 0).toFixed(2));
       const payAmount = Number.isFinite(Number(amount)) && Number(amount) > 0 ? Number(amount) : totalPending;
+      // Un "pago total" liquida TODAS las cuotas: aceptar un monto menor dejaría
+      // cuotas marcadas como pagadas sin que el dinero haya entrado.
+      if (!Number.isFinite(payAmount) || payAmount <= 0) {
+        return NextResponse.json({ success: false, error: 'El monto del pago debe ser mayor que cero' }, { status: 400 });
+      }
+      if (Math.abs(payAmount - totalPending) > 0.01) {
+        return NextResponse.json(
+          { success: false, error: `El pago total debe ser ${totalPending.toFixed(2)} (saldo pendiente actual)` },
+          { status: 409 }
+        );
+      }
       const receiptRef = reference || ('TOTAL-' + Math.floor(1000 + Math.random() * 9000));
 
       unpaidInstallments.forEach(inst => {
@@ -136,8 +147,24 @@ export async function POST(request) {
     if (!targetInstallment) {
       return NextResponse.json({ success: false, error: 'No se encontraron cuotas pendientes para este préstamo' }, { status: 400 });
     }
+    if (targetInstallment.paid) {
+      return NextResponse.json({ success: false, error: 'La cuota seleccionada ya fue cancelada' }, { status: 409 });
+    }
 
-    const payAmount = Number(amount) || targetInstallment.amount;
+    // La cuota se marca como pagada completa: el monto recibido debe coincidir
+    // con ella. Aceptar otro valor (negativo, parcial o excesivo) corrompe
+    // pendingAmount, la ganancia realizada y el flujo del dashboard.
+    const expectedAmount = Number(targetInstallment.amount) || 0;
+    const payAmount = Number(amount);
+    if (!Number.isFinite(payAmount) || payAmount <= 0) {
+      return NextResponse.json({ success: false, error: 'El monto del pago debe ser mayor que cero' }, { status: 400 });
+    }
+    if (Math.abs(payAmount - expectedAmount) > 0.01) {
+      return NextResponse.json(
+        { success: false, error: `El monto debe coincidir con la cuota (${expectedAmount.toFixed(2)})` },
+        { status: 409 }
+      );
+    }
 
     // Mark installment as paid
     targetInstallment.paid = true;

@@ -1,40 +1,57 @@
-import { describe, it, expect, beforeEach, afterEach , vi } from 'vitest'
-const path = require('path')
-const fs = require('fs')
+import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { beforeAll, describe, expect, it } from 'vitest'
 
-describe('M-008: Supabase Module', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
+const schemaPath = fileURLToPath(new URL('./schema.sql', import.meta.url))
+let sql = ''
+
+describe('M-008: supabase/schema.sql — RLS, políticas y bucket de comprobantes', () => {
+  beforeAll(() => {
+    sql = fs.readFileSync(schemaPath, 'utf8')
   })
 
-  afterEach(() => {
-    vi.restoreAllMocks()
+  it('habilita row level security en al menos 10 tablas críticas', () => {
+    const rlsTables = Array.from(
+      sql.matchAll(/alter table\s+public\.([a-z_]+)\s+enable row level security;/gi),
+      (match) => match[1],
+    )
+
+    expect(rlsTables.length).toBeGreaterThanOrEqual(10)
+    for (const table of [
+      'profiles',
+      'clients',
+      'loans',
+      'loan_installments',
+      'payments',
+      'ecommerce_transactions',
+      'receipt_patterns',
+      'audit_logs',
+    ]) {
+      expect(rlsTables).toContain(table)
+    }
   })
 
-  it('test infrastructure verification', () => {
-    expect(true).toBe(true)
+  it('define políticas explícitas de acceso y políticas CRUD por usuario', () => {
+    const policies = sql.match(/create policy\s+"[^"]+"/g) ?? []
+    expect(policies.length).toBeGreaterThanOrEqual(10)
+    expect(sql).toContain('create policy "profiles_select_own_or_admin"')
+    expect(sql).toContain('create policy "user_settings_own"')
+    expect(sql).toContain('create policy "audit_logs_select_own_or_admin"')
+    expect(sql).toContain("'create policy %I on public.%I for select to authenticated")
+    expect(sql).toContain("'_select_own'")
+    expect(sql).toContain("'_insert_own'")
+    expect(sql).toContain("'_update_own'")
+    expect(sql).toContain("'_delete_own'")
   })
 
-  it('should verify supabase schema file exists', () => {
-    const schemaPath = path.join(process.cwd(), 'supabase', 'schema.sql')
-    expect(fs.existsSync(schemaPath)).toBe(true)
-  })
+  it('configura el bucket privado receipts con políticas sobre storage.objects', () => {
+    expect(sql).toMatch(/insert into storage\.buckets[\s\S]*?'receipts'[\s\S]*?false[\s\S]*?on conflict \(id\) do nothing/)
 
-  it('should verify supabase migrations directory structure', () => {
-    const migrationsDir = path.join(process.cwd(), 'supabase', 'migrations')
-    expect(fs.existsSync(migrationsDir)).toBe(true)
-    // Count migration files
-    const migrationFiles = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql'))
-    expect(migrationFiles.length).toBeGreaterThan(0)
-  })
-
-  it('should verify supabase config file exists', () => {
-    const configPath = path.join(process.cwd(), 'supabase', 'config.toml')
-    expect(fs.existsSync(configPath)).toBe(true)
-  })
-
-  it('should verify supabase RLS policy file exists', () => {
-    const rlsPath = path.join(process.cwd(), 'supabase', 'verify_rls.sql')
-    expect(fs.existsSync(rlsPath)).toBe(true)
+    for (const action of ['select', 'insert', 'update', 'delete']) {
+      expect(sql).toContain(`create policy "receipts_${action}_own"`)
+      expect(sql).toMatch(new RegExp(`on storage\\.objects for ${action} to authenticated`))
+    }
+    expect(sql).toContain("bucket_id = 'receipts'")
+    expect(sql).toContain("(storage.foldername(name))[1] = (select auth.uid())::text")
   })
 })

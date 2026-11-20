@@ -228,7 +228,7 @@ function round2(value: any) {
   return Math.round((Number(value) || 0) * 100) / 100;
 }
 
-function summarize(movements: any[]) {
+export function summarize(movements: any[]) {
   const list = Array.isArray(movements) ? movements : [];
   const aportes = round2(
     list.filter((m) => m.type === 'APORTE_CAPITAL').reduce((sum, m) => sum + count(m.amountUsd), 0)
