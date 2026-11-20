@@ -645,3 +645,45 @@ comment on table public.loan_installments is 'Cronograma de cuotas por préstamo
 comment on table public.exchange_rates is 'Histórico de tasas BCV / Binance P2P por usuario.';
 comment on table public.p2p_transactions is 'Historial de operaciones P2P VES-USDT.';
 comment on table public.blacklist_entries is 'Lista negra de clientes por incumplimiento.';
+
+-- =============================================================================
+-- 14. ÍNDICES DE RENDIMIENTO (auditoría 2026-11-20)
+-- Cubren los ORDER BY / filtros reales usados por lib/server/supabase-store.ts
+-- y por las rutas de API. Todos son IF NOT EXISTS: seguros de reejecutar.
+-- =============================================================================
+
+create index if not exists loan_installments_user_number_idx
+  on public.loan_installments (user_id, installment_number);
+
+create index if not exists exchange_rates_user_fetched_idx
+  on public.exchange_rates (user_id, fetched_at desc);
+
+create index if not exists receipt_patterns_user_created_idx
+  on public.receipt_patterns (user_id, created_at desc);
+
+create index if not exists profiles_created_at_idx
+  on public.profiles (created_at);
+
+create index if not exists loans_user_archived_created_idx
+  on public.loans (user_id, archived, created_at desc);
+
+create index if not exists payments_user_client_idx
+  on public.payments (user_id, client_id);
+
+create index if not exists payments_user_installment_idx
+  on public.payments (user_id, installment_id);
+
+create index if not exists ecommerce_user_type_date_idx
+  on public.ecommerce_transactions (user_id, type, transaction_date desc);
+
+create index if not exists p2p_user_status_date_idx
+  on public.p2p_transactions (user_id, status, occurred_at desc);
+
+create index if not exists audit_logs_user_entity_created_idx
+  on public.audit_logs (user_id, entity, created_at desc);
+
+create index if not exists trust_level_configs_user_sort_idx
+  on public.trust_level_configs (user_id, sort_order);
+
+create index if not exists blacklist_entries_user_client_idx
+  on public.blacklist_entries (user_id, client_id);

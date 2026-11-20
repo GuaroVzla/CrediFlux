@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Shield, Key, Lock, User, Users, Smartphone, DollarSign, Menu,
   TrendingUp, AlertTriangle, CheckCircle, Clock, Calendar, History,
@@ -38,7 +38,7 @@ const createEmptyManualRecord = () => ({
 });
 
 /** Imagen de patrón con sustitución automática si la URL falla o expira. */
-function PatternImage({ src, alt, className = '', wrapperClassName = '' }) {
+const PatternImage = React.memo(function PatternImage({ src, alt, className = '', wrapperClassName = '' }) {
   const [displaySrc, setDisplaySrc] = useState(src || PATTERN_FALLBACK_IMAGE);
   const [failed, setFailed] = useState(false);
 
@@ -67,7 +67,10 @@ function PatternImage({ src, alt, className = '', wrapperClassName = '' }) {
       )}
     </div>
   );
-}
+});
+
+/** Préstamo activo: excluye completados y dados de baja (archivados/lista negra). */
+const isActiveLoan = (l) => Boolean(l) && !l.archived && l.status !== 'completado' && l.status !== 'archivado';
 
 const PURGE_TARGET_KEYS = [
   'payments',
@@ -179,6 +182,7 @@ export default function CrediFluxApp() {
   const [expandedLoanId, setExpandedLoanId] = useState(null);
   const [viewHistoryClient, setViewHistoryClient] = useState(null);
   const [notification, setNotification] = useState(null);
+  const toastTimerRef = useRef(null);
 
   // Admin New User Modal (Formulario de Registro Exclusivo de Admin)
   const [newUserModal, setNewUserModal] = useState(false);
@@ -286,11 +290,20 @@ export default function CrediFluxApp() {
   // Contact support info for expired license
   const SUPPORT_CONTACT_TEXT = "Licencia del sistema caducada, favor comunicarse con el administrador del sistema. Informacion de contacto: telefono: +584126770824 correo: Oswaldoserrano18@gmail.com";
 
-  // Show Toast Notification
-  const notify = (msg, type = 'success') => {
+  // Show Toast Notification. Se cancela el timer anterior para que un aviso
+  // nuevo no sea borrado por el aviso precedente, y se limpia al desmontar.
+  const notify = useCallback((msg, type = 'success') => {
     setNotification({ msg, type });
-    setTimeout(() => setNotification(null), 5000);
-  };
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => {
+      setNotification(null);
+      toastTimerRef.current = null;
+    }, 5000);
+  }, []);
+
+  useEffect(() => () => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+  }, []);
 
   // ---------- Vista previa de clave: clic para mostrar / clic para ocultar ----------
   // No usamos AbortController: en Next 16 abortar una petición mientras el proxy/middleware
@@ -395,7 +408,7 @@ export default function CrediFluxApp() {
 
   // Single logout implementation. Declared before the session effect so the
   // timers can call it safely (no temporal-dead-zone reference).
-  const handleLogout = async (reason = 'user-initiated') => {
+  const handleLogout = useCallback(async (reason = 'user-initiated') => {
     try {
       await fetch('/api/auth', {
         method: 'POST',
@@ -418,7 +431,7 @@ export default function CrediFluxApp() {
     setIsAuthenticated(false);
     setCurrentUser(null);
     notify('Sesión cerrada correctamente');
-  };
+  }, [notify]);
 
   // Idle timeout (30 min) + absolute timeout (24 h) from session start.
   useEffect(() => {
@@ -449,9 +462,7 @@ export default function CrediFluxApp() {
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
       if (absoluteTimerRef.current) clearTimeout(absoluteTimerRef.current);
     };
-    // handleLogout is captured from the render that owns this session.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, sessionStart, idleTimeout, absoluteTimeout]);
+  }, [isAuthenticated, sessionStart, idleTimeout, absoluteTimeout, handleLogout]);
 
   // Preferencia de tema: persiste la elección y respeta la del sistema.
   useEffect(() => {
@@ -1066,16 +1077,24 @@ export default function CrediFluxApp() {
     }
   };
 
-  // Calculate Dashboard KPIs
-  const isActiveLoan = (l) => Boolean(l) && !l.archived && l.status !== 'completado' && l.status !== 'archivado';
-  const activeLoans = loans.filter(isActiveLoan);
-  const totalLentActive = activeLoans.reduce((sum, l) => sum + (l.financedAmount || 0), 0);
-  const totalProjectedProfit = activeLoans.reduce((sum, l) => sum + (l.stats?.projectedProfit || 0), 0);
-  const totalCollectedProfit = loans.reduce((sum, l) => sum + (l.stats?.paidAmount || 0), 0);
-  const morosoLoans = activeLoans.filter(l => l.status === 'moroso');
-  const proximoLoans = activeLoans.filter(l => l.status === 'proximo');
-  const activeDebtorsCount = new Set(activeLoans.map(l => l.clientId)).size;
-  const morosoDebtorsCount = new Set(morosoLoans.map(l => l.clientId)).size;
+  // Calculate Dashboard KPIs (memoizado: estos arrays alimentan varias pestañas)
+  const {
+    activeLoans, totalLentActive, totalProjectedProfit, totalCollectedProfit,
+    morosoLoans, proximoLoans, activeDebtorsCount, morosoDebtorsCount
+  } = useMemo(() => {
+    const active = loans.filter(isActiveLoan);
+    const morosos = active.filter(l => l.status === 'moroso');
+    return {
+      activeLoans: active,
+      totalLentActive: active.reduce((sum, l) => sum + (l.financedAmount || 0), 0),
+      totalProjectedProfit: active.reduce((sum, l) => sum + (l.stats?.projectedProfit || 0), 0),
+      totalCollectedProfit: loans.reduce((sum, l) => sum + (l.stats?.paidAmount || 0), 0),
+      morosoLoans: morosos,
+      proximoLoans: active.filter(l => l.status === 'proximo'),
+      activeDebtorsCount: new Set(active.map(l => l.clientId)).size,
+      morosoDebtorsCount: new Set(morosos.map(l => l.clientId)).size,
+    };
+  }, [loans]);
 
   // File Upload & OCR Handler
   const MAX_OCR_FILE_BYTES = 4 * 1024 * 1024; // Vercel limita el body a 4.5 MB
