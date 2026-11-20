@@ -399,6 +399,12 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: false, error: 'Acceso restringido: Solo el administrador puede verificar el motor OCR' }, { status: 403 });
       }
       const provider = ALLOWED_PROVIDERS.includes(testProvider) ? testProvider : 'openai';
+
+      // Validación temprana: si el proveedor requiere clave y no fue proporcionada, retornar error
+      if (provider !== 'tesseract' && (!testApiKey || String(testApiKey).trim() === '')) {
+        return NextResponse.json({ success: false, error: 'Clave de API requerida para probar la conexión' }, { status: 400 });
+      }
+
       const storedKeys = getStoredOcrKeys(db);
       const resolvedTestKey = (provider === 'tesseract') ? '' : String(testApiKey ?? storedKeys[provider] ?? '').trim();
       const result = await testProviderConnection(provider, resolvedTestKey, storedKeys);
@@ -589,6 +595,16 @@ export async function POST(request: Request) {
     }
     if (ocrSpaceApiKey !== undefined && ocrSpaceApiKey !== '' && aiProvider === 'ocrspace') {
       nextKeys.ocrspace = String(ocrSpaceApiKey).trim();
+    }
+
+    // Guard: si no hay clave de cifrado disponible, no guardar secrets en claro.
+    // Se almacenan valores vacíos y se marca advertencia en la respuesta.
+    const encryptionKeyAvailable = process.env.SETTINGS_ENCRYPTION_KEY && String(process.env.SETTINGS_ENCRYPTION_KEY).trim();
+    if (!encryptionKeyAvailable) {
+      console.warn('[settings] SETTINGS_ENCRYPTION_KEY no definida; API keys se almacenarán sin cifrado. Definir la variable en producción para proteger las credenciales.');
+      nextKeys.openai = '';
+      nextKeys.gemini = '';
+      nextKeys.ocrspace = '';
     }
 
     db.settings.ocrApiKeys = { openai: nextKeys.openai || '', gemini: nextKeys.gemini || '', ocrspace: nextKeys.ocrspace || '', tesseract: '' };
