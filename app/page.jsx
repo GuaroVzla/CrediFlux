@@ -1575,15 +1575,18 @@ export default function CrediFluxApp() {
 
   // --- MAIN AUTHENTICATED FINTECH DASHBOARD ---
 
-  // ---- Sistema tipográfico unificado del módulo de Ajustes ----
-  const settingsCardTheme = themeDark ? 'bg-[#111827] border-slate-800' : 'bg-white border-slate-200';
-  const settingsCardCls = `p-5 rounded-2xl border ${settingsCardTheme}`;
-  const settingsSubcardTheme = themeDark ? 'bg-[#1e293b]/50 border-slate-700/60' : 'bg-slate-50 border-slate-200';
-  const settingsTitleCls = 'text-base font-semibold text-white flex items-center gap-2';
-  const settingsCardTitleCls = 'text-sm font-semibold text-white flex items-center gap-2';
+  // ---- Sistema visual unificado del módulo de Ajustes (paleta de producción) ----
+  const settingsCardTheme = themeDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200';
+  const settingsCardCls = `p-5 rounded-3xl border ${settingsCardTheme} shadow-sm`;
+  const settingsSubcardTheme = themeDark ? 'bg-slate-800/50 border-slate-700/60' : 'bg-slate-50 border-slate-200';
+  const settingsTitleCls = `text-base font-semibold ${themeDark ? 'text-slate-200' : 'text-slate-900'} flex items-center gap-2`;
+  const settingsCardTitleCls = `text-sm font-semibold ${themeDark ? 'text-slate-200' : 'text-slate-900'} flex items-center gap-2`;
   const settingsDescCls = 'text-xs text-slate-400 leading-relaxed';
   const settingsLabelCls = 'block text-xs font-medium text-slate-300 mb-1.5';
-  const settingsInputCls = 'w-full h-10 px-3 bg-[#0b1120] border border-slate-700 rounded-lg text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50';
+  const settingsFieldTheme = themeDark
+    ? 'bg-slate-800/60 border-slate-700 text-white placeholder:text-slate-500'
+    : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-500';
+  const settingsInputCls = `w-full h-10 px-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`;
 
   // Vista previa del cálculo automático del registro manual (mismo divisor BCV del OCR).
   const manualBcvRate = Number(dolarRates?.oficial) || 0;
@@ -1591,17 +1594,20 @@ export default function CrediFluxApp() {
   const manualUsdPreview = manualBcvRate > 0 && Number.isFinite(manualAmountBsNumber) && manualAmountBsNumber > 0
     ? (manualAmountBsNumber / manualBcvRate).toFixed(2)
     : null;
-  const settingsTextareaCls = 'w-full px-3 py-2 bg-[#0b1120] border border-slate-700 rounded-lg text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 resize-none';
-  const settingsPrimaryBtnCls = 'h-10 px-4 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-lg text-sm transition-colors shadow-sm inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed';
-  const settingsSecondaryBtnCls = 'h-10 px-4 bg-[#1f2937] hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold rounded-lg text-sm transition-colors inline-flex items-center justify-center gap-1.5';
-  const settingsDangerBtnCls = 'h-10 px-4 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 font-semibold rounded-lg text-sm transition-colors inline-flex items-center justify-center gap-1.5';
+  const settingsTextareaCls = `w-full px-3 py-2 rounded-xl border text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 resize-none ${settingsFieldTheme}`;
+  const settingsPrimaryBtnCls = 'h-10 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-sm transition-colors shadow-sm inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed';
+  const settingsSecondaryBtnCls = `h-10 px-4 rounded-xl border font-semibold text-sm transition-colors inline-flex items-center justify-center gap-1.5 ${themeDark ? 'bg-slate-800/80 hover:bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-900'}`;
+  const settingsDangerBtnCls = 'h-10 px-4 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 font-semibold text-sm transition-colors inline-flex items-center justify-center gap-1.5';
   const settingsHelperCls = 'text-xs text-slate-400 leading-relaxed';
   const settingsTableHeadCls = 'text-xs font-semibold uppercase tracking-wide text-slate-400';
-  const settingsTableBtnCls = 'h-8 px-3 bg-[#1f2937] hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold transition-colors';
-  const settingsTableDangerBtnCls = 'h-8 px-3 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-lg text-xs font-semibold transition-colors';
+  const settingsTableTheadCls = themeDark ? 'border-slate-700 bg-slate-800' : 'border-slate-300 bg-slate-100';
+  const settingsModalCls = themeDark ? 'bg-slate-900 border-slate-700/80' : 'bg-white border-slate-200';
+  const settingsModalBorderCls = themeDark ? 'border-slate-800' : 'border-slate-200';
+  const settingsTableBtnCls = `h-8 px-3 rounded-xl border text-xs font-semibold transition-colors ${themeDark ? 'bg-slate-800/80 hover:bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-900'}`;
+  const settingsTableDangerBtnCls = 'h-8 px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold transition-colors';
 
   return (
-    <div className={`min-h-screen ${themeDark ? 'bg-[#0b1120] text-slate-100' : 'bg-[#f8fafc] text-slate-900'} flex flex-col transition-colors duration-200`}>
+    <div className={`min-h-screen ${themeDark ? 'bg-slate-950 text-slate-100' : 'bg-[#f8fafc] text-slate-900'} flex flex-col transition-colors duration-200`}>
       {/* Toast Notification */}
       {notification && (
         <div className={`fixed top-5 right-5 z-[100] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border text-xs font-semibold transition-all max-w-md ${notification.type === 'error'
@@ -1632,7 +1638,7 @@ export default function CrediFluxApp() {
       )}
 
       {/* TOPBAR NAVIGATION */}
-      <header className={`border-b sticky top-0 z-30 backdrop-blur-md ${themeDark ? 'bg-[#0b1120]/90 border-slate-800/80' : 'bg-white/90 border-slate-200'}`}>
+      <header className={`border-b sticky top-0 z-30 backdrop-blur-md ${themeDark ? 'bg-slate-950/90 border-slate-800/80' : 'bg-white/90 border-slate-200'}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-cyan-500 flex items-center justify-center text-white shadow-md shadow-emerald-500/25 ring-1 ring-emerald-400/30">
@@ -1645,7 +1651,7 @@ export default function CrediFluxApp() {
                 <span className="ml-1 text-xs px-1.5 py-0.5 rounded-full font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">PRO</span>
               </div>
               <div className="flex items-center gap-2 mt-1">
-                <span className={`w-1.5 h-1.5 rounded-full ${isUserExpired ? 'bg-rose-500' : 'bg-emerald-400'}`}></span>
+                <span className={`w-1.5 h-1.5 rounded-full motion-safe:animate-pulse ${isUserExpired ? 'bg-rose-500' : 'bg-emerald-400'}`}></span>
                 <span className="text-xs font-medium text-slate-400 tracking-wide uppercase">
                   {currentUser?.role === 'admin' ? 'Administrador Maestro (Acceso Total)' : isUserExpired ? 'Licencia Caducada' : 'Licencia Activa'}
                 </span>
@@ -1702,17 +1708,19 @@ export default function CrediFluxApp() {
             </div>
 
             <button
+              type="button"
               onClick={() => fetchAllData({ forceP2P: true })}
               title="Sincronizar datos y tasas (BCV + P2P Binance)"
-              className={`p-2 rounded-xl border ${themeDark ? 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white' : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900'}`}
+              className={`p-2 rounded-xl border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-950 ${themeDark ? 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700' : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-200'}`}
             >
               <RefreshCw className={`w-4 h-4 ${loading || dolarRates.loading ? 'animate-spin' : ''}`} />
             </button>
 
             <button
+              type="button"
               onClick={toggleTheme}
               title="Cambiar tema"
-              className={`p-2 rounded-xl border ${themeDark ? 'bg-slate-800 border-slate-700 text-amber-400' : 'bg-slate-100 border-slate-200 text-slate-700'}`}
+              className={`p-2 rounded-xl border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-950 ${themeDark ? 'bg-slate-800 border-slate-700 text-amber-400 hover:bg-slate-700' : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'}`}
             >
               {themeDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
@@ -1729,9 +1737,10 @@ export default function CrediFluxApp() {
             </div>
 
             <button
+              type="button"
               onClick={handleLogout}
               title="Cerrar sesión"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-semibold transition-all"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-950"
             >
               <LogOut className="w-4 h-4" />
               <span className="hidden sm:inline">Salir</span>
@@ -1942,7 +1951,7 @@ export default function CrediFluxApp() {
 
           const urgentCount = morosoLoans.length + proximoLoans.length;
           const card = `rounded-3xl border ${themeDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'} shadow-sm`;
-          const periodInputCls = `px-2.5 py-1.5 rounded-lg border text-xs outline-none focus:border-emerald-500 ${themeDark ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-900'}`;
+          const periodInputCls = `px-2.5 py-1.5 rounded-lg border text-xs outline-none focus:border-emerald-500 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1 ${themeDark ? 'bg-slate-900 border-slate-700 text-slate-200 focus-visible:ring-offset-slate-950' : 'bg-white border-slate-300 text-slate-900 focus-visible:ring-offset-white'}`;
 
           return (
           <div className="space-y-6">
@@ -2119,7 +2128,7 @@ export default function CrediFluxApp() {
                 </div>
                 <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
                   <span>{activeLoansKpi.length} financiamiento(s) activo(s)</span>
-                  <button onClick={() => setActiveTab('loans')} className="font-semibold text-emerald-400 hover:text-emerald-400">Ver cartera →</button>
+                  <button type="button" onClick={() => setActiveTab('loans')} className="font-semibold text-emerald-400 hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded px-1 transition-colors duration-150">Ver cartera →</button>
                 </div>
               </div>
             </section>
@@ -2288,12 +2297,12 @@ export default function CrediFluxApp() {
                 <div className="lg:col-span-2 rounded-xl border border-slate-800/80 overflow-hidden">
                   <div className="px-3 py-2 bg-slate-800/40 border-b border-slate-800 flex items-center justify-between">
                     <span className="text-xs font-semibold text-slate-200">Movimientos recientes</span>
-                    <button onClick={() => setCapitalModal(prev => ({ ...prev, open: true, tab: 'historial' }))} className="text-xs font-semibold text-emerald-400 hover:text-emerald-400">Ver historial completo →</button>
+                    <button type="button" onClick={() => setCapitalModal(prev => ({ ...prev, open: true, tab: 'historial' }))} className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded px-1 transition-colors duration-150">Ver historial completo →</button>
                   </div>
                   {recentCapitalMovements.length === 0 ? (
                     <div className="px-3 py-6 text-center">
                       <p className="text-xs text-slate-400">Aún no hay aportes ni retiros de capital registrados.</p>
-                      <button onClick={() => setCapitalModal(prev => ({ ...prev, open: true, tab: 'movimiento' }))} className="mt-2 text-xs font-semibold text-emerald-400 hover:text-emerald-400">Registrar el primero →</button>
+                      <button type="button" onClick={() => setCapitalModal(prev => ({ ...prev, open: true, tab: 'movimiento' }))} className="mt-2 text-xs font-semibold text-emerald-400 hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded px-1 transition-colors duration-150">Registrar el primero →</button>
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
@@ -2358,8 +2367,8 @@ export default function CrediFluxApp() {
                 aria-modal="true"
                 aria-label="Gestionar Capital"
               >
-                <div className={`w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-2xl border shadow-2xl ${themeDark ? 'bg-[#0f172a] border-slate-700/80' : 'bg-white border-slate-200'}`}>
-                  <div className={`sticky top-0 z-10 flex items-center justify-between gap-3 px-5 py-4 border-b ${themeDark ? 'bg-[#0f172a] border-slate-800' : 'bg-white border-slate-200'}`}>
+                <div className={`w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-2xl border shadow-2xl ${themeDark ? 'bg-slate-950 border-slate-700/80' : 'bg-white border-slate-200'}`}>
+                  <div className={`sticky top-0 z-10 flex items-center justify-between gap-3 px-5 py-4 border-b ${themeDark ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200'}`}>
                     <div>
                       <h2 className={`text-lg font-bold flex items-center gap-2 ${themeDark ? 'text-white' : 'text-slate-900'}`}><Coins className="w-5 h-5 text-emerald-400" /> Gestionar Capital</h2>
                       <p className="text-xs text-slate-400">Registra aportes y retiros, y consulta el historial cronológico del capital.</p>
@@ -4756,7 +4765,7 @@ export default function CrediFluxApp() {
             <div>
               <h2 className="text-2xl font-bold text-slate-200 tracking-tight flex items-center gap-2">
                 <span>{currentUser?.role === 'admin' ? 'Ajustes de Administrador' : 'Mi Cuenta y Licencia'}</span>
-                <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">CrediFlux Core</span>
+                <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">CrediFlux Core</span>
               </h2>
               <p className="text-slate-400 text-sm leading-relaxed">
                 {currentUser?.role === 'admin'
@@ -4774,7 +4783,7 @@ export default function CrediFluxApp() {
                     Estado de Licencia
                   </h4>
                   <p className={`${settingsDescCls} mt-1`}>
-                    Licencia: <strong className="text-emerald-400 font-mono">{currentUser?.licenseKey || 'MASTER-ADMIN'}</strong> • Plataforma: <strong className="text-white">CrediFlux Core</strong>
+                    Licencia: <strong className="text-emerald-400 font-mono">{currentUser?.licenseKey || 'MASTER-ADMIN'}</strong> • Plataforma: <strong className="text-slate-200">CrediFlux Core</strong>
                   </p>
                 </div>
                 <div className="text-right">
@@ -4826,7 +4835,7 @@ export default function CrediFluxApp() {
                     <span>Contacto Administrador del Sistema:</span>
                   </div>
                   <p className="text-xs text-slate-400 leading-relaxed">
-                    Teléfono: <strong className="text-white font-medium">+58 412-6770824</strong> • Correo: <strong className="text-white font-medium">Oswaldoserrano18@gmail.com</strong>
+                    Teléfono: <strong className="text-slate-200 font-medium">+58 412-6770824</strong> • Correo: <strong className="text-slate-200 font-medium">Oswaldoserrano18@gmail.com</strong>
                   </p>
                 </div>
               )}
@@ -4967,21 +4976,21 @@ export default function CrediFluxApp() {
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 py-1">
-                    <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs text-slate-300 flex items-start gap-2">
+                    <div className="p-2.5 rounded-xl bg-slate-800/40 border border-slate-700/50 text-xs text-slate-300 flex items-start gap-2">
                       <Users className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                       <div>
                         <span className="font-semibold text-slate-200 block">Descubrimiento dinámico</span>
                         <span className="text-xs text-slate-400">Tablas, columnas y relaciones se leen del catálogo de PostgreSQL.</span>
                       </div>
                     </div>
-                    <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs text-slate-300 flex items-start gap-2">
+                    <div className="p-2.5 rounded-xl bg-slate-800/40 border border-slate-700/50 text-xs text-slate-300 flex items-start gap-2">
                       <Sparkles className="w-4 h-4 text-teal-400 shrink-0 mt-0.5" />
                       <div>
                         <span className="font-semibold text-slate-200 block">Restauración ordenada</span>
                         <span className="text-xs text-slate-400">Dependencias resueltas por llaves foráneas; padres antes que hijos.</span>
                       </div>
                     </div>
-                    <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs text-slate-300 flex items-start gap-2">
+                    <div className="p-2.5 rounded-xl bg-slate-800/40 border border-slate-700/50 text-xs text-slate-300 flex items-start gap-2">
                       <CheckCircle className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
                       <div>
                         <span className="font-semibold text-slate-200 block">Transacción atómica</span>
@@ -5046,7 +5055,7 @@ export default function CrediFluxApp() {
 
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
-                      <thead className={`border-b border-slate-800 ${settingsTableHeadCls}`}>
+                      <thead className={`border-b-2 ${settingsTableTheadCls} ${settingsTableHeadCls}`}>
                         <tr>
                           <th className="py-3 px-4">Usuario / Nombre</th>
                           <th className="py-3 px-4">Clave de Acceso</th>
@@ -5060,12 +5069,12 @@ export default function CrediFluxApp() {
                         {adminUsersList.map(u => {
                           const isExpired = checkIsExpired(u);
                           return (
-                            <tr key={u.id} className="hover:bg-slate-800/30">
+                            <tr key={u.id} className="hover:bg-slate-800/20">
                               <td className="py-3.5 px-4">
                                 <div className="text-sm font-semibold text-slate-200">{u.name}</div>
                                 <span className="text-xs text-slate-400">@{u.username}</span>
                                 {u.role === 'admin' && (
-                                  <span className="ml-2 px-1.5 py-0.5 rounded text-xs font-semibold bg-amber-500/20 text-amber-400">ADMIN</span>
+                                  <span className="ml-2 px-1.5 py-0.5 rounded text-xs font-semibold bg-amber-500/10 text-amber-400">ADMIN</span>
                                 )}
                               </td>
                               <td className="py-3.5 px-4 font-mono text-emerald-400 font-semibold">
@@ -5394,7 +5403,7 @@ export default function CrediFluxApp() {
                               </button>
 
                               {ocrAdvancedOpen && (
-                                <div className="mt-3 p-3.5 rounded-lg bg-slate-900/70 border border-teal-500/20 space-y-3.5">
+                                <div className="mt-3 p-3.5 rounded-xl bg-slate-800/50 border border-teal-500/20 space-y-3.5">
                                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div>
                                       <label className={settingsLabelCls}>Endpoint API ({provider})</label>
@@ -5434,7 +5443,7 @@ export default function CrediFluxApp() {
                                     </div>
                                   </div>
 
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-800">
+                                  <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t ${settingsModalBorderCls}`}>
                                     <div>
                                       <label className={settingsLabelCls}>
                                         Umbral Mínimo de Confianza ({Math.round((Number(ocrThresholdsForm.ocrConfidenceMin) || 0.8) * 100)}%)
@@ -5703,8 +5712,8 @@ export default function CrediFluxApp() {
                                   <h4 className="text-sm font-semibold text-slate-200">{pat.bankName}</h4>
                                   <span className={`px-1.5 py-0.5 rounded text-xs font-semibold border ${
                                     pat.isActive !== false
-                                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
-                                      : 'bg-slate-700/40 text-slate-400 border-slate-600'
+                                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                      : 'bg-slate-800/40 text-slate-400 border-slate-700'
                                   }`}>
                                     {pat.isActive !== false ? 'ACTIVO' : 'INACTIVO'}
                                   </span>
@@ -5720,7 +5729,7 @@ export default function CrediFluxApp() {
                                 type="button"
                                 onClick={() => openPatternModal(pat)}
                                 title="Editar patrón"
-                                className="p-1 rounded-lg hover:bg-sky-500/20 text-slate-400 hover:text-sky-300 transition-colors"
+                                className="p-1 rounded-lg hover:bg-sky-500/20 text-slate-400 hover:text-sky-400 transition-colors"
                               >
                                 <Edit3 className="w-4 h-4" />
                               </button>
@@ -5739,7 +5748,7 @@ export default function CrediFluxApp() {
                             src={pat.imageUrl}
                             alt={`Comprobante patrón ${pat.bankName}`}
                             className="max-h-32 object-contain"
-                            wrapperClassName="rounded-xl overflow-hidden border border-slate-700 min-h-[3rem] bg-slate-900/60 flex items-center justify-center"
+                            wrapperClassName="rounded-xl overflow-hidden border border-slate-700/50 min-h-[3rem] bg-slate-800/40 flex items-center justify-center"
                           />
 
                           <div className="space-y-1 text-xs text-slate-400">
@@ -5772,8 +5781,8 @@ export default function CrediFluxApp() {
       {/* ============================================================== */}
       {newUserModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div className={`w-full max-w-lg ${settingsModalCls} border rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto`}>
+            <div className={`flex items-center justify-between pb-3 border-b ${settingsModalBorderCls}`}>
               <div>
                 <h3 className="text-base font-semibold text-slate-200">Registrar Nuevo Usuario</h3>
                 <p className={`${settingsDescCls} mt-1`}>Crea un usuario para operar bajo el núcleo unificado de CrediFlux.</p>
@@ -5863,7 +5872,7 @@ export default function CrediFluxApp() {
                   value={newUserForm.assignedLicenseKey}
                   onChange={(e) => setNewUserForm({ ...newUserForm, assignedLicenseKey: e.target.value })}
                   placeholder="RIC-XXXX-XXXX-XXXX"
-                  className={`${settingsInputCls} bg-slate-900 text-emerald-400 font-mono font-semibold text-center tracking-wide`}
+                  className={`${settingsInputCls} text-emerald-400 font-mono font-semibold text-center tracking-wide`}
                 />
 
                 <div className="flex items-center justify-between text-xs text-slate-300">
@@ -5874,7 +5883,7 @@ export default function CrediFluxApp() {
                       const m = parseInt(e.target.value, 10);
                       handleAdminGenerateLicense(m);
                     }}
-                    className="h-10 px-3 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white font-medium focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                    className={`h-10 px-3 rounded-xl border text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`}
                   >
                     <option value={1}>1 Mes</option>
                     <option value={2}>2 Meses</option>
@@ -5910,8 +5919,8 @@ export default function CrediFluxApp() {
       {/* ============================================================== */}
       {editUserModal.open && editUserModal.user && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div className={`w-full max-w-md ${settingsModalCls} border rounded-2xl p-5 sm:p-6 shadow-2xl`}>
+            <div className={`flex items-center justify-between pb-3 border-b ${settingsModalBorderCls}`}>
               <h3 className="text-base font-semibold text-slate-200">
                 {editUserModal.passwordOnly ? 'Editar Clave del Administrador' : 'Editar Usuario y Licencia CrediFlux'}
               </h3>
@@ -6135,8 +6144,8 @@ export default function CrediFluxApp() {
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-            <div className="w-full max-w-6xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl max-h-[88vh] flex flex-col overflow-hidden">
-              <div className="flex items-start justify-between gap-4 px-6 py-5 border-b border-slate-800">
+            <div className={`w-full max-w-6xl ${settingsModalCls} border rounded-3xl shadow-2xl max-h-[88vh] flex flex-col overflow-hidden`}>
+              <div className={`flex items-start justify-between gap-4 px-6 py-5 border-b ${settingsModalBorderCls}`}>
                 <div>
                   <h3 className="font-bold text-base text-slate-200 flex items-center gap-2">
                     <History className="w-5 h-5 text-emerald-400" />
@@ -6151,10 +6160,10 @@ export default function CrediFluxApp() {
                 </button>
               </div>
 
-              <div className="px-6 py-4 border-b border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div className={`px-6 py-4 border-b ${settingsModalBorderCls} flex flex-col lg:flex-row lg:items-center justify-between gap-3`}>
                 <div className="relative w-full lg:w-80">
                   <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                  <input type="text" value={historySearch} onChange={(e) => setHistorySearch(e.target.value)} placeholder="Buscar por cliente, producto, referencia o método..." className="w-full pl-9 pr-8 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30" />
+                  <input type="text" value={historySearch} onChange={(e) => setHistorySearch(e.target.value)} placeholder="Buscar por cliente, producto, referencia o método..." className={`w-full pl-9 pr-8 py-2 rounded-xl border text-xs placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`} />
                   {historySearch ? (
                     <button type="button" onClick={() => setHistorySearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-white" title="Limpiar búsqueda">
                       <X className="w-3.5 h-3.5" />
@@ -6164,13 +6173,13 @@ export default function CrediFluxApp() {
                 <div className="flex flex-wrap items-center gap-2 text-xs">
                   <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 font-semibold">{filteredRows.length} de {historyRows.length} pago(s)</span>
                   <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20">Acumulado: ${totalUsd.toFixed(2)} USD</span>
-                  <span className="px-2.5 py-1 rounded-lg bg-sky-500/10 text-sky-300 font-bold border border-sky-500/20">Bs {totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <span className="px-2.5 py-1 rounded-lg bg-sky-500/10 text-sky-400 font-bold border border-sky-500/20">Bs {totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
               </div>
 
               <div className="flex-1 overflow-y-auto">
                 <table className="w-full min-w-[980px] text-left text-xs">
-                  <thead className="sticky top-0 z-10 border-b-2 border-slate-700 bg-slate-800">
+                  <thead className={`sticky top-0 z-10 border-b-2 ${settingsTableTheadCls}`}>
                     <tr className="whitespace-nowrap">
                       <th className="w-12 py-3 px-2 text-center align-middle"><span className="block text-xs font-bold text-slate-100">#</span></th>
                       <th className="py-3 px-3 text-left align-middle"><span className="block text-xs font-bold text-slate-100">Fecha</span><span className="mt-0.5 block text-xs font-medium text-slate-400">Pago</span></th>
@@ -6184,7 +6193,7 @@ export default function CrediFluxApp() {
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
                     {filteredRows.map((row, index) => (
-                      <tr key={row.payment.id} className="hover:bg-slate-800/30 transition-colors">
+                      <tr key={row.payment.id} className="hover:bg-slate-800/20 transition-colors">
                         <td className="py-2.5 px-2 text-center align-middle text-xs font-semibold tabular-nums text-slate-400">{index + 1}</td>
                         <td className="py-2.5 px-3 align-middle whitespace-nowrap">
                           <div className="text-slate-200 font-semibold">{formatDate(row.dateObj)}</div>
@@ -6229,7 +6238,7 @@ export default function CrediFluxApp() {
                 </table>
               </div>
 
-              <div className="px-6 py-3 border-t border-slate-800 flex items-center justify-between gap-3">
+              <div className={`px-6 py-3 border-t ${settingsModalBorderCls} flex items-center justify-between gap-3`}>
                 <p className="text-xs text-slate-400">Al eliminar un pago, los cuadros estadísticos se recalculan en tiempo real.</p>
                 <button type="button" onClick={() => setHistoryModal(false)} className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs">Cerrar</button>
               </div>
@@ -6247,12 +6256,12 @@ export default function CrediFluxApp() {
         const closeDeleteModal = () => setDeleteLoanModal(emptyDeleteLoanModal());
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-            <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden">
-              <div className="px-6 py-5 border-b border-slate-800 flex items-start justify-between gap-4">
+            <div className={`w-full max-w-lg ${settingsModalCls} border rounded-3xl shadow-2xl overflow-hidden`}>
+              <div className={`px-6 py-5 border-b ${settingsModalBorderCls} flex items-start justify-between gap-4`}>
                 <div className="flex items-start gap-3">
                   <div className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${isConfirm && !isErrorReason
-                      ? 'bg-rose-500/15 border-rose-500/30 text-rose-400'
-                      : 'bg-amber-500/15 border-amber-500/30 text-amber-400'
+                      ? 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+                      : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
                     }`}>
                     <AlertTriangle className="w-5 h-5" />
                   </div>
@@ -6284,7 +6293,7 @@ export default function CrediFluxApp() {
 
               <div className="px-6 py-5 space-y-4">
                 <div className="p-3.5 rounded-2xl bg-slate-800/50 border border-slate-700/60">
-                  <p className="text-xs font-semibold text-white">{deleteLoanModal.loan.clientName}</p>
+                  <p className="text-xs font-semibold text-slate-200">{deleteLoanModal.loan.clientName}</p>
                   <p className="mt-0.5 text-xs text-slate-400">
                     {deleteLoanModal.loan.productName} • ${(Number(deleteLoanModal.loan.totalAmount) || 0).toFixed(2)} total • Saldo pendiente ${(Number(deleteLoanModal.loan.stats?.pendingAmount) || 0).toFixed(2)}
                   </p>
@@ -6336,7 +6345,7 @@ export default function CrediFluxApp() {
                 )}
               </div>
 
-              <div className="px-6 py-4 border-t border-slate-800 flex items-center justify-end gap-2.5 bg-slate-900/60">
+              <div className={`px-6 py-4 border-t ${settingsModalBorderCls} flex items-center justify-end gap-2.5 bg-slate-900/60`}>
                 <button
                   type="button"
                   onClick={closeDeleteModal}
@@ -6399,8 +6408,8 @@ export default function CrediFluxApp() {
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-            <div className="w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl max-h-[88vh] flex flex-col overflow-hidden">
-              <div className="flex items-start justify-between gap-4 px-6 py-5 border-b border-slate-800">
+            <div className={`w-full max-w-5xl ${settingsModalCls} border rounded-3xl shadow-2xl max-h-[88vh] flex flex-col overflow-hidden`}>
+              <div className={`flex items-start justify-between gap-4 px-6 py-5 border-b ${settingsModalBorderCls}`}>
                 <div>
                   <h3 className="font-bold text-base text-slate-200 flex items-center gap-2">
                     <Ban className="w-5 h-5 text-rose-400" />
@@ -6420,7 +6429,7 @@ export default function CrediFluxApp() {
                 </button>
               </div>
 
-              <div className="px-6 py-4 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className={`px-6 py-4 border-b ${settingsModalBorderCls} flex flex-col sm:flex-row sm:items-center justify-between gap-3`}>
                 <div className="relative w-full sm:w-72">
                   <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                   <input
@@ -6428,7 +6437,7 @@ export default function CrediFluxApp() {
                     value={blacklistSearch}
                     onChange={(e) => setBlacklistSearch(e.target.value)}
                     placeholder="Buscar por nombre, cédula o teléfono..."
-                    className="w-full pl-9 pr-8 py-2 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-rose-500/30"
+                    className={`w-full pl-9 pr-8 py-2 rounded-xl border text-xs placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`}
                   />
                   {blacklistSearch ? (
                     <button
@@ -6448,7 +6457,7 @@ export default function CrediFluxApp() {
 
               <div className="flex-1 overflow-y-auto">
                 <table className="w-full min-w-[900px] text-left text-xs">
-                  <thead className="sticky top-0 z-10 border-b-2 border-slate-700 bg-slate-800">
+                  <thead className={`sticky top-0 z-10 border-b-2 ${settingsTableTheadCls}`}>
                     <tr className="whitespace-nowrap">
                       <th className="w-12 py-3 px-2 text-center align-middle">
                         <span className="block text-xs font-bold leading-tight text-slate-100">#</span>
@@ -6480,7 +6489,7 @@ export default function CrediFluxApp() {
                     {rows.map((entry, index) => {
                       const restoring = restoringBlacklistId === entry.id;
                       return (
-                        <tr key={entry.id} className="hover:bg-slate-800/30 transition-colors">
+                        <tr key={entry.id} className="hover:bg-slate-800/20 transition-colors">
                           <td className="py-2.5 px-2 text-center align-middle text-xs font-semibold tabular-nums text-slate-400">
                             {index + 1}
                           </td>
@@ -6536,7 +6545,7 @@ export default function CrediFluxApp() {
                 </table>
               </div>
 
-              <div className="px-6 py-3 border-t border-slate-800 flex items-center justify-between gap-3">
+              <div className={`px-6 py-3 border-t ${settingsModalBorderCls} flex items-center justify-between gap-3`}>
                 <p className="text-xs text-slate-400">
                   Al intentar registrar una cédula existente en esta lista, el sistema mostrará una advertencia y bloqueará la creación.
                 </p>
@@ -6558,8 +6567,8 @@ export default function CrediFluxApp() {
       {/* ============================================================== */}
       {clientModal.open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+          <div className={`w-full max-w-lg ${settingsModalCls} border rounded-3xl p-6 shadow-2xl`}>
+            <div className={`flex items-center justify-between pb-4 border-b ${settingsModalBorderCls}`}>
               <h3 className="font-bold text-base text-slate-200">
                 {clientModal.data ? 'Editar Datos de Cliente' : 'Registrar Nuevo Cliente'}
               </h3>
@@ -6619,7 +6628,7 @@ export default function CrediFluxApp() {
                   required
                   defaultValue={clientModal.data?.name || ''}
                   placeholder="Ej. Roberto Sánchez"
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                  className={`w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`}
                 />
               </div>
 
@@ -6632,7 +6641,7 @@ export default function CrediFluxApp() {
                     required
                     defaultValue={clientModal.data?.dni || ''}
                     placeholder="V-19.123.456"
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                    className={`w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`}
                   />
                 </div>
                 <div>
@@ -6642,7 +6651,7 @@ export default function CrediFluxApp() {
                     name="phone"
                     defaultValue={clientModal.data?.phone || ''}
                     placeholder="+58 414-1234567"
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                    className={`w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`}
                   />
                 </div>
               </div>
@@ -6654,7 +6663,7 @@ export default function CrediFluxApp() {
                   name="address"
                   defaultValue={clientModal.data?.address || ''}
                   placeholder="Av. Principal, Edificio / Casa..."
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                  className={`w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`}
                 />
               </div>
 
@@ -6669,7 +6678,7 @@ export default function CrediFluxApp() {
                   rows={2}
                   defaultValue={clientModal.data?.notes || ''}
                   placeholder="Detalles sobre actividad económica o referencias..."
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                  className={`w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`}
                 />
               </div>
 
@@ -6718,13 +6727,13 @@ export default function CrediFluxApp() {
         const totalAPagar = Math.max(0, (base + interesMonto) - down);
         const selectedProduct = (products || []).find(p => p.id === draft.productId);
         const availableProducts = (products || []).filter(p => (Number(p.stock) || 0) > 0);
-        const inputCls = 'w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/30';
+        const inputCls = `w-full px-3 py-2 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`;
         const labelCls = 'block text-slate-300 font-semibold mb-1 text-xs';
 
         return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-2xl max-h-[94vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div className={`w-full max-w-4xl ${settingsModalCls} border rounded-3xl p-4 sm:p-5 shadow-2xl max-h-[94vh] overflow-y-auto`}>
+            <div className={`flex items-center justify-between pb-3 border-b ${settingsModalBorderCls}`}>
               <div>
                 <h3 className="font-bold text-base text-slate-200">Nuevo Financiamiento o Préstamo</h3>
                 <p className="text-xs text-slate-400">Captura compacta con cálculos automáticos y resumen financiero.</p>
@@ -6772,7 +6781,7 @@ export default function CrediFluxApp() {
               className="mt-4 space-y-3"
             >
               {/* Sección 1: Datos principales */}
-              <section className="rounded-2xl border border-slate-800 bg-slate-800/20 p-3">
+              <section className="rounded-2xl border border-slate-700/60 bg-slate-800/50 p-3">
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400">1. Datos principales</h4>
                   <span className="text-xs text-slate-400">Cliente y producto</span>
@@ -6851,7 +6860,7 @@ export default function CrediFluxApp() {
               </section>
 
               {/* Sección 2: Cálculos y montos */}
-              <section className="rounded-2xl border border-slate-800 bg-slate-800/20 p-3">
+              <section className="rounded-2xl border border-slate-700/60 bg-slate-800/50 p-3">
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400">2. Cálculos y montos</h4>
                   <span className="text-xs text-slate-400">Base, ganancia e inicial</span>
@@ -6920,7 +6929,7 @@ export default function CrediFluxApp() {
 
               {/* Condiciones + Resumen */}
               <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] gap-3">
-                <section className="rounded-2xl border border-slate-800 bg-slate-800/20 p-3">
+                <section className="rounded-2xl border border-slate-700/60 bg-slate-800/50 p-3">
                   <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2">Condiciones de pago</h4>
                   <div className="grid grid-cols-3 gap-2">
                     <div>
@@ -7003,8 +7012,8 @@ export default function CrediFluxApp() {
       {/* ============================================================== */}
       {quickPayModal.open && quickPayModal.loan && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+          <div className={`w-full max-w-md ${settingsModalCls} border rounded-3xl p-6 shadow-2xl`}>
+            <div className={`flex items-center justify-between pb-4 border-b ${settingsModalBorderCls}`}>
               <div>
                 <h3 className="font-bold text-base text-slate-200">Registrar Abono o Cuota</h3>
                 <p className="text-xs text-slate-400">Cliente: {quickPayModal.loan.clientName}</p>
@@ -7036,7 +7045,7 @@ export default function CrediFluxApp() {
                         name="installmentNumber"
                         value={quickPaySelection || (unpaidInstallments[0] ? String(unpaidInstallments[0].number) : 'all')}
                         onChange={(e) => setQuickPaySelection(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                        className={`w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`}
                       >
                         <option value="all">Pago Total (saldar financiamiento) — ${pendingTotal.toFixed(2)}</option>
                         {unpaidInstallments.map(inst => (
@@ -7062,7 +7071,7 @@ export default function CrediFluxApp() {
                         defaultValue={amountValue}
                         required
                         readOnly={selectedIsTotal}
-                        className={`w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white font-bold text-emerald-400 ${selectedIsTotal ? 'opacity-90 cursor-not-allowed' : ''}`}
+                        className={`w-full px-3 py-2 rounded-xl border font-bold text-emerald-400 ${settingsFieldTheme} ${selectedIsTotal ? 'opacity-90 cursor-not-allowed' : ''}`}
                       />
                     </div>
 
@@ -7072,7 +7081,7 @@ export default function CrediFluxApp() {
                         <select
                           name="method"
                           defaultValue="Pago Móvil"
-                          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                          className={`w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`}
                         >
                           <option value="Pago Móvil">Pago Móvil</option>
                           <option value="Zelle">Zelle</option>
@@ -7088,7 +7097,7 @@ export default function CrediFluxApp() {
                           type="text"
                           name="reference"
                           placeholder="Ej. REF-881920"
-                          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                          className={`w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`}
                         />
                       </div>
                     </div>
@@ -7121,8 +7130,8 @@ export default function CrediFluxApp() {
       {/* ============================================================== */}
       {productModal.open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+          <div className={`w-full max-w-md ${settingsModalCls} border rounded-3xl p-6 shadow-2xl`}>
+            <div className={`flex items-center justify-between pb-4 border-b ${settingsModalBorderCls}`}>
               <h3 className="font-bold text-base text-slate-200">
                 {productModal.data ? 'Editar Producto' : 'Registro de producto'}
               </h3>
@@ -7180,7 +7189,7 @@ export default function CrediFluxApp() {
                   required
                   defaultValue={productModal.data?.name || ''}
                   placeholder="Ej. iPhone 15 Pro 128GB"
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                  className={`w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`}
                 />
               </div>
 
@@ -7193,7 +7202,7 @@ export default function CrediFluxApp() {
                   required
                   defaultValue={productModal.data?.costPrice || ''}
                   placeholder="650"
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white font-bold"
+                  className={`w-full px-3 py-2 rounded-xl border font-bold ${settingsFieldTheme}`}
                 />
               </div>
 
@@ -7211,7 +7220,7 @@ export default function CrediFluxApp() {
                   type="number"
                   name="stock"
                   defaultValue={productModal.data?.stock || 1}
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
+                  className={`w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`}
                 />
               </div>
               <div className="pt-2 flex justify-end gap-2">
@@ -7239,8 +7248,8 @@ export default function CrediFluxApp() {
       {/* ============================================================== */}
       {patternModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div className={`w-full max-w-lg ${settingsModalCls} border rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto`}>
+            <div className={`flex items-center justify-between pb-3 border-b ${settingsModalBorderCls}`}>
               <div>
                 <h3 className="text-base font-semibold text-slate-200">
                   {editingPatternId ? 'Editar Patrón de Comprobante' : 'Cargar Patrón de Comprobante Oficial'}
@@ -7413,8 +7422,8 @@ export default function CrediFluxApp() {
       {/* ============================================================== */}
       {purgeModal.open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+          <div className={`w-full max-w-lg ${settingsModalCls} border rounded-2xl p-5 sm:p-6 shadow-2xl`}>
+            <div className={`flex items-center justify-between pb-4 border-b ${settingsModalBorderCls}`}>
               <div>
                 <h3 className="text-base font-semibold text-slate-200">Vaciar datos del sistema</h3>
                 <p className={`${settingsDescCls} mt-1`}>
@@ -7477,7 +7486,7 @@ export default function CrediFluxApp() {
                   <select
                     value={purgeModal.filter?.period || 'all'}
                     onChange={(e) => setPurgeModal(prev => ({ ...prev, filter: { ...prev.filter, period: e.target.value } }))}
-                    className="h-10 px-3 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                    className={`h-10 px-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`}
                   >
                     <option value="all">Todo (sin filtro)</option>
                     <option value="day">Día</option>
@@ -7486,16 +7495,16 @@ export default function CrediFluxApp() {
                     <option value="until">Hasta una fecha en concreto</option>
                   </select>
                   {purgeModal.filter?.period === 'day' && (
-                    <input type="date" value={purgeModal.filter.day || ''} onChange={(e) => setPurgeModal(prev => ({ ...prev, filter: { ...prev.filter, day: e.target.value } }))} className="h-10 px-3 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/50" />
+                    <input type="date" value={purgeModal.filter.day || ''} onChange={(e) => setPurgeModal(prev => ({ ...prev, filter: { ...prev.filter, day: e.target.value } }))} className={`h-10 px-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`} />
                   )}
                   {purgeModal.filter?.period === 'month' && (
-                    <input type="month" value={purgeModal.filter.month || ''} onChange={(e) => setPurgeModal(prev => ({ ...prev, filter: { ...prev.filter, month: e.target.value } }))} className="h-10 px-3 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/50" />
+                    <input type="month" value={purgeModal.filter.month || ''} onChange={(e) => setPurgeModal(prev => ({ ...prev, filter: { ...prev.filter, month: e.target.value } }))} className={`h-10 px-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`} />
                   )}
                   {purgeModal.filter?.period === 'year' && (
-                    <input type="number" min="2000" max="2100" step="1" value={purgeModal.filter.year || ''} onChange={(e) => setPurgeModal(prev => ({ ...prev, filter: { ...prev.filter, year: e.target.value } }))} className="h-10 w-24 px-3 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/50" placeholder="Año" />
+                    <input type="number" min="2000" max="2100" step="1" value={purgeModal.filter.year || ''} onChange={(e) => setPurgeModal(prev => ({ ...prev, filter: { ...prev.filter, year: e.target.value } }))} className={`h-10 w-24 px-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`} placeholder="Año" />
                   )}
                   {purgeModal.filter?.period === 'until' && (
-                    <input type="date" value={purgeModal.filter.until || ''} onChange={(e) => setPurgeModal(prev => ({ ...prev, filter: { ...prev.filter, until: e.target.value } }))} className="h-10 px-3 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/50" />
+                    <input type="date" value={purgeModal.filter.until || ''} onChange={(e) => setPurgeModal(prev => ({ ...prev, filter: { ...prev.filter, until: e.target.value } }))} className={`h-10 px-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`} />
                   )}
                 </div>
               </div>
@@ -7543,7 +7552,7 @@ export default function CrediFluxApp() {
                       setPurgeModal(prev => ({ ...prev, processing: false }));
                     }
                   }}
-                  className="h-10 px-4 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-lg text-sm transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-60"
+                  className="h-10 px-4 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-xl text-sm transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-60"
                 >
                   {purgeModal.processing ? 'Vaciando...' : 'Vaciar datos seleccionados'}
                 </button>
@@ -7558,8 +7567,8 @@ export default function CrediFluxApp() {
       {/* ============================================================== */}
       {viewHistoryClient && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+          <div className={`w-full max-w-2xl ${settingsModalCls} border rounded-3xl p-6 shadow-2xl max-h-[85vh] overflow-y-auto`}>
+            <div className={`flex items-center justify-between pb-4 border-b ${settingsModalBorderCls}`}>
               <div>
                 <h3 className="font-bold text-base text-slate-200">Récord Crediticio e Historial</h3>
                 <p className="text-xs text-slate-400">
@@ -7581,7 +7590,7 @@ export default function CrediFluxApp() {
                 </div>
               ) : (
                 viewHistoryClient.creditHistory.map((h, i) => (
-                  <div key={i} className="p-4 rounded-2xl bg-slate-800/40 border border-slate-800 flex items-center justify-between">
+                  <div key={i} className="p-4 rounded-2xl bg-slate-800/50 border border-slate-700/60 flex items-center justify-between">
                     <div>
                       <h5 className="font-bold text-slate-200 text-sm">{h.productName}</h5>
                       <p className="text-slate-400 text-xs">
@@ -7608,8 +7617,8 @@ export default function CrediFluxApp() {
       {/* ============================================================== */}
       {manualRecord.open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div className={`w-full max-w-md ${settingsModalCls} border rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto`}>
+            <div className={`flex items-center justify-between pb-3 border-b ${settingsModalBorderCls}`}>
               <div>
                 <h3 className="text-base font-semibold text-slate-200">
                   {manualRecord.mode === 'edit' ? 'Editar registro manual' : 'Registro manual'}
@@ -7723,7 +7732,7 @@ export default function CrediFluxApp() {
                   </span>
                 </p>
                 <p className="text-xs text-slate-400">
-                  Monto USD estimado: <span className="text-white font-semibold">
+                  Monto USD estimado: <span className="text-slate-200 font-semibold">
                     {manualUsdPreview !== null
                       ? `$${Number(manualUsdPreview).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                       : '—'}
@@ -7736,14 +7745,14 @@ export default function CrediFluxApp() {
                   type="button"
                   onClick={closeManualRecord}
                   disabled={manualRecord.saving}
-                  className="px-4 py-2 rounded-lg border border-slate-700 text-slate-300 text-xs font-semibold hover:bg-slate-800 disabled:opacity-40"
+                  className={`px-4 py-2 rounded-xl border text-xs font-semibold hover:bg-slate-800 disabled:opacity-40 ${themeDark ? 'border-slate-700 text-slate-300' : 'border-slate-300 text-slate-900'}`}
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={manualRecord.saving}
-                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-slate-950 text-xs font-bold disabled:opacity-50"
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 text-xs font-bold disabled:opacity-50"
                 >
                   {manualRecord.saving ? (
                     <>
