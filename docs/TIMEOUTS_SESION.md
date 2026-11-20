@@ -30,6 +30,19 @@ inactivity_timeout = "30m"
 
 > Esta función está disponible en planes **Pro o superiores**. Si el plan no la incluye, el frontend seguirá cerrando la sesión localmente, pero el refresh token de Supabase puede permanecer válido.
 
+### Estado actual (verificado 2026-11-20)
+
+El proyecto hosted `vcsfrmmntmljeikidbkh` tiene `sessions_timebox = 0` e `sessions_inactivity_timeout = 0` (ambos desactivados). El intento de configurarlos vía Management API (`PATCH /v1/projects/{ref}/config/auth` con `sessions_timebox: 24` y `sessions_inactivity_timeout: 0.5`) devolvió:
+
+```json
+{ "message": "User sessions can only be configured on Pro Plans and up.",
+  "error": { "code": "entitlement_required", "feature": "auth.user_sessions" } }
+```
+
+Por tanto, **requiere migrar el proyecto a plan Pro** para aplicar los timebox/inactivity en Supabase Auth. Hasta entonces, la única expiración activa es la del frontend (30 min / 24 h); el refresh token de Supabase no se ve afectado. `jwt_exp` está en 3600 s (1 h), valor recomendado.
+
+También se detectó que `site_url` del proyecto es `http://localhost:3000`. No se modificó porque no forma parte de este cambio; revisarlo si se usan flujos de Supabase Auth con redirects.
+
 ### Consideraciones
 
 - La expiración se comprueba **la próxima vez que se refresca la sesión**, no de forma proactiva: una sesión vencida puede seguir "activa" en la tabla `auth.sessions` hasta su limpieza (aprox. 24 h después).
