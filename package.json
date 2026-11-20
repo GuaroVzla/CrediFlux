@@ -36,14 +36,14 @@
     "@prisma/client": "^6.6.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.119.0",
-    "@vercel/blob": "^0.27.3",
+    "@vercel/blob": "^2.9.0",
     "lucide-react": "^1.70.0",
     "next": "^16.4.6",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "server-only": "^0.0.1",
     "tesseract.js": "^7.0.0",
-    "zod": "^3.24.2"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
@@ -54,5 +54,10 @@
     "tailwindcss": "^3.4.19",
     "typescript": "7.0.2",
     "vitest": "^5.1.1"
+  },
+  "overrides": {
+    "effect": "3.22.5",
+    "deepmerge-ts": "8.0.2",
+    "zod": "$zod"
   }
 }
