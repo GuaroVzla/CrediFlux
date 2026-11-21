@@ -552,7 +552,15 @@ export default function CrediFluxApp() {
   }, [isAuthenticated, sessionStart, idleTimeout, absoluteTimeout, handleLogout]);
 
   // Preferencia de tema: persiste la elección y respeta la del sistema.
+  // El login es siempre oscuro (.login-screen), así que no aplicamos el tema
+  // guardado hasta que haya sesión: evitar que `:root:not(.dark)` remapeé
+  // colores de la pantalla de acceso según el SO/navegador del usuario.
   useEffect(() => {
+    if (!isAuthenticated) {
+      document.documentElement.classList.add('dark');
+      setThemeDark(true);
+      return;
+    }
     try {
       const stored = localStorage.getItem('crediflux_theme');
       const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
@@ -560,7 +568,7 @@ export default function CrediFluxApp() {
       setThemeDark(nextDark);
       document.documentElement.classList.toggle('dark', nextDark);
     } catch (e) {}
-  }, []);
+  }, [isAuthenticated]);
 
   // Toggle Dark/Light Theme
   const toggleTheme = () => {
@@ -1686,8 +1694,8 @@ export default function CrediFluxApp() {
   // --- RENDER LOGIN SCREEN (ESTRICTAMENTE PRIVADA - SIN REGISTRO PÚBLICO) ---
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-[#0b1120] via-[#0f172a] to-[#064e3b]">
-        <div className="w-full max-w-md bg-[#111827]/95 backdrop-blur-xl border border-slate-800 rounded-3xl p-8 shadow-2xl relative overflow-hidden">
+      <div className="login-screen min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-[#0b1120] via-[#0f172a] to-[#064e3b]">
+        <div className="login-card w-full max-w-md bg-[#111827]/95 backdrop-blur-none sm:backdrop-blur-xl border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
           <div className="absolute -top-24 -right-24 w-48 h-48 bg-emerald-500/15 rounded-full blur-3xl pointer-events-none" />
           <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none" />
 
@@ -1699,60 +1707,63 @@ export default function CrediFluxApp() {
               <span>CREDI</span>
               <span className="bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">FLUX</span>
             </h1>
-            <p className="text-xs uppercase tracking-widest text-emerald-400 font-bold mt-0.5">
+            <p className="login-accent text-xs uppercase tracking-widest font-bold mt-0.5">
               Plataforma SaaS Financiera & E-Commerce
             </p>
-            <p className="text-slate-400 text-xs mt-1">
+            <p className="login-muted text-xs mt-1">
               Ingresa tus credenciales autorizadas por el Administrador.
             </p>
           </div>
 
           {authError && (
-            <div className="mb-5 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center gap-2.5">
+            <div className="login-alert login-error mb-5 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs flex items-center gap-2.5">
               <AlertTriangle className="w-4 h-4 shrink-0" />
               <span>{authError}</span>
             </div>
           )}
 
           {/* FORMULARIO ÚNICO DE INICIO DE SESIÓN (Registro público removido) */}
-          <form onSubmit={handleLogin} className="space-y-4">
+          <form onSubmit={handleLogin} className="relative z-10 space-y-4">
             <div>
-              <label htmlFor="login-username" className="block text-xs font-semibold uppercase tracking-wide text-slate-300 mb-1.5">
+              <label htmlFor="login-username" className="login-label block text-xs font-semibold uppercase tracking-wide mb-1.5">
                 Usuario
               </label>
               <div className="relative">
-                <User className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-400" aria-hidden="true" />
+                <User className="login-icon w-4 h-4 absolute left-3.5 top-3.5" aria-hidden="true" />
                 <input
                   id="login-username"
                   name="username"
                   type="text"
                   required
                   autoComplete="username"
+                  autoCapitalize="none"
+                  spellCheck={false}
                   placeholder="admin o usuario asignado"
                   value={loginInput.username}
                   onChange={(e) => setLoginInput({ ...loginInput, username: e.target.value })}
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs"
+                  className="login-field w-full pl-10 pr-4 py-2.5 min-h-[44px] border rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs"
                 suppressHydrationWarning
                 />
               </div>
             </div>
 
             <div>
-              <label htmlFor="login-password" className="block text-xs font-semibold uppercase tracking-wide text-slate-300 mb-1.5">
+              <label htmlFor="login-password" className="login-label block text-xs font-semibold uppercase tracking-wide mb-1.5">
                 Clave de Acceso
               </label>
               <div className="relative">
-                <Lock className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-400" aria-hidden="true" />
+                <Lock className="login-icon w-4 h-4 absolute left-3.5 top-3.5" aria-hidden="true" />
                 <input
                   id="login-password"
                   name="password"
                   type="password"
                   required
                   autoComplete="current-password"
+                  spellCheck={false}
                   placeholder="Contraseña"
                   value={loginInput.password}
                   onChange={(e) => setLoginInput({ ...loginInput, password: e.target.value })}
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs"
+                  className="login-field w-full pl-10 pr-4 py-2.5 min-h-[44px] border rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs"
                 suppressHydrationWarning
                 />
               </div>
@@ -1768,7 +1779,7 @@ export default function CrediFluxApp() {
           </form>
 
           <div className="mt-8 pt-4 border-t border-slate-800 text-center">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <span className="login-badge login-accent inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] sm:text-xs font-medium bg-emerald-500/10 border border-emerald-500/20">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 motion-safe:animate-pulse" />
               Acceso Restringido • Registro Solo por Administrador
             </span>
@@ -1819,7 +1830,7 @@ export default function CrediFluxApp() {
           role="status"
           aria-live={notification.type === 'error' ? 'assertive' : 'polite'}
           aria-atomic="true"
-          className={`fixed top-5 right-5 z-[100] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border text-xs font-semibold transition-all max-w-md ${notification.type === 'error'
+          className={`fixed left-4 right-4 top-4 z-[100] flex items-center gap-3 px-4 sm:px-5 py-3.5 rounded-2xl shadow-2xl border text-xs font-semibold transition-all w-auto sm:left-auto sm:right-5 sm:top-5 sm:max-w-md max-w-[calc(100vw-2rem)] break-words ${notification.type === 'error'
           ? 'bg-rose-950/95 border-rose-500 text-rose-200'
           : 'bg-emerald-950/95 border-emerald-500 text-emerald-200'
           }`}>
@@ -1839,7 +1850,7 @@ export default function CrediFluxApp() {
           </div>
           <button type="button"
             onClick={() => setActiveTab('settings')}
-            className="px-3 py-1 bg-white text-rose-700 font-bold rounded-lg text-xs hover:bg-slate-100 shrink-0"
+            className="px-3 py-2 sm:py-1 min-h-[44px] sm:min-h-0 bg-white text-rose-700 font-bold rounded-lg text-xs hover:bg-slate-100 shrink-0"
           >
             Renovar Licencia Aquí
           </button>
@@ -1848,20 +1859,20 @@ export default function CrediFluxApp() {
 
       {/* TOPBAR NAVIGATION */}
       <header className={`border-b sticky top-0 z-30 backdrop-blur-md ${themeDark ? 'bg-slate-950/90 border-slate-800/80' : 'bg-white/90 border-slate-200'}`}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-cyan-500 flex items-center justify-center text-white shadow-md shadow-emerald-500/25 ring-1 ring-emerald-400/30">
               <Shield className="w-6 h-6" />
             </div>
             <div>
               <div className="flex items-center gap-1.5 leading-none">
-                <span className={`font-black text-xl tracking-tight ${themeDark ? 'text-white' : 'text-slate-900'}`}>CREDI</span>
-                <span className={`font-black text-xl tracking-tight ${themeDark ? 'bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent' : 'text-emerald-700'}`}>FLUX</span>
-                <span className={`ml-1 text-xs px-1.5 py-0.5 rounded-full font-bold border ${themeDark ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' : 'bg-emerald-100 text-emerald-900 border-emerald-300'}`}>PRO</span>
+                <span className={`font-black text-base sm:text-xl tracking-tight ${themeDark ? 'text-white' : 'text-slate-900'}`}>CREDI</span>
+                <span className={`font-black text-base sm:text-xl tracking-tight ${themeDark ? 'bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent' : 'text-emerald-700'}`}>FLUX</span>
+                <span className={`hidden sm:inline-flex ml-1 text-xs px-1.5 py-0.5 rounded-full font-bold border ${themeDark ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' : 'bg-emerald-100 text-emerald-900 border-emerald-300'}`}>PRO</span>
               </div>
               <div className="flex items-center gap-2 mt-1">
                 <span className={`w-1.5 h-1.5 rounded-full motion-safe:animate-pulse ${isUserExpired ? 'bg-rose-500' : 'bg-emerald-400'}`}></span>
-                <span className="text-xs font-medium text-slate-400 tracking-wide uppercase">
+                <span className="text-xs font-medium text-slate-400 tracking-wide uppercase hidden sm:block max-w-[190px] truncate">
                   {currentUser?.role === 'admin' ? 'Administrador Maestro (Acceso Total)' : isUserExpired ? 'Licencia Caducada' : 'Licencia Activa'}
                 </span>
               </div>
@@ -1869,9 +1880,9 @@ export default function CrediFluxApp() {
           </div>
 
           {/* Top Actions: Tasas BCV + P2P Binance, Refresh, Theme, User badge, Logout */}
-          <div className="flex items-center gap-2.5 sm:gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
             {/* Widget de tasas: BCV oficial (dolarapi.com) y promedio P2P Binance (VES/USDT) */}
-            <div className={`flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-semibold ${themeDark ? 'bg-slate-800/90 border-slate-700/80' : 'bg-slate-100 border-slate-200'
+            <div className={`hidden sm:flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-semibold ${themeDark ? 'bg-slate-800/90 border-slate-700/80' : 'bg-slate-100 border-slate-200'
               }`}>
               <div className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 motion-safe:animate-pulse"></span>
@@ -1920,7 +1931,7 @@ export default function CrediFluxApp() {
               type="button"
               onClick={() => fetchAllData({ forceP2P: true })}
               title="Sincronizar datos y tasas (BCV + P2P Binance)"
-              className={`p-2 rounded-xl border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-950 ${themeDark ? 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700' : 'bg-slate-100 border-slate-200 text-slate-900 hover:text-slate-900 hover:bg-slate-200'} min-h-[44px] min-w-[44px]}`}
+              className={`hidden sm:inline-flex p-2 rounded-xl border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-950 ${themeDark ? 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700' : 'bg-slate-100 border-slate-200 text-slate-900 hover:text-slate-900 hover:bg-slate-200'} min-h-[44px] min-w-[44px]}`}
             >
               <RefreshCw className={`w-4 h-4 ${loading || dolarRates.loading ? 'animate-spin' : ''}`} />
             </button>
@@ -1984,7 +1995,7 @@ export default function CrediFluxApp() {
               <button type="button"
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${active
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition-all ${active
                   ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
                   }`}
@@ -2005,55 +2016,64 @@ export default function CrediFluxApp() {
 
       {/* MOBILE MENU DRAWER */}
       {isAuthenticated && (
-        <div
-          className={`fixed inset-0 top-0 left-0 w-64 bg-slate-950/95 backdrop-blur-xl shadow-2xl ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform duration-300 z-50 border-r border-slate-800/50 min-h-screen flex flex-col pt-16`}
-        >
-          <button
-            type="button"
+        <>
+          <div
+            aria-hidden="true"
             onClick={() => setMobileMenuOpen(false)}
-            className="absolute top-4 left-4 w-10 h-10 rounded-lg bg-slate-800/50 backdrop-blur flex items-center justify-center text-slate-400 hover:text-emerald-400"
+            className={`fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-sm transition-opacity duration-300 sm:hidden ${mobileMenuOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+          />
+          <div
+            aria-hidden={!mobileMenuOpen}
+            className={`fixed inset-y-0 left-0 z-50 w-[85vw] max-w-[288px] bg-slate-950/95 backdrop-blur-xl shadow-2xl transition-transform duration-300 sm:hidden border-r border-slate-800/50 min-h-screen flex flex-col pt-16 ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full invisible pointer-events-none'}`}
           >
-            <X className="w-5 h-5" />
-          </button>
-          <div className="flex flex-col pt-6 flex-1 gap-6">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Menú</h2>
-            <div className="flex flex-1 flex-col gap-4">
-              {[
-                { id: 'dashboard', label: 'Dashboard General', icon: TrendingUp, active: activeTab === 'dashboard' },
-                { id: 'loans', label: 'Financiamientos y Deudas', icon: CreditCard, active: activeTab === 'loans' },
-                { id: 'clients', label: 'Clientes', icon: Users, active: activeTab === 'clients' },
-                { id: 'products', label: 'Productos', icon: Smartphone, active: activeTab === 'products' },
-                { id: 'ecommerce', label: 'E-Commerce & OCR IA', icon: ShoppingBag, active: activeTab === 'ecommerce' },
-                { id: 'settings', label: currentUser?.role === 'admin' ? 'Ajustes Admin' : 'Mi Cuenta', icon: Lock, active: activeTab === 'settings' }
-              ].map(nav => {
-                const Icon = nav.icon;
-                return (
-                  <button
-                    type="button"
-                    key={nav.id}
-                    onClick={() => {
-                      setActiveTab(nav.id);
-                      setMobileMenuOpen(false);
-                    }}
-                    className={`flex items-center gap-3 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${nav.active ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'text-slate-300 hover:text-slate-200 hover:bg-slate-800/40'}`}
-                  >
-                    <Icon className="w-4 h-4" />
-                    <span>{nav.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div className="mt-auto border-t border-slate-800/50 pt-4">
             <button
               type="button"
-              onClick={handleLogout}
-              className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-xl transition-all min-h-[44px] min-w-full"
+              aria-label="Cerrar menú"
+              onClick={() => setMobileMenuOpen(false)}
+              className="absolute top-4 left-4 w-11 h-11 rounded-lg bg-slate-800/50 backdrop-blur flex items-center justify-center text-slate-400 hover:text-emerald-400"
             >
-              Cerrar sesión
+              <X className="w-5 h-5" />
             </button>
+            <div className="flex flex-col pt-6 flex-1 gap-6">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Menú</h2>
+              <div className="flex flex-1 flex-col gap-4">
+                {[
+                  { id: 'dashboard', label: 'Dashboard General', icon: TrendingUp, active: activeTab === 'dashboard' },
+                  { id: 'loans', label: 'Financiamientos y Deudas', icon: CreditCard, active: activeTab === 'loans' },
+                  { id: 'clients', label: 'Clientes', icon: Users, active: activeTab === 'clients' },
+                  { id: 'products', label: 'Productos', icon: Smartphone, active: activeTab === 'products' },
+                  { id: 'ecommerce', label: 'E-Commerce & OCR IA', icon: ShoppingBag, active: activeTab === 'ecommerce' },
+                  { id: 'settings', label: currentUser?.role === 'admin' ? 'Ajustes Admin' : 'Mi Cuenta', icon: Lock, active: activeTab === 'settings' }
+                ].map(nav => {
+                  const Icon = nav.icon;
+                  return (
+                    <button
+                      type="button"
+                      key={nav.id}
+                      onClick={() => {
+                        setActiveTab(nav.id);
+                        setMobileMenuOpen(false);
+                      }}
+                      className={`flex items-center gap-3 rounded-lg px-4 py-3 min-h-[44px] text-sm font-medium transition-colors ${nav.active ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'text-slate-300 hover:text-slate-200 hover:bg-slate-800/40'}`}
+                    >
+                      <Icon className="w-4 h-4" />
+                      <span>{nav.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="mt-auto border-t border-slate-800/50 pt-4">
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-xl transition-all min-h-[44px] min-w-full"
+              >
+                Cerrar sesión
+              </button>
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* MAIN VIEW CONTENT CONTAINER */}
@@ -2639,7 +2659,7 @@ export default function CrediFluxApp() {
                 aria-modal="true"
                 aria-label="Gestionar Capital"
               >
-                <div className={`w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-2xl border shadow-2xl ${themeDark ? 'bg-slate-950 border-slate-700/80' : 'bg-white border-slate-200'}`}>
+                <div className={`w-full max-w-3xl max-h-[92dvh] overflow-y-auto rounded-2xl border shadow-2xl ${themeDark ? 'bg-slate-950 border-slate-700/80' : 'bg-white border-slate-200'}`}>
                   <div className={`sticky top-0 z-10 flex items-center justify-between gap-3 px-5 py-4 border-b ${themeDark ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200'}`}>
                     <div>
                       <h2 className={`text-lg font-bold flex items-center gap-2 ${themeDark ? 'text-white' : 'text-slate-900'}`}><Coins className="w-5 h-5 text-emerald-400" /> Gestionar Capital</h2>
@@ -6090,8 +6110,8 @@ export default function CrediFluxApp() {
                           <PatternImage
                             src={pat.imageUrl}
                             alt={`Comprobante patrón ${pat.bankName}`}
-                            className="max-h-32 object-contain"
-                            wrapperClassName="rounded-xl overflow-hidden border border-slate-700/50 min-h-[3rem] bg-slate-800/40 flex items-center justify-center"
+                            className="w-full max-w-full h-auto max-h-32 object-contain"
+                            wrapperClassName="min-w-0 rounded-xl overflow-hidden border border-slate-700/50 min-h-[3rem] bg-slate-800/40 flex items-center justify-center"
                           />
 
                           <div className="space-y-1 text-xs text-slate-400">
@@ -6125,7 +6145,7 @@ export default function CrediFluxApp() {
       {/* ============================================================== */}
       {newUserModal && (
         <div role="dialog" aria-modal="true" aria-label="Nuevo usuario" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className={`w-full max-w-lg ${settingsModalCls} border rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto`}>
+          <div className={`w-full max-w-lg ${settingsModalCls} border rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90dvh] overflow-y-auto`}>
             <div className={`flex items-center justify-between pb-3 border-b ${settingsModalBorderCls}`}>
               <div>
                 <h3 className="text-base font-semibold text-slate-200">Registrar Nuevo Usuario</h3>
@@ -6278,7 +6298,7 @@ export default function CrediFluxApp() {
       {/* ============================================================== */}
       {editUserModal.open && editUserModal.user && (
         <div role="dialog" aria-modal="true" aria-label="Editar usuario" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className={`w-full max-w-md ${settingsModalCls} border rounded-2xl p-5 sm:p-6 shadow-2xl`}>
+          <div className={`w-full max-w-md ${settingsModalCls} border rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90dvh] overflow-y-auto`}>
             <div className={`flex items-center justify-between pb-3 border-b ${settingsModalBorderCls}`}>
               <h3 className="text-base font-semibold text-slate-200">
                 {editUserModal.passwordOnly ? 'Editar Clave del Administrador' : 'Editar Usuario y Licencia CrediFlux'}
@@ -6504,7 +6524,7 @@ export default function CrediFluxApp() {
 
         return (
           <div role="dialog" aria-modal="true" aria-label="Historial de pagos" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-            <div className={`w-full max-w-6xl ${settingsModalCls} border rounded-3xl shadow-2xl max-h-[88vh] flex flex-col overflow-hidden`}>
+            <div className={`w-full max-w-6xl ${settingsModalCls} border rounded-3xl shadow-2xl max-h-[88dvh] flex flex-col overflow-hidden`}>
               <div className={`flex items-start justify-between gap-4 px-6 py-5 border-b ${settingsModalBorderCls}`}>
                 <div>
                   <h3 className="font-bold text-base text-slate-200 flex items-center gap-2">
@@ -6537,8 +6557,8 @@ export default function CrediFluxApp() {
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto">
-                <table className="w-full rounded-lg overflow-x-auto sm:overflow-visible md:overflow-hidden text-left text-xs">
+              <div className="flex-1 overflow-auto overscroll-contain">
+                <table className="w-full min-w-[720px] rounded-lg text-left text-xs">
                   <thead className={`sticky top-0 z-10 border-b-2 ${settingsTableTheadCls}`}>
                     <tr className="whitespace-nowrap">
                       <th className="w-12 py-3 px-2 text-center align-middle"><span className="block text-xs font-bold text-slate-100">#</span></th>
@@ -6617,7 +6637,7 @@ export default function CrediFluxApp() {
         const closeDeleteModal = () => setDeleteLoanModal(emptyDeleteLoanModal());
         return (
           <div role="dialog" aria-modal="true" aria-label="Eliminar financiamiento" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-            <div className={`w-full max-w-lg ${settingsModalCls} border rounded-3xl shadow-2xl overflow-hidden`}>
+            <div className={`w-full max-w-lg ${settingsModalCls} border rounded-3xl shadow-2xl max-h-[90dvh] overflow-y-auto`}>
               <div className={`px-6 py-5 border-b ${settingsModalBorderCls} flex items-start justify-between gap-4`}>
                 <div className="flex items-start gap-3">
                   <div className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${isConfirm && !isErrorReason
@@ -6770,7 +6790,7 @@ export default function CrediFluxApp() {
 
         return (
           <div role="dialog" aria-modal="true" aria-label="Lista negra" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-            <div className={`w-full max-w-5xl ${settingsModalCls} border rounded-3xl shadow-2xl max-h-[88vh] flex flex-col overflow-hidden`}>
+            <div className={`w-full max-w-5xl ${settingsModalCls} border rounded-3xl shadow-2xl max-h-[88dvh] flex flex-col overflow-hidden`}>
               <div className={`flex items-start justify-between gap-4 px-6 py-5 border-b ${settingsModalBorderCls}`}>
                 <div>
                   <h3 className="font-bold text-base text-slate-200 flex items-center gap-2">
@@ -6817,8 +6837,8 @@ export default function CrediFluxApp() {
                 </span>
               </div>
 
-              <div className="flex-1 overflow-y-auto">
-                <table className="w-full rounded-lg overflow-x-auto sm:overflow-visible md:overflow-hidden text-left text-xs">
+              <div className="flex-1 overflow-auto overscroll-contain">
+                <table className="w-full min-w-[680px] rounded-lg text-left text-xs">
                   <thead className={`sticky top-0 z-10 border-b-2 ${settingsTableTheadCls}`}>
                     <tr className="whitespace-nowrap">
                       <th className="w-12 py-3 px-2 text-center align-middle">
@@ -6930,7 +6950,7 @@ export default function CrediFluxApp() {
       {/* ============================================================== */}
       {clientModal.open && (
         <div role="dialog" aria-modal="true" aria-label="Cliente" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className={`w-full max-w-lg ${settingsModalCls} border rounded-3xl p-6 shadow-2xl`}>
+          <div className={`w-full max-w-lg ${settingsModalCls} border rounded-3xl p-4 sm:p-6 shadow-2xl max-h-[90dvh] overflow-y-auto`}>
             <div className={`flex items-center justify-between pb-4 border-b ${settingsModalBorderCls}`}>
               <h3 className="font-bold text-base text-slate-200">
                 {clientModal.data ? 'Editar Datos de Cliente' : 'Registrar Nuevo Cliente'}
@@ -7273,7 +7293,7 @@ export default function CrediFluxApp() {
 
         return (
           <div role="dialog" aria-modal="true" aria-label="Registrar abono o cuota" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-            <div className={`w-full max-w-lg ${settingsModalCls} border rounded-3xl p-6 shadow-2xl`}>
+            <div className={`w-full max-w-lg ${settingsModalCls} border rounded-3xl p-4 sm:p-6 shadow-2xl max-h-[90dvh] overflow-y-auto`}>
               <div className={`flex items-center justify-between pb-4 border-b ${settingsModalBorderCls}`}>
                 <div>
                   <h3 className="font-bold text-base text-slate-200">Registrar Abono o Cuota</h3>
@@ -7469,7 +7489,7 @@ export default function CrediFluxApp() {
       {/* ============================================================== */}
       {productModal.open && (
         <div role="dialog" aria-modal="true" aria-label="Producto" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className={`w-full max-w-md ${settingsModalCls} border rounded-3xl p-6 shadow-2xl`}>
+          <div className={`w-full max-w-md ${settingsModalCls} border rounded-3xl p-4 sm:p-6 shadow-2xl max-h-[90dvh] overflow-y-auto`}>
             <div className={`flex items-center justify-between pb-4 border-b ${settingsModalBorderCls}`}>
               <h3 className="font-bold text-base text-slate-200">
                 {productModal.data ? 'Editar Producto' : 'Registro de producto'}
@@ -7587,7 +7607,7 @@ export default function CrediFluxApp() {
       {/* ============================================================== */}
       {patternModal && (
         <div role="dialog" aria-modal="true" aria-label="Patrón de comprobante" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className={`w-full max-w-lg ${settingsModalCls} border rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto`}>
+          <div className={`w-full max-w-lg ${settingsModalCls} border rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90dvh] overflow-y-auto`}>
             <div className={`flex items-center justify-between pb-3 border-b ${settingsModalBorderCls}`}>
               <div>
                 <h3 className="text-base font-semibold text-slate-200">
@@ -7765,7 +7785,7 @@ export default function CrediFluxApp() {
       {/* ============================================================== */}
       {purgeModal.open && (
         <div role="dialog" aria-modal="true" aria-label="Depuración de datos" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className={`w-full max-w-lg ${settingsModalCls} border rounded-2xl p-5 sm:p-6 shadow-2xl`}>
+          <div className={`w-full max-w-lg ${settingsModalCls} border rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90dvh] overflow-y-auto`}>
             <div className={`flex items-center justify-between pb-4 border-b ${settingsModalBorderCls}`}>
               <div>
                 <h3 className="text-base font-semibold text-slate-200">Vaciar datos del sistema</h3>
@@ -7910,7 +7930,7 @@ export default function CrediFluxApp() {
       {/* ============================================================== */}
       {viewHistoryClient && (
         <div role="dialog" aria-modal="true" aria-label="Historial del cliente" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className={`w-full max-w-2xl ${settingsModalCls} border rounded-3xl p-6 shadow-2xl max-h-[85vh] overflow-y-auto`}>
+          <div className={`w-full max-w-2xl ${settingsModalCls} border rounded-3xl p-6 shadow-2xl max-h-[85dvh] overflow-y-auto`}>
             <div className={`flex items-center justify-between pb-4 border-b ${settingsModalBorderCls}`}>
               <div>
                 <h3 className="font-bold text-base text-slate-200">Récord Crediticio e Historial</h3>
@@ -7960,7 +7980,7 @@ export default function CrediFluxApp() {
       {/* ============================================================== */}
       {manualRecord.open && (
         <div role="dialog" aria-modal="true" aria-label="Registro manual" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className={`w-full max-w-md ${settingsModalCls} border rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto`}>
+          <div className={`w-full max-w-md ${settingsModalCls} border rounded-2xl p-5 sm:p-6 shadow-2xl max-h-[90dvh] overflow-y-auto`}>
             <div className={`flex items-center justify-between pb-3 border-b ${settingsModalBorderCls}`}>
               <div>
                 <h3 className="text-base font-semibold text-slate-200">

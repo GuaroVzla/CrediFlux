@@ -8,6 +8,7 @@
  * Se mantienen los nombres para no tocar la lógica ni los componentes.
  */
 :root {
+  color-scheme: light;
   --background: #f1f5f9;
   --foreground: #0f172a;
   --surface: #ffffff;
@@ -31,6 +32,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: #101827;
   --foreground: #f1f5f9;
   --surface: #162033;
@@ -473,4 +475,208 @@ textarea:focus {
 
 :root:not(.dark) .shadow-sm {
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 24px -12px rgba(15, 23, 42, 0.14) !important;
+}
+
+/*
+ * ==========================================================================
+ * LOGIN — estilos autocontenidos y cross-browser (Chrome / Firefox / Edge)
+ * --------------------------------------------------------------------------
+ * El login es visualmente oscuro incluso cuando el efecto de tema de la app
+ * quita `.dark` del <html>. Por eso NO reutilizamos utilidades de color que
+ * las reglas `:root:not(.dark)` de arriba remapean (text-slate-300/400,
+ * text-emerald-400, bg-slate-800/80, bg-rose-500/10, ...): ese era el origen
+ * de texto blanco sobre fondo claro y etiquetas casi negras sobre tarjeta
+ * oscura. Aquí los colores se fijan por tokens propios y se declaran las
+ * seudoclases prefijadas que cada motor necesita para placeholder y autofill.
+ * ==========================================================================
+ */
+.login-screen {
+  /* Android Auto Dark (Chrome/Samsung/Edge) respeta `only dark`: evita que
+     el UA invierta o repinte los controles del formulario. `dark` es fallback. */
+  color-scheme: dark;
+  color-scheme: only dark;
+
+  --login-field-bg: #1e293b;
+  --login-field-text: #f8fafc;
+  --login-placeholder: #cbd5e1;
+  --login-caret: #34d399;
+  --login-label: #e2e8f0;
+  --login-muted: #cbd5e1;
+  --login-icon: #94a3b8;
+  --login-accent: #34d399;
+  --login-error: #fda4af;
+
+  /* Tokens globales redefinidos solo dentro del login (foco y borde visibles). */
+  --focus-ring: #34d399;
+  --border-field: #94a3b8;
+}
+
+/* Superficie y borde de la tarjeta: inmunes al remapeo de modo claro. */
+.login-card {
+  background-color: rgba(17, 24, 39, 0.95) !important;
+  border-color: #334155 !important;
+}
+
+.login-alert {
+  background-color: rgba(159, 18, 57, 0.18) !important;
+  border-color: rgba(251, 113, 133, 0.38) !important;
+}
+
+.login-badge {
+  background-color: rgba(16, 185, 129, 0.12) !important;
+  border-color: rgba(52, 211, 153, 0.38) !important;
+}
+
+/* Textos del login: clases dedicadas, sin utilidades remapeadas. */
+.login-label { color: var(--login-label) !important; }
+.login-muted { color: var(--login-muted) !important; }
+.login-icon { color: var(--login-icon) !important; }
+.login-accent { color: var(--login-accent) !important; }
+.login-error { color: var(--login-error) !important; }
+
+/* Base del campo: color, relleno y opacidad explícitos en los 3 motores. */
+.login-screen input.login-field {
+  -webkit-appearance: none;
+  appearance: none;
+  background-color: var(--login-field-bg) !important;
+  background-image: none !important;
+  color: var(--login-field-text) !important;
+  /* Blink/WebKit ignora `color` en autofill; -webkit-text-fill-color manda. */
+  -webkit-text-fill-color: var(--login-field-text);
+  caret-color: var(--login-caret);
+  opacity: 1 !important;
+  font-size: 0.75rem;
+}
+
+.login-screen input.login-field:focus {
+  outline: 2px solid var(--focus-ring) !important;
+  outline-offset: 2px !important;
+}
+
+/*
+ * Cada seudoelemento va en su propia regla: si se agruparan en una lista,
+ * un motor que no reconozca uno de los prefijos invalidaría TODA la regla.
+ */
+.login-screen input.login-field::placeholder {
+  color: var(--login-placeholder) !important;
+  -webkit-text-fill-color: var(--login-placeholder) !important;
+  opacity: 1 !important;
+}
+.login-screen input.login-field::-webkit-input-placeholder {
+  color: var(--login-placeholder) !important;
+  -webkit-text-fill-color: var(--login-placeholder) !important;
+  opacity: 1 !important;
+}
+.login-screen input.login-field::-moz-placeholder {
+  color: var(--login-placeholder) !important;
+  -webkit-text-fill-color: var(--login-placeholder) !important;
+  opacity: 1 !important;
+}
+.login-screen input.login-field:-moz-placeholder {
+  color: var(--login-placeholder) !important;
+  -webkit-text-fill-color: var(--login-placeholder) !important;
+  opacity: 1 !important;
+}
+.login-screen input.login-field:-ms-input-placeholder {
+  color: var(--login-placeholder) !important;
+  -webkit-text-fill-color: var(--login-placeholder) !important;
+  opacity: 1 !important;
+}
+
+/* Chrome / Edge (Blink): el relleno se pinta con box-shadow inset. */
+.login-screen input.login-field:-webkit-autofill,
+.login-screen input.login-field:-webkit-autofill:hover,
+.login-screen input.login-field:-webkit-autofill:focus,
+.login-screen input.login-field:-webkit-autofill:active {
+  background-color: var(--login-field-bg) !important;
+  background-image: none !important;
+  -webkit-box-shadow: 0 0 0 1000px var(--login-field-bg) inset !important;
+  box-shadow: 0 0 0 1000px var(--login-field-bg) inset !important;
+  color: var(--login-field-text) !important;
+  -webkit-text-fill-color: var(--login-field-text) !important;
+  caret-color: var(--login-caret) !important;
+  transition: background-color 9999s ease-in-out 0s !important;
+}
+
+/* Android (Chrome/Samsung Internet/Edge): cuando el SO está en modo oscuro,
+   el UA puede repintar el control tras el foco aunque `color-scheme` ya esté
+   declarado. Reafirmamos color, relleno y texto con la misma especificidad. */
+@media (prefers-color-scheme: dark) {
+  .login-screen input.login-field,
+  .login-screen input.login-field:focus {
+    background-color: var(--login-field-bg) !important;
+    color: var(--login-field-text) !important;
+    -webkit-text-fill-color: var(--login-field-text) !important;
+  }
+}
+
+/* Firefox: declaramos :-moz-autofill / :autofill de forma explícita para no
+   depender del alias WebKit que cada versión del navegador puede soportar. */
+.login-screen input.login-field:-moz-autofill {
+  background-color: var(--login-field-bg) !important;
+  background-image: none !important;
+  box-shadow: 0 0 0 1000px var(--login-field-bg) inset !important;
+  color: var(--login-field-text) !important;
+  -webkit-text-fill-color: var(--login-field-text) !important;
+  caret-color: var(--login-caret) !important;
+}
+.login-screen input.login-field:autofill {
+  background-color: var(--login-field-bg) !important;
+  background-image: none !important;
+  box-shadow: 0 0 0 1000px var(--login-field-bg) inset !important;
+  color: var(--login-field-text) !important;
+  -webkit-text-fill-color: var(--login-field-text) !important;
+  caret-color: var(--login-caret) !important;
+}
+
+/* ==========================================================================
+ * RESPONSIVE / MOBILE UX (solo < 640px; desktop lg/xl queda intacto)
+ * ==========================================================================
+ */
+
+/* Red de seguridad: `clip` recorta desbordes sin crear contexto de scroll,
+   por lo que el header sticky sigue funcionando. */
+html {
+  overflow-x: clip;
+}
+
+/* `no-scrollbar` se usa en las pestañas y filtros pero no existía como utilidad. */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/*
+ * Objetivos táctiles mínimos de 44x44 px y tipografía de 16px en campos
+ * (evita el auto-zoom al enfocar en móvil). Se limita a móvil para no cambiar
+ * la estética aprobada en sm/md/lg/xl.
+ */
+@media (max-width: 639px) {
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  [role="tab"]:not(:disabled),
+  [role="switch"]:not(:disabled),
+  select:not(:disabled),
+  input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not(:disabled),
+  textarea:not(:disabled) {
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  [role="tab"]:not(:disabled),
+  [role="switch"]:not(:disabled) {
+    min-width: 44px;
+  }
+
+  input:not([type="hidden"]),
+  select,
+  textarea,
+  .login-screen input.login-field {
+    font-size: 16px;
+  }
 }

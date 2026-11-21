@@ -1,5 +1,14 @@
 import './globals.css';
 
+// Next 16: `colorScheme` va en `viewport`, no en `metadata`.
+// Declara al UA (Chrome/Samsung/Edge Android) que la app soporta ambos esquemas;
+// el CSS decide cuál aplica según `.dark` y el login fuerza `only dark`.
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  colorScheme: 'dark light',
+};
+
 export const metadata = {
   applicationName: 'CrediFlux',
   title: {

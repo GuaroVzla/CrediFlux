@@ -88,7 +88,7 @@ export default function LoanCreateModal({
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm"
     >
       <div
-        className={`w-full max-w-3xl ${theme.modal} border rounded-2xl shadow-2xl max-h-[92vh] overflow-y-auto`}
+        className={`w-full max-w-3xl ${theme.modal} border rounded-2xl shadow-2xl max-h-[92dvh] overflow-y-auto`}
       >
         <header className={`sticky top-0 z-10 flex items-start justify-between gap-3 border-b px-4 py-3 ${theme.border} ${theme.modal}`}>
           <div className="min-w-0">
