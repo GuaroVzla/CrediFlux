@@ -49,6 +49,12 @@
   --border-field: #64748b;
 }
 
+/* En modo oscuro, asegurar que textos secundarios y notas auxiliares tengan mayor nitidez y peso */
+.dark .text-slate-400 {
+  color: #94a3b8;
+  font-weight: 500;
+}
+
 body {
   background-color: var(--background);
   color: var(--foreground);

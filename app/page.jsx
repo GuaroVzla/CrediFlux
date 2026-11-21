@@ -1819,8 +1819,8 @@ export default function CrediFluxApp() {
   const settingsTableTheadCls = themeDark ? 'border-slate-700 bg-slate-800' : 'border-slate-300 bg-slate-100';
   const settingsModalCls = themeDark ? 'bg-slate-900 border-slate-700/80' : 'bg-white border-slate-200';
   const settingsModalBorderCls = themeDark ? 'border-slate-800' : 'border-slate-200';
-  const settingsTableBtnCls = `h-8 px-3 rounded-xl border text-xs font-semibold transition-colors ${themeDark ? 'bg-slate-800/80 hover:bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-900'}`;
-  const settingsTableDangerBtnCls = 'h-8 px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold transition-colors';
+  const settingsTableBtnCls = `h-9 min-h-[36px] px-3 rounded-xl border text-xs font-semibold transition-colors inline-flex items-center justify-center ${themeDark ? 'bg-slate-800/80 hover:bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-900'}`;
+  const settingsTableDangerBtnCls = 'h-9 min-h-[36px] px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold transition-colors inline-flex items-center justify-center';
 
   return (
     <div className={`min-h-screen ${themeDark ? 'bg-slate-950 text-slate-100' : 'bg-[#f8fafc] text-slate-900'} flex flex-col transition-colors duration-200`}>
@@ -2815,7 +2815,7 @@ export default function CrediFluxApp() {
                                     <button
                                       type="button"
                                       onClick={() => handleDeleteCapitalMovement(m.id)}
-                                      className="p-1 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10"
+                                      className="p-1.5 min-h-[36px] min-w-[36px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
                                       title="Eliminar movimiento"
                                     >
                                       <Trash2 className="w-3.5 h-3.5" />
@@ -6092,7 +6092,7 @@ export default function CrediFluxApp() {
                                 type="button"
                                 onClick={() => openPatternModal(pat)}
                                 title="Editar patrón"
-                                className="p-1 rounded-lg hover:bg-sky-500/20 text-slate-400 hover:text-sky-400 transition-colors"
+                                className="p-1.5 min-h-[36px] min-w-[36px] inline-flex items-center justify-center rounded-lg hover:bg-sky-500/20 text-slate-400 hover:text-sky-400 transition-colors"
                               >
                                 <Edit3 className="w-4 h-4" />
                               </button>
@@ -6100,7 +6100,7 @@ export default function CrediFluxApp() {
                                 type="button"
                                 onClick={() => handleDeleteReceiptPattern(pat.id)}
                                 title="Eliminar patrón"
-                                className="p-1 rounded-lg hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors"
+                                className="p-1.5 min-h-[36px] min-w-[36px] inline-flex items-center justify-center rounded-lg hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
