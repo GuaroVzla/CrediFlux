@@ -10,12 +10,25 @@ export const viewport = {
 };
 
 export const metadata = {
+  metadataBase: new URL('https://crediflux-app.vercel.app'),
   applicationName: 'CrediFlux',
   title: {
     default: 'CrediFlux | Gestión Financiera, Préstamos y E-Commerce Inteligente',
     template: '%s | CrediFlux',
   },
   description: 'Plataforma SaaS financiera de alta gama para la administración de créditos, financiamientos, préstamos personales y control de transacciones con OCR IA multimodal.',
+  robots: {
+    index: true,
+    follow: true,
+  },
+  openGraph: {
+    title: 'CrediFlux | Gestión Financiera y Préstamos',
+    description: 'Plataforma SaaS financiera para la administración de créditos, financiamientos y control de transacciones con OCR IA.',
+    url: 'https://crediflux-app.vercel.app',
+    siteName: 'CrediFlux',
+    locale: 'es_VE',
+    type: 'website',
+  },
 };
 
 // Estilo para anular propiedades CSS obsoletas y evitar warnings en consola.
