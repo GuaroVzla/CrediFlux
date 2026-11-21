@@ -1,10 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const scope = vi.hoisted(() => ({
-  allow: true,
-  user: { id: 'usr_1', role: 'admin' } as { id: string; role: string } | null,
-  saveCount: 0,
-}))
+const scope = vi.hoisted(() => {
+  class OcrNotConfiguredError extends Error {
+    code = 'OCR_NOT_CONFIGURED'
+  }
+  return {
+    allow: true,
+    user: { id: 'usr_1', role: 'admin' } as { id: string; role: string } | null,
+    saveCount: 0,
+    ocrConfigured: true,
+    OcrNotConfiguredError,
+  }
+})
 
 vi.mock('next/server', () => ({
   NextResponse: {
@@ -36,6 +43,23 @@ vi.mock('@/server/services/ocr.js', () => ({
       bancoDestino: 'Desconocido',
     },
   })),
+}))
+
+vi.mock('@/server/ocr/global-config', () => ({
+  OcrNotConfiguredError: scope.OcrNotConfiguredError,
+  resolveOcrRuntimeConfig: vi.fn(async () => {
+    if (!scope.ocrConfigured) {
+      throw new scope.OcrNotConfiguredError('El administrador debe configurar el servicio OCR en Ajustes Admin antes de procesar comprobantes.')
+    }
+    return {
+      provider: 'tesseract',
+      apiKey: '',
+      ocrSpaceApiKey: null,
+      endpoint: undefined,
+      model: undefined,
+      confidenceThreshold: 0.8,
+    }
+  }),
 }))
 
 vi.mock('@/server/persistence/supabase-store', () => ({
@@ -79,6 +103,7 @@ describe('M-003: POST /api/ecommerce-handler — validación antes de OCR y pers
     scope.allow = true
     scope.user = { id: 'usr_1', role: 'admin' }
     scope.saveCount = 0
+    scope.ocrConfigured = true
     vi.mocked(parseReceiptWithAI).mockClear()
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -165,6 +190,21 @@ describe('M-003: POST /api/ecommerce-handler — validación antes de OCR y pers
     })
     expect(scope.saveCount).toBe(1)
     expect(parseReceiptWithAI).not.toHaveBeenCalled()
+  })
+
+  it('devuelve 503 con mensaje del administrador si no hay motor OCR global configurado', async () => {
+    scope.ocrConfigured = false
+
+    const response = await POST(requestWith({ receiptFile: imageFile }))
+
+    expect(response.status).toBe(503)
+    expect(await response.json()).toMatchObject({
+      success: false,
+      code: 'OCR_NOT_CONFIGURED',
+      error: 'El administrador debe configurar el servicio OCR en Ajustes Admin antes de procesar comprobantes.',
+    })
+    expect(parseReceiptWithAI).not.toHaveBeenCalled()
+    expect(scope.saveCount).toBe(0)
   })
 
   it('llama al OCR con el proveedor configurado cuando se sube una imagen', async () => {

@@ -8,11 +8,7 @@ import {
   syncAdminStateToNormalized,
   logAudit,
   ensureAdminConfigSeed,
-  hasDatabase,
-  DEFAULT_OCR_ENDPOINTS,
-  DEFAULT_OCR_MODELS,
-  DEFAULT_OCR_THRESHOLDS,
-  DEFAULT_AI_ROUTING_RULES
+  hasDatabase
 } from '@/server/admin/config.js';
 import {
   buildSettingsBody,
@@ -23,8 +19,7 @@ import {
 import {
   ALLOWED_PROVIDERS,
   getInternalLicenseStatus,
-  getStoredOcrKeys,
-  maskKey
+  getStoredOcrKeys
 } from '@/server/settings/settings-shared';
 import { hashPassword } from '@/server/security/security.js';
 import { setLegacyPasswordPreview, storePasswordPreview } from '@/server/auth/password-preview.js';
@@ -32,6 +27,8 @@ import { getSupabaseAdminClientOrNull } from '@/server/supabase/admin';
 import { isSupabaseConfigured } from '@/server/supabase/env';
 import { resolveRequestAuth } from '@/server/auth/request-auth';
 import { resolveUploadUrls } from '@/server/services/uploads.js';
+import { readGlobalOcrConfig, saveGlobalOcrConfig } from '@/server/ocr/global-config';
+import { OCR_ADMIN_KEY_MESSAGE } from '@/shared/lib/ocr-messages.js';
 import {
   exportSystemBackup,
   importSystemBackup,
@@ -257,13 +254,17 @@ export async function POST(request: Request) {
       }
       const provider = ALLOWED_PROVIDERS.includes(testProvider) ? testProvider : 'openai';
 
-      // Validación temprana: si el proveedor requiere clave y no fue proporcionada, retornar error
-      if (provider !== 'tesseract' && (!testApiKey || String(testApiKey).trim() === '')) {
-        return NextResponse.json({ success: false, error: 'Clave de API requerida para probar la conexión' }, { status: 400 });
+      // Las credenciales se resuelven siempre en servidor desde la tabla global.
+      // Si el admin no escribió una clave nueva, se prueba la ya guardada.
+      const globalOcr = await readGlobalOcrConfig();
+      const storedKeys = globalOcr?.keys || getStoredOcrKeys(db);
+      const typedKey = String(testApiKey ?? '').trim();
+      const resolvedTestKey = provider === 'tesseract' ? '' : (typedKey || storedKeys[provider] || '');
+
+      if (provider !== 'tesseract' && !resolvedTestKey) {
+        return NextResponse.json({ success: false, error: OCR_ADMIN_KEY_MESSAGE }, { status: 400 });
       }
 
-      const storedKeys = getStoredOcrKeys(db);
-      const resolvedTestKey = (provider === 'tesseract') ? '' : String(testApiKey ?? storedKeys[provider] ?? '').trim();
       const result = await testProviderConnection(provider, resolvedTestKey, storedKeys);
       return NextResponse.json(result);
     }
@@ -433,91 +434,38 @@ export async function POST(request: Request) {
     if (companyName) db.settings.companyName = String(companyName).trim();
     if (timezone) db.settings.timezone = String(timezone).trim();
     if (currency) db.settings.currency = String(currency).trim();
-    if (aiProvider && ALLOWED_PROVIDERS.includes(aiProvider)) db.settings.aiProvider = aiProvider;
 
-    const storedKeys = getStoredOcrKeys(db);
-    const nextKeys = { ...storedKeys };
-    const src = (incomingOcrKeys && typeof incomingOcrKeys === 'object') ? incomingOcrKeys : {};
-    const setIfProvided = (providerKey: string, value: any) => {
-      if (Object.prototype.hasOwnProperty.call(src, providerKey)) {
-        nextKeys[providerKey] = typeof value === 'string' ? value.trim() : '';
-      }
-    };
-    setIfProvided('openai', src.openai);
-    setIfProvided('gemini', src.gemini);
-    setIfProvided('ocrspace', src.ocrspace);
+    const hasOcrPayload = [aiProvider, incomingOcrKeys, aiApiKey, ocrSpaceApiKey, ocrEndpoints, ocrModels, ocrThresholds, ocrConfidenceMin, aiRoutingRules, aiAutoAssignEnabled]
+      .some((value) => value !== undefined);
 
-    if (aiApiKey !== undefined && aiApiKey !== '' && (aiProvider === 'openai' || aiProvider === 'gemini')) {
-      nextKeys[aiProvider] = String(aiApiKey).trim();
-    }
-    if (ocrSpaceApiKey !== undefined && ocrSpaceApiKey !== '' && aiProvider === 'ocrspace') {
-      nextKeys.ocrspace = String(ocrSpaceApiKey).trim();
-    }
-
-    // Guard: si no hay clave de cifrado disponible, no guardar secrets en claro.
-    // Se almacenan valores vacíos y se marca advertencia en la respuesta.
-    const encryptionKeyAvailable = process.env.SETTINGS_ENCRYPTION_KEY && String(process.env.SETTINGS_ENCRYPTION_KEY).trim();
-    if (!encryptionKeyAvailable) {
-      console.warn('[settings] SETTINGS_ENCRYPTION_KEY no definida; API keys se almacenarán sin cifrado. Definir la variable en producción para proteger las credenciales.');
-      nextKeys.openai = '';
-      nextKeys.gemini = '';
-      nextKeys.ocrspace = '';
-    }
-
-    db.settings.ocrApiKeys = { openai: nextKeys.openai || '', gemini: nextKeys.gemini || '', ocrspace: nextKeys.ocrspace || '', tesseract: '' };
-    db.settings.ocrSpaceApiKey = db.settings.ocrApiKeys.ocrspace;
-    db.settings.aiApiKey = db.settings.ocrApiKeys.openai || db.settings.ocrApiKeys.gemini || '';
-
-    // Parámetros avanzados del motor OCR: endpoints, modelos y umbrales
-    if (ocrEndpoints && typeof ocrEndpoints === 'object') {
-      db.settings.ocrEndpoints = {
-        ...DEFAULT_OCR_ENDPOINTS,
-        ...(db.settings.ocrEndpoints || {}),
-        ...ocrEndpoints
-      };
-    }
-    if (ocrModels && typeof ocrModels === 'object') {
-      db.settings.ocrModels = {
-        ...DEFAULT_OCR_MODELS,
-        ...(db.settings.ocrModels || {}),
-        ...ocrModels
-      };
-    }
-    if (ocrThresholds && typeof ocrThresholds === 'object') {
-      db.settings.ocrThresholds = {
-        ...DEFAULT_OCR_THRESHOLDS,
-        ...(db.settings.ocrThresholds || {}),
-        ...ocrThresholds
-      };
-    }
-    if (ocrConfidenceMin !== undefined) {
-      const parsedMin = Number(ocrConfidenceMin);
-      if (Number.isFinite(parsedMin) && parsedMin >= 0 && parsedMin <= 1) {
-        db.settings.ocrConfidenceMin = parsedMin;
-        if (!db.settings.ocrThresholds) db.settings.ocrThresholds = { ...DEFAULT_OCR_THRESHOLDS };
-        db.settings.ocrThresholds.ocrConfidenceMin = parsedMin;
+    if (hasOcrPayload) {
+      try {
+        await saveGlobalOcrConfig({
+          aiProvider,
+          ocrKeys: incomingOcrKeys,
+          aiApiKey,
+          ocrSpaceApiKey,
+          ocrEndpoints,
+          ocrModels,
+          ocrThresholds,
+          ocrConfidenceMin,
+          aiRoutingRules,
+          aiAutoAssignEnabled,
+        }, currentUser.id);
+      } catch (ocrError: any) {
+        console.error('[settings] Error al guardar la configuración OCR global:', ocrError);
+        return NextResponse.json({
+          success: false,
+          error: ocrError?.message || 'No se pudo guardar la configuración OCR global.',
+        }, { status: 503 });
       }
     }
-    if (aiRoutingRules && typeof aiRoutingRules === 'object') {
-      db.settings.aiRoutingRules = {
-        ...DEFAULT_AI_ROUTING_RULES,
-        ...aiRoutingRules
-      };
-    }
-    if (aiAutoAssignEnabled !== undefined) {
-      db.settings.aiAutoAssignEnabled = Boolean(aiAutoAssignEnabled);
-    }
+
     if (systemLicenseKey && String(systemLicenseKey).trim()) {
       const cleanLic = String(systemLicenseKey).trim();
       db.settings.systemLicenseKey = cleanLic;
       db.settings.licenseKey = cleanLic;
     }
-
-    db.settings.providerConfig = {
-      endpoints: db.settings.ocrEndpoints || { ...DEFAULT_OCR_ENDPOINTS },
-      models: db.settings.ocrModels || { ...DEFAULT_OCR_MODELS },
-      thresholds: db.settings.ocrThresholds || { ...DEFAULT_OCR_THRESHOLDS }
-    };
 
     if (trustLevelConfig !== undefined) {
       db.settings.trustLevelConfig = normalizeTrustConfig(trustLevelConfig);
@@ -538,6 +486,16 @@ export async function POST(request: Request) {
       await syncAdminStateToNormalized(db).catch(() => {});
     }
     await logAudit({ entity: 'AdminSetting', entityId: 'main', action: 'UPDATE', before: beforeSettings, after: db.settings, actorLegacyId: currentUser?.id }).catch(() => {});
+    if (hasOcrPayload) {
+      await logAudit({
+        entity: 'AdminOcrSetting',
+        entityId: 'global',
+        action: 'UPDATE',
+        before: { configured: Boolean(beforeSettings.aiProvider), aiProvider: beforeSettings.aiProvider || null },
+        after: { configured: true, aiProvider: aiProvider ?? beforeSettings.aiProvider ?? null, ocrKeys: '[REDACTED]' },
+        actorLegacyId: currentUser?.id,
+      }).catch(() => {});
+    }
 
     return NextResponse.json({
       success: true,

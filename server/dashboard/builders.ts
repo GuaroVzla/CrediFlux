@@ -44,6 +44,9 @@ export function normalizeDashboardState(db: any) {
 /** Efecto colateral que el GET de /api/settings realizaba al detectar un proveedor inválido. */
 export async function prepareSettings(db: any, request: Request) {
   if (!db.settings || typeof db.settings !== 'object') db.settings = {};
+  // Con Supabase el proveedor viene de admin_ocr_settings; autocorregirlo aquí
+  // escribiría una copia por usuario y rompería el origen único de verdad.
+  if (Object.prototype.hasOwnProperty.call(db, '__globalOcr')) return;
   const rawProvider = db.settings?.aiProvider;
   const activeProvider = ALLOWED_PROVIDERS.includes(rawProvider) ? rawProvider : 'openai';
   if (rawProvider && !ALLOWED_PROVIDERS.includes(rawProvider)) {
@@ -349,17 +352,19 @@ export function buildSettingsBody(db: any, resolvedPatternUrls: string[] = []) {
   const currentMonthKey = new Date().toISOString().slice(0, 7);
   const userCurrentCapital = currentUser?.monthlyCapitals?.[currentMonthKey]?.capital ?? db.settings?.ecommerceCapital ?? 5000;
 
-  const rawProvider = db.settings?.aiProvider;
+  const globalOcr = db?.__globalOcr && typeof db.__globalOcr === 'object' ? db.__globalOcr : null;
+  const legacyOcrKeys = globalOcr ? null : getStoredOcrKeys(db);
+  const rawProvider = globalOcr ? globalOcr.provider : db.settings?.aiProvider;
   const activeProvider = ALLOWED_PROVIDERS.includes(rawProvider) ? rawProvider : 'openai';
-  const ocrKeys = getStoredOcrKeys(db);
+  const ocrConfigured = globalOcr ? Boolean(globalOcr.configured) : Boolean(db.settings?.aiProvider);
 
-  const ocrEndpoints = db.settings?.ocrEndpoints || db.settings?.providerConfig?.endpoints || { ...DEFAULT_OCR_ENDPOINTS };
-  const ocrModels = db.settings?.ocrModels || db.settings?.providerConfig?.models || { ...DEFAULT_OCR_MODELS };
-  const ocrThresholds = db.settings?.ocrThresholds || db.settings?.providerConfig?.thresholds || { ...DEFAULT_OCR_THRESHOLDS };
-  const ocrConfidenceMin = Number.isFinite(Number(db.settings?.ocrConfidenceMin))
+  const ocrEndpoints = globalOcr?.endpoints || db.settings?.ocrEndpoints || db.settings?.providerConfig?.endpoints || { ...DEFAULT_OCR_ENDPOINTS };
+  const ocrModels = globalOcr?.models || db.settings?.ocrModels || db.settings?.providerConfig?.models || { ...DEFAULT_OCR_MODELS };
+  const ocrThresholds = globalOcr?.thresholds || db.settings?.ocrThresholds || db.settings?.providerConfig?.thresholds || { ...DEFAULT_OCR_THRESHOLDS };
+  const ocrConfidenceMin = globalOcr?.confidenceMin ?? (Number.isFinite(Number(db.settings?.ocrConfidenceMin))
     ? Number(db.settings.ocrConfidenceMin)
-    : (Number.isFinite(Number(ocrThresholds.ocrConfidenceMin)) ? Number(ocrThresholds.ocrConfidenceMin) : 0.8);
-  const aiRoutingRules = db.settings?.aiRoutingRules || { ...DEFAULT_AI_ROUTING_RULES };
+    : (Number.isFinite(Number(ocrThresholds.ocrConfidenceMin)) ? Number(ocrThresholds.ocrConfidenceMin) : 0.8));
+  const aiRoutingRules = globalOcr?.routingRules || db.settings?.aiRoutingRules || { ...DEFAULT_AI_ROUTING_RULES };
   const systemLicenseKey = db.settings?.systemLicenseKey || db.settings?.licenseKey || 'CREDIFLUX-FINTECH-2026';
 
   const safeSettings: any = {
@@ -368,6 +373,7 @@ export function buildSettingsBody(db: any, resolvedPatternUrls: string[] = []) {
     currency: db.settings?.currency || '$',
     ecommerceCapital: userCurrentCapital,
     aiProvider: activeProvider,
+    ocrConfigured,
     trustLevelConfig: getTrustLevelConfig(db.settings),
     internalOcrLicenses: { tesseract: getInternalLicenseStatus('tesseract') },
     ocrEndpoints,
@@ -381,22 +387,27 @@ export function buildSettingsBody(db: any, resolvedPatternUrls: string[] = []) {
   };
 
   if (isAdmin) {
-    safeSettings.hasAiKey = Boolean(ocrKeys.openai || ocrKeys.gemini);
-    safeSettings.aiApiKeyMasked = maskKey(ocrKeys.openai || ocrKeys.gemini);
-    safeSettings.hasOcrSpaceKey = Boolean(ocrKeys.ocrspace);
-    safeSettings.ocrSpaceKeyMasked = maskKey(ocrKeys.ocrspace);
-    safeSettings.ocrKeys = {
-      openai: ocrKeys.openai || '',
-      gemini: ocrKeys.gemini || '',
-      ocrspace: ocrKeys.ocrspace || '',
-      tesseract: ''
-    };
-    safeSettings.ocrKeysMasked = {
-      openai: maskKey(ocrKeys.openai),
-      gemini: maskKey(ocrKeys.gemini),
-      ocrspace: maskKey(ocrKeys.ocrspace),
-      tesseract: ''
-    };
+    // Sólo máscaras y banderas: las API Keys nunca viajan al navegador.
+    safeSettings.hasAiKey = globalOcr
+      ? Boolean(globalOcr.hasAiKey)
+      : Boolean(legacyOcrKeys?.openai || legacyOcrKeys?.gemini);
+    safeSettings.aiApiKeyMasked = globalOcr
+      ? globalOcr.aiApiKeyMasked || ''
+      : maskKey(legacyOcrKeys?.openai || legacyOcrKeys?.gemini);
+    safeSettings.hasOcrSpaceKey = globalOcr
+      ? Boolean(globalOcr.hasOcrSpaceKey)
+      : Boolean(legacyOcrKeys?.ocrspace);
+    safeSettings.ocrSpaceKeyMasked = globalOcr
+      ? globalOcr.ocrSpaceKeyMasked || ''
+      : maskKey(legacyOcrKeys?.ocrspace);
+    safeSettings.ocrKeysMasked = globalOcr
+      ? globalOcr.maskedKeys
+      : {
+          openai: maskKey(legacyOcrKeys?.openai),
+          gemini: maskKey(legacyOcrKeys?.gemini),
+          ocrspace: maskKey(legacyOcrKeys?.ocrspace),
+          tesseract: ''
+        };
     safeSettings.monthlyCapitals = currentUser?.monthlyCapitals || {};
 
     const allUsers = (db.users || []).map((u: any, i: number) => {

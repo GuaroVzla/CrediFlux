@@ -7,6 +7,7 @@ import { isSupabaseConfigured } from '@/server/supabase/env';
 import { profileToLegacyUser, resolveRequestAuth, type RequestAuth } from '@/server/auth/request-auth';
 import { decryptStateSecretsInMemory, encryptStateSecretsAtRest } from '@/server/security/security.js';
 import { normalizeTrustConfig } from '@/modules/trust/service.js';
+import { readGlobalOcrConfigDto } from '@/server/ocr/global-config';
 import { computeLoanStatus, getRequestUser } from '@/shared/lib/db.js';
 import {
   getAppState as legacyGetAppState,
@@ -21,6 +22,14 @@ type DbClient = SupabaseClient<Database>;
 type AnyRecord = Record<string, any>;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// Estos campos pertenecen a public.admin_ocr_settings. Nunca se escriben en
+// user_settings: hacerlo reintroduciría una fuente de verdad por usuario.
+const GLOBAL_OCR_SETTING_KEYS = [
+  'aiProvider', 'aiAutoAssignEnabled', 'aiRoutingRules', 'ocrConfidenceMin',
+  'ocrEndpoints', 'ocrModels', 'ocrThresholds', 'providerConfig',
+  'ocrApiKeys', 'aiApiKey', 'ocrSpaceApiKey',
+] as const;
 
 /**
  * Convierte cualquier id legado ("cli_123", "usr_admin", etc.) en un UUID v5
@@ -349,7 +358,7 @@ async function getScopedState(auth: RequestAuth): Promise<AnyRecord> {
     installmentsByLoan.set(row.loan_id, list);
   }
 
-  return {
+  const state: AnyRecord = {
     settings,
     users: profiles.map(profileToLegacyUser).filter(Boolean),
     clients: clients.map(mapClient),
@@ -363,6 +372,32 @@ async function getScopedState(auth: RequestAuth): Promise<AnyRecord> {
     p2pTransactions: p2p.map(mapP2P),
     capitalMovements: capital.map(mapCapitalMovement),
   };
+
+  if (isSupabaseConfigured()) {
+    // La configuración OCR se sirve siempre desde la tabla global. Se eliminan
+    // credenciales del estado por usuario para que ningún builder pueda
+    // reenviarlas accidentalmente al cliente.
+    const globalOcr = await readGlobalOcrConfigDto().catch(() => null);
+    state.settings = {
+      ...state.settings,
+      aiProvider: globalOcr?.provider ?? null,
+      aiAutoAssignEnabled: globalOcr ? globalOcr.autoAssignEnabled : state.settings.aiAutoAssignEnabled,
+      aiRoutingRules: globalOcr ? globalOcr.routingRules : state.settings.aiRoutingRules,
+      ocrConfidenceMin: globalOcr ? globalOcr.confidenceMin : state.settings.ocrConfidenceMin,
+      ocrEndpoints: globalOcr ? globalOcr.endpoints : state.settings.ocrEndpoints,
+      ocrModels: globalOcr ? globalOcr.models : state.settings.ocrModels,
+      ocrThresholds: globalOcr ? globalOcr.thresholds : state.settings.ocrThresholds,
+      providerConfig: globalOcr
+        ? { endpoints: globalOcr.endpoints, models: globalOcr.models, thresholds: globalOcr.thresholds }
+        : state.settings.providerConfig,
+      ocrApiKeys: {},
+      aiApiKey: '',
+      ocrSpaceApiKey: '',
+    };
+    state.__globalOcr = globalOcr;
+  }
+
+  return state;
 }
 
 function mapSettings(row: UserSettingRow | null, trustRows: any[]) {
@@ -777,6 +812,7 @@ function profileRow(user: AnyRecord, fallback: ProfileRow | null) {
 async function syncSettings(supabase: DbClient, userId: string, settings: AnyRecord | undefined, profile: ProfileRow | null) {
   const source = settings && typeof settings === 'object' ? settings : {};
   const forStorage = JSON.parse(JSON.stringify(source));
+  for (const key of GLOBAL_OCR_SETTING_KEYS) delete forStorage[key];
   encryptStateSecretsAtRest({ settings: forStorage });
   const trustConfig = normalizeTrustConfig(source.trustLevelConfig);
   const currentMonthKey = new Date().toISOString().slice(0, 7);
@@ -788,12 +824,13 @@ async function syncSettings(supabase: DbClient, userId: string, settings: AnyRec
     currency: String(source.currency || '$'),
     timezone: String(source.timezone || 'America/Caracas'),
     ecommerce_capital: Number.isFinite(currentCapital) ? currentCapital : 0,
-    ai_provider: ['openai', 'gemini', 'ocrspace', 'tesseract'].includes(source.aiProvider) ? source.aiProvider : 'ocrspace',
-    ai_auto_assign_enabled: source.aiAutoAssignEnabled !== false,
-    ai_routing_rules: jsonObject(source.aiRoutingRules),
-    ocr_confidence_min: Math.min(1, Math.max(0, num(source.ocrConfidenceMin, 0.8))),
-    ocr_api_keys: jsonObject(forStorage.ocrApiKeys),
-    provider_config: jsonObject(source.providerConfig),
+    // Columnas legadas neutralizadas: la fuente de verdad es admin_ocr_settings.
+    ai_provider: 'ocrspace',
+    ai_auto_assign_enabled: true,
+    ai_routing_rules: jsonObject({}),
+    ocr_confidence_min: 0.8,
+    ocr_api_keys: jsonObject({}),
+    provider_config: jsonObject({}),
     feature_flags: jsonObject(source.featureFlags),
     system_license_key: text(source.systemLicenseKey || source.licenseKey),
     data: forStorage as Json,

@@ -789,6 +789,51 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_ocr_settings: {
+        Row: {
+          ai_auto_assign_enabled: boolean
+          ai_provider: string | null
+          ai_routing_rules: Json
+          created_at: string
+          id: string
+          ocr_api_keys: Json
+          ocr_confidence_min: number
+          ocr_endpoints: Json
+          ocr_models: Json
+          ocr_thresholds: Json
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          ai_auto_assign_enabled?: boolean
+          ai_provider?: string | null
+          ai_routing_rules?: Json
+          created_at?: string
+          id?: string
+          ocr_api_keys?: Json
+          ocr_confidence_min?: number
+          ocr_endpoints?: Json
+          ocr_models?: Json
+          ocr_thresholds?: Json
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          ai_auto_assign_enabled?: boolean
+          ai_provider?: string | null
+          ai_routing_rules?: Json
+          created_at?: string
+          id?: string
+          ocr_api_keys?: Json
+          ocr_confidence_min?: number
+          ocr_endpoints?: Json
+          ocr_models?: Json
+          ocr_thresholds?: Json
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       user_settings: {
         Row: {
           ai_auto_assign_enabled: boolean
@@ -1061,6 +1106,7 @@ export type CapitalCurrency = 'USD' | 'USDT' | 'VES';
 type RowOf<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row'];
 
 export type ProfileRow = RowOf<'profiles'>;
+export type AdminOcrSettingRow = RowOf<'admin_ocr_settings'>;
 export type UserSettingRow = RowOf<'user_settings'>;
 export type TrustLevelConfigRow = RowOf<'trust_level_configs'>;
 export type ClientRow = RowOf<'clients'>;

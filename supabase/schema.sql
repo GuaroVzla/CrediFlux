@@ -112,7 +112,27 @@ create table if not exists public.user_settings (
   updated_at                timestamptz not null default now()
 );
 
-comment on column public.user_settings.ocr_api_keys is 'Claves de proveedores cifradas en reposo por la capa de aplicación.';
+comment on column public.user_settings.ocr_api_keys is 'Columna legada en desuso: la configuración OCR se lee de public.admin_ocr_settings.';
+
+-- Configuración OCR global (singleton). Sin user_id y sin políticas RLS para
+-- authenticated: únicamente service_role puede acceder desde el servidor.
+create table if not exists public.admin_ocr_settings (
+  id                      text primary key default 'global' check (id = 'global'),
+  ai_provider             text check (ai_provider in ('openai', 'gemini', 'ocrspace', 'tesseract')),
+  ocr_api_keys            jsonb not null default '{}'::jsonb,
+  ocr_endpoints           jsonb not null default '{}'::jsonb,
+  ocr_models              jsonb not null default '{}'::jsonb,
+  ocr_thresholds          jsonb not null default '{}'::jsonb,
+  ocr_confidence_min      numeric(5, 4) not null default 0.8 check (ocr_confidence_min between 0 and 1),
+  ai_routing_rules        jsonb not null default '{}'::jsonb,
+  ai_auto_assign_enabled  boolean not null default true,
+  updated_by              uuid references auth.users (id) on delete set null,
+  created_at              timestamptz not null default now(),
+  updated_at              timestamptz not null default now()
+);
+
+comment on table public.admin_ocr_settings is 'Configuración global del motor OCR; credenciales cifradas en reposo por la capa de aplicación.';
+comment on column public.admin_ocr_settings.ocr_api_keys is 'API Keys cifradas con AES-256-GCM. Nunca se exponen al cliente.';
 
 create table if not exists public.trust_level_configs (
   id          uuid primary key default gen_random_uuid(),
@@ -516,6 +536,7 @@ create trigger profiles_protect_fields
 
 alter table public.profiles              enable row level security;
 alter table public.user_settings         enable row level security;
+alter table public.admin_ocr_settings    enable row level security;
 alter table public.trust_level_configs   enable row level security;
 alter table public.clients               enable row level security;
 alter table public.blacklist_entries     enable row level security;
@@ -606,6 +627,8 @@ create policy "audit_logs_insert_own"
 
 grant usage on schema public to authenticated, service_role;
 grant select, insert, update, delete on all tables in schema public to authenticated;
+-- El grant amplio de arriba no debe alcanzar la configuración OCR global.
+revoke all on public.admin_ocr_settings from anon, authenticated;
 grant all privileges on all tables in schema public to service_role;
 
 -- =============================================================================

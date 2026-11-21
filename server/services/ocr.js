@@ -9,6 +9,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { matchBankByVisualSignature as matchVisualPattern } from '@/shared/lib/visual-signature.js';
+import { OCR_ADMIN_CONFIG_MESSAGE, OCR_ADMIN_KEY_MESSAGE } from '@/shared/lib/ocr-messages.js';
 
 export { matchBankByVisualSignature } from '@/shared/lib/visual-signature.js';
 
@@ -898,7 +899,7 @@ Responde ÚNICAMENTE en JSON válido con este formato:
   if (provider === 'ocrspace') {
     const spaceKey = ocrSpaceApiKey || apiKey;
     if (!spaceKey) {
-      return { success: false, provider: 'OCR.space (API)', error: 'Falta la clave del lector OCR. Configúrala en Ajustes → Motor de IA.', data: emptyOcrData() };
+      return { success: false, provider: 'OCR.space (API)', error: OCR_ADMIN_KEY_MESSAGE, data: emptyOcrData() };
     }
     try {
       const ocrSpaceEndpoint = endpoint || DEFAULT_OCR_ENDPOINTS.ocrspace;
@@ -972,5 +973,5 @@ Responde ÚNICAMENTE en JSON válido con este formato:
   }
 
   // 5. Fallback
-  return { success: false, provider: 'Motor Heurístico / Validación Cruzada de Patrones', error: 'No se pudo leer el comprobante. Configura el lector OCR en Ajustes o regístralo manualmente.', data: emptyOcrData() };
+  return { success: false, provider: 'Motor Heurístico / Validación Cruzada de Patrones', error: OCR_ADMIN_CONFIG_MESSAGE, data: emptyOcrData() };
 }

@@ -263,12 +263,21 @@ export default function CrediFluxApp() {
 
   // Motor IA de Ajustes: proveedor OCR seleccionado, credenciales por proveedor y resultado de prueba
   const [ocrProvider, setOcrProvider] = useState('openai');
+  // Sólo contiene lo que el admin escribe en esta sesión. El servidor nunca
+  // devuelve API Keys en claro: aquí se guardan máscaras para mostrar estado.
   const [ocrProviderKeys, setOcrProviderKeys] = useState({
     openai: '',
     gemini: '',
     ocrspace: '',
     tesseract: ''
   });
+  const [ocrKeyHints, setOcrKeyHints] = useState({
+    openai: '',
+    gemini: '',
+    ocrspace: '',
+    tesseract: ''
+  });
+  const [ocrClearKey, setOcrClearKey] = useState(null);
   const [ocrConnectionTest, setOcrConnectionTest] = useState({ status: 'idle', message: '' });
   const [testingConnection, setTestingConnection] = useState(false);
 
@@ -793,23 +802,15 @@ export default function CrediFluxApp() {
           ? resSettings.settings.aiProvider
           : 'openai';
         setOcrProvider(nextProvider);
-        if (resSettings.settings?.ocrKeys) {
-          setOcrProviderKeys(prev => ({
-            ...prev,
-            openai: resSettings.settings.ocrKeys.openai || '',
-            gemini: resSettings.settings.ocrKeys.gemini || '',
-            ocrspace: resSettings.settings.ocrKeys.ocrspace || '',
-            tesseract: ''
-          }));
-        } else {
-          // Compatibilidad con respuestas legacy (sin ocrKeys)
-          setOcrProviderKeys(prev => ({
-            ...prev,
-            ocrspace: resSettings.settings?.ocrSpaceApiKey || prev.ocrspace || '',
-            openai: resSettings.settings?.aiProvider === 'openai' ? (resSettings.settings?.aiApiKey || prev.openai || '') : prev.openai,
-            gemini: resSettings.settings?.aiProvider === 'gemini' ? (resSettings.settings?.aiApiKey || prev.gemini || '') : prev.gemini
-          }));
-        }
+        const maskedKeys = resSettings.settings?.ocrKeysMasked || {};
+        setOcrKeyHints({
+          openai: maskedKeys.openai || '',
+          gemini: maskedKeys.gemini || '',
+          ocrspace: maskedKeys.ocrspace || '',
+          tesseract: ''
+        });
+        setOcrProviderKeys({ openai: '', gemini: '', ocrspace: '', tesseract: '' });
+        setOcrClearKey(null);
         if (resSettings.users) {
           setAdminUsersList(resSettings.users);
         }
@@ -5558,15 +5559,17 @@ export default function CrediFluxApp() {
                       e.preventDefault();
                       const fd = new FormData(e.currentTarget);
                       const selectedProvider = String(fd.get('aiProvider') || ocrProvider);
-                      // Se envían todas las credenciales por proveedor para persistencia independiente
+                      // Sólo se envía lo que el admin escribió en esta sesión; una
+                      // clave ausente significa "conservar la guardada".
+                      const typedOcrKeys = {};
+                      ['openai', 'gemini', 'ocrspace'].forEach((key) => {
+                        const typed = String(ocrProviderKeys[key] || '').trim();
+                        if (typed) typedOcrKeys[key] = typed;
+                      });
+                      if (ocrClearKey && !typedOcrKeys[ocrClearKey]) typedOcrKeys[ocrClearKey] = '';
                       const payload = {
                         aiProvider: selectedProvider,
-                        ocrKeys: {
-                          openai: String(ocrProviderKeys.openai || '').trim(),
-                          gemini: String(ocrProviderKeys.gemini || '').trim(),
-                          ocrspace: String(ocrProviderKeys.ocrspace || '').trim(),
-                          tesseract: ''
-                        },
+                        ...(Object.keys(typedOcrKeys).length > 0 ? { ocrKeys: typedOcrKeys } : {}),
                         ocrEndpoints: ocrEndpointsForm,
                         ocrModels: ocrModelsForm,
                         ocrThresholds: ocrThresholdsForm,
@@ -5584,6 +5587,8 @@ export default function CrediFluxApp() {
                         });
                         const d = await res.json();
                         if (d.success) {
+                          setOcrProviderKeys({ openai: '', gemini: '', ocrspace: '', tesseract: '' });
+                          setOcrClearKey(null);
                           notify('Parámetros de administración y motor de IA guardados');
                           fetchAllData();
                         } else {
@@ -5602,6 +5607,12 @@ export default function CrediFluxApp() {
                         <h4 className="text-sm font-semibold text-slate-200">MOTOR OCR (Asignación Automática Global con Respaldo)</h4>
                       </div>
 
+                      {settings?.ocrConfigured === false && (
+                        <div className="p-3 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs text-amber-100 leading-relaxed">
+                          <strong className="font-bold text-amber-300">Servicio OCR sin configurar.</strong> Selecciona un motor y, si lo requiere, guarda su API Key. La configuración se aplicará a todos los usuarios; mientras tanto, el registro de comprobantes devolverá un error indicando que el administrador debe configurar el servicio OCR.
+                        </div>
+                      )}
+
                       {(() => {
                         const provider = ['openai', 'gemini', 'ocrspace', 'tesseract'].includes(ocrProvider) ? ocrProvider : 'openai';
                         const providerNeedsEditableKey = provider === 'ocrspace' || provider === 'openai' || provider === 'gemini';
@@ -5610,7 +5621,8 @@ export default function CrediFluxApp() {
                         const internalLicenseLabel = internalLicense?.label
                           || 'Licencia interna: No requerida (motor local integrado, sin límites de API)';
                         const currentKey = String(ocrProviderKeys?.[provider] || '');
-                        const hasCurrentKey = Boolean(currentKey);
+                        const savedKeyHint = String(ocrKeyHints?.[provider] || '');
+                        const hasCurrentKey = Boolean(currentKey || savedKeyHint);
 
                         return (
                           <>
@@ -5649,30 +5661,48 @@ export default function CrediFluxApp() {
                                 ) : (
                                   <>
                                     <label className={settingsLabelCls}>
-                                      API Key{hasCurrentKey ? ' • (Guardada y cargada)' : ''}
+                                      API Key{savedKeyHint ? ` • Guardada (${savedKeyHint})` : ''}
                                     </label>
                                     <input
-                                      type="text"
+                                      type="password"
                                       name="ocrProviderApiKey"
                                       value={currentKey}
                                       onChange={(e) => {
                                         const value = e.target.value;
                                         setOcrProviderKeys(prev => ({ ...prev, [provider]: value }));
+                                        setOcrClearKey(null);
                                         setOcrConnectionTest({ status: 'idle', message: '' });
                                       }}
                                       placeholder={
-                                        provider === 'ocrspace'
+                                        savedKeyHint || (provider === 'ocrspace'
                                           ? 'Clave de OCR.space'
                                           : provider === 'gemini'
                                             ? 'AIza...'
-                                            : 'sk-...'
+                                            : 'sk-...')
                                       }
-                                      autoComplete="off"
+                                      autoComplete="new-password"
                                       className={settingsInputCls}
                                     />
-                                    <p className={`${settingsHelperCls} mt-1`}>
-                                      Cada proveedor mantiene su credencial guardada de forma independiente. Puedes editarla y guardar los cambios.
-                                    </p>
+                                    <div className="flex flex-wrap items-center gap-3 mt-1">
+                                      <p className={settingsHelperCls}>
+                                        {hasCurrentKey
+                                          ? 'Deja el campo vacío para conservar la clave guardada, o escribe una nueva para reemplazarla.'
+                                          : 'La clave se guardará cifrada y se usará de forma global para todos los usuarios.'}
+                                      </p>
+                                      {savedKeyHint && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setOcrClearKey(provider);
+                                            setOcrProviderKeys(prev => ({ ...prev, [provider]: '' }));
+                                            setOcrConnectionTest({ status: 'idle', message: '' });
+                                          }}
+                                          className="text-xs font-semibold text-rose-400 hover:text-rose-300 underline underline-offset-2"
+                                        >
+                                          Quitar clave guardada
+                                        </button>
+                                      )}
+                                    </div>
                                   </>
                                 )}
                               </div>

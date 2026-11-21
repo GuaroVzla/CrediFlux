@@ -44,6 +44,14 @@ describe('M-008: supabase/schema.sql — RLS, políticas y bucket de comprobante
     expect(sql).toContain("'_delete_own'")
   })
 
+  it('aísla la configuración OCR global: singleton, RLS y sin políticas para usuarios', () => {
+    expect(sql).toContain('create table if not exists public.admin_ocr_settings')
+    expect(sql).toContain("check (id = 'global')")
+    expect(sql).toMatch(/alter table\s+public\.admin_ocr_settings\s+enable row level security;/)
+    expect(sql).toContain('revoke all on public.admin_ocr_settings from anon, authenticated')
+    expect(sql).not.toMatch(/create policy\s+"[^"]+"\s+on public\.admin_ocr_settings/)
+  })
+
   it('configura el bucket privado receipts con políticas sobre storage.objects', () => {
     expect(sql).toMatch(/insert into storage\.buckets[\s\S]*?'receipts'[\s\S]*?false[\s\S]*?on conflict \(id\) do nothing/)
 

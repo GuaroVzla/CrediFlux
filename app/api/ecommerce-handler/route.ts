@@ -6,6 +6,7 @@ import {
   buildEcommerceBody, normalizeDashboardState, saveUpload, resolveUploadUrl, resolveUploadUrls,
 } from '@/modules/ecommerce/service';
 import { parseVisualSignature } from '@/shared/lib/visual-signature.js';
+import { OcrNotConfiguredError, resolveOcrRuntimeConfig } from '@/server/ocr/global-config';
 
 // El OCR local (Tesseract.js) y las llamadas a proveedores externos pueden tardar;
 // 300 s es el máximo de Hobby. Límite de payload de Vercel: 4.5 MB.
@@ -106,26 +107,32 @@ export async function POST(request: Request) {
         console.warn('No se pudo almacenar el comprobante (se continúa solo con OCR):', uploadError?.message || uploadError);
       }
 
-      // Regla de Asignación Automática de IA con validación cruzada de patrones
-      // Autenticación dinámica: cada proveedor usa su propia clave/configuración guardada
-      const activeProvider = db.settings.aiProvider || 'openai';
-      const ocrApiKeys = {
-        openai: db.settings?.ocrApiKeys?.openai || db.settings?.aiApiKey || '',
-        gemini: db.settings?.ocrApiKeys?.gemini || db.settings?.aiApiKey || '',
-        ocrspace: db.settings?.ocrApiKeys?.ocrspace || db.settings?.ocrSpaceApiKey || '',
-      };
+      // Proveedor y credenciales se resuelven en servidor desde la configuración
+      // OCR global (admin_ocr_settings). Nunca desde user_settings ni desde env.
+      let ocrRuntime: Awaited<ReturnType<typeof resolveOcrRuntimeConfig>>;
+      try {
+        ocrRuntime = await resolveOcrRuntimeConfig();
+      } catch (error: any) {
+        if (error instanceof OcrNotConfiguredError) {
+          return NextResponse.json({
+            success: false,
+            error: error.message,
+            code: error.code
+          }, { status: 503 });
+        }
+        throw error;
+      }
+
       ocrResult = await parseReceiptWithAI({
         imageBuffer: buffer,
         mimeType: file.type || 'image/png',
-        apiKey: (activeProvider === 'openai' || activeProvider === 'gemini')
-          ? (ocrApiKeys[activeProvider] || process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY)
-          : undefined,
-        provider: activeProvider,
+        apiKey: ocrRuntime.apiKey,
+        provider: ocrRuntime.provider,
         registeredPatterns,
-        ocrSpaceApiKey: ocrApiKeys.ocrspace || process.env.OCR_SPACE_API_KEY || null,
-        endpoint: db.settings?.ocrEndpoints?.[activeProvider] || db.settings?.providerConfig?.endpoints?.[activeProvider] || undefined,
-        model: db.settings?.ocrModels?.[activeProvider] || db.settings?.providerConfig?.models?.[activeProvider] || undefined,
-        confidenceThreshold: db.settings?.ocrConfidenceMin ?? db.settings?.ocrThresholds?.ocrConfidenceMin ?? 0.8,
+        ocrSpaceApiKey: ocrRuntime.ocrSpaceApiKey,
+        endpoint: ocrRuntime.endpoint,
+        model: ocrRuntime.model,
+        confidenceThreshold: ocrRuntime.confidenceThreshold,
         visualSignature
       });
     }
