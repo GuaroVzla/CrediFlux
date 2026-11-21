@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json, ProfileRow, UserSettingRow } from '@/shared/types/database';
+import type { PaymentCalculation } from '@/modules/loans/abono';
 import { getSupabaseAdminClientOrNull } from '@/server/supabase/admin';
 import { isSupabaseConfigured } from '@/server/supabase/env';
 import { profileToLegacyUser, resolveRequestAuth, type RequestAuth } from '@/server/auth/request-auth';
@@ -183,6 +184,71 @@ export async function updateLoanPlanAtomic(args: {
     }
     throw new Error(message);
   }
+}
+
+export interface PaymentRpcResult {
+  paymentId: string;
+  appliedAmount: number;
+  currentBalance: number;
+  newBalance: number;
+  remainingInstallments: number;
+  settledInstallments: number;
+  partialInstallment: { number: number; remaining: number } | null;
+  installmentAmount: number;
+  settled: boolean;
+  status: string;
+  totalAmount: number;
+  totalInstallments: number;
+  coveredInstallments: number;
+  remainingEquivalent: number;
+  collectedAmount: number;
+  pendingAmount: number;
+  progressPercent: number;
+}
+
+/** Alias conservado para consumidores existentes. */
+export type AbonoRpcResult = PaymentRpcResult;
+
+/**
+ * Registro atómico de un pago o abono en Supabase.
+ *
+ * La RPC bloquea la fila del financiamiento, recalcula el saldo dentro de la
+ * transacción, valida el monto, marca/resta cuotas del cronograma, actualiza
+ * el contador de cuotas y el progreso, y crea el movimiento en `payments` en
+ * un único CALL.
+ */
+export async function registerLoanPaymentAtomic(args: {
+  request: Request;
+  loan: AnyRecord;
+  calculation: PaymentCalculation;
+  payment: AnyRecord;
+}): Promise<PaymentRpcResult> {
+  const { loan, calculation, payment } = args;
+  const auth = await resolveRequestAuth(args.request);
+  if (!auth.userId || !auth.supabase) throw new Error('No autenticado');
+
+  const { data, error } = await (auth.supabase as any).rpc('register_loan_abono', {
+    p_loan_id: toUuid(loan.id),
+    p_user_id: toUuid(auth.userId),
+    p_amount: num(calculation.appliedAmount),
+    p_payment_date: dateOnly(payment.date),
+    p_method: text(payment.method),
+    p_reference: text(payment.reference),
+    p_notes: text(payment.notes),
+    p_amount_bs: payment.amountBs == null ? null : num(payment.amountBs),
+    p_bcv_rate: payment.bcvRate == null ? null : num(payment.bcvRate),
+    p_installments: [],
+  });
+
+  if (error) {
+    const message = error.message || String(error);
+    if (/could not find the function|schema cache|does not exist/i.test(message)) {
+      throw new Error('La función register_loan_abono no está instalada en Supabase. Ejecuta la migración 20261120000400_loan_payment_progress_rpc.sql.');
+    }
+    throw new Error(message);
+  }
+  if (!data) throw new Error('No se pudo registrar el pago en Supabase');
+  return data as PaymentRpcResult;
 }
 
 export async function getStateForRequest(request: Request): Promise<AnyRecord> {
@@ -417,6 +483,9 @@ function mapPayment(row: AnyRecord) {
     method: row.method || '',
     reference: row.reference || '',
     notes: row.notes || '',
+    bcvRate: row.metadata?.bcvRate == null ? null : num(row.metadata.bcvRate),
+    amountBs: row.metadata?.amountBs == null ? null : num(row.metadata.amountBs),
+    metadata: jsonObject(row.metadata),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -855,7 +924,10 @@ function paymentRow(userId: string, payment: AnyRecord) {
     method: text(payment.method),
     reference: text(payment.reference),
     notes: text(payment.notes),
-    metadata: { clientName: payment.clientName || '' } as Json,
+    metadata: {
+      ...(jsonObject(payment.metadata) as AnyRecord),
+      clientName: payment.clientName || '',
+    } as Json,
   };
 }
 

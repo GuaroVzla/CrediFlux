@@ -19,6 +19,9 @@ import { checkIsExpired, calculateLicenseProgress } from '@/modules/license/serv
 import { getProductMargin, getAutoSalePrice } from '@/modules/products/pricing.js';
 import { fmtUsd, fmtBs } from '@/shared/lib/format.js';
 import { computeVisualSignature } from '@/shared/lib/visual-signature-client.js';
+import { computeAbono, pendingBalance } from '@/modules/loans/abono';
+import { computeInstallmentPayment } from '@/modules/loans/installment';
+import { computeLoanProgress } from '@/modules/loans/progress';
 
 const PATTERN_FALLBACK_IMAGE = '/uploads/sample-voucher.svg';
 
@@ -211,7 +214,10 @@ export default function CrediFluxApp() {
   const [loanModal, setLoanModal] = useState({ open: false, data: null });
   const [loanSaving, setLoanSaving] = useState(false);
   const [quickPayModal, setQuickPayModal] = useState({ open: false, loan: null });
-  const [quickPaySelection, setQuickPaySelection] = useState(''); // 'all' o número de cuota
+  const [quickPayMode, setQuickPayMode] = useState('cuota');
+  const [quickPayAmount, setQuickPayAmount] = useState('');
+  const [quickPayInstallment, setQuickPayInstallment] = useState('');
+  const [quickPaySaving, setQuickPaySaving] = useState(false);
   const [expandedLoanId, setExpandedLoanId] = useState(null);
   const [viewHistoryClient, setViewHistoryClient] = useState(null);
   const [notification, setNotification] = useState(null);
@@ -443,7 +449,12 @@ export default function CrediFluxApp() {
       if (blacklistModal) { setBlacklistModal(false); return; }
       if (clientModal.open) { setClientModal({ open: false, data: null }); return; }
       if (loanModal.open) { setLoanModal({ open: false, data: null }); return; }
-      if (quickPayModal.open) { setQuickPayModal({ open: false, loan: null }); return; }
+      if (quickPayModal.open) {
+        setQuickPayModal({ open: false, loan: null });
+        setQuickPayAmount('');
+        setQuickPayInstallment('');
+        return;
+      }
       if (productModal.open) { setProductModal({ open: false, data: null }); return; }
       if (patternModal) { setPatternModal(false); return; }
       if (purgeModal.open) { setPurgeModal(prev => ({ ...prev, open: false })); return; }
@@ -1603,22 +1614,26 @@ export default function CrediFluxApp() {
     }
   };
 
-  // Quick Pay Modal Handler
+  // Quick Pay Modal Handler: abono sobre el saldo + redistribución de cuotas
   const handleRegisterPayment = async (e) => {
     e.preventDefault();
     if (checkIsExpired(currentUser)) {
       notify(SUPPORT_CONTACT_TEXT, 'error');
       return;
     }
+    if (quickPaySaving || !quickPayModal.loan) return;
 
-    const formData = new FormData(e.currentTarget);
-    const loanId = quickPayModal.loan.id;
-    const installmentNumber = formData.get('installmentNumber');
-    const amount = formData.get('amount');
-    const method = formData.get('method');
-    const reference = formData.get('reference');
-    const payAll = installmentNumber === 'all';
+    const amount = Number(quickPayAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      notify('Ingresa un monto mayor que cero', 'error');
+      return;
+    }
+    if (quickPayMode === 'cuota' && !quickPayInstallment) {
+      notify('Selecciona la cuota a pagar', 'error');
+      return;
+    }
 
+    setQuickPaySaving(true);
     try {
       const res = await fetch('/api/payments', {
         method: 'POST',
@@ -1627,12 +1642,10 @@ export default function CrediFluxApp() {
           'x-user-id': currentUser.id
         },
         body: JSON.stringify({
-          loanId,
-          installmentNumber: payAll ? undefined : installmentNumber,
+          mode: quickPayMode,
+          loanId: quickPayModal.loan.id,
+          installmentNumber: quickPayMode === 'cuota' ? quickPayInstallment : undefined,
           amount,
-          method,
-          reference,
-          payAll,
           bcvRate: dolarRates?.oficial || undefined
         })
       });
@@ -1642,15 +1655,18 @@ export default function CrediFluxApp() {
         return;
       }
       if (data.success) {
-        notify(data.message);
+        notify(data.message || 'Pago registrado correctamente');
         setQuickPayModal({ open: false, loan: null });
-        setQuickPaySelection('');
-        fetchAllData();
+        setQuickPayAmount('');
+        setQuickPayInstallment('');
+        await fetchAllData();
       } else {
-        notify(data.error || 'Error al registrar el abono', 'error');
+        notify(data.error || 'Error al registrar el pago', 'error');
       }
     } catch (err) {
-      notify('Error al procesar abono', 'error');
+      notify('Error al procesar el pago', 'error');
+    } finally {
+      setQuickPaySaving(false);
     }
   };
 
@@ -2837,7 +2853,11 @@ export default function CrediFluxApp() {
                                 onClick={() => {
                                   if (isUserExpired) { notify(SUPPORT_CONTACT_TEXT, 'error'); return; }
                                   const firstUnpaid = (loan.installments || []).find(i => !i.paid);
-                                  setQuickPaySelection(firstUnpaid ? String(firstUnpaid.number) : 'all');
+                                  setQuickPayMode('cuota');
+                                  setQuickPayInstallment(firstUnpaid ? String(firstUnpaid.number) : '');
+                                  setQuickPayAmount(firstUnpaid
+                                    ? Number(firstUnpaid.amount).toFixed(2)
+                                    : pendingBalance(loan.installments).toFixed(2));
                                   setQuickPayModal({ open: true, loan });
                                 }}
                                 className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs"
@@ -3370,6 +3390,9 @@ export default function CrediFluxApp() {
                         const totalCount = loan.stats?.totalInstallments || loan.installmentCount || 1;
                         const progressPct = loan.stats?.progressPercent || 0;
                         const pendingAmount = Number(loan.stats?.pendingAmount) || 0;
+                        const coveredRaw = Number(loan.stats?.coveredInstallments ?? paidCount) || 0;
+                        const remainingRaw = Number(loan.stats?.remainingEquivalent ?? (totalCount - paidCount)) || 0;
+                        const fmtCuotas = (n) => Number.isInteger(n) ? String(n) : n.toFixed(1);
 
                         return (
                           <React.Fragment key={loan.id}>
@@ -3404,7 +3427,9 @@ export default function CrediFluxApp() {
                               <td className="py-2.5 px-3 align-middle">
                                 <div className="mx-auto w-32">
                                   <div className="flex items-center justify-between text-xs font-semibold mb-1">
-                                    <span className="text-slate-400 tabular-nums">{paidCount}/{totalCount}</span>
+                                    <span className="text-slate-400 tabular-nums" title="Cuotas cubiertas (incluye abonos) / cuotas pactadas">
+                                      {fmtCuotas(coveredRaw)}/{totalCount}
+                                    </span>
                                     <span className={loan.status === 'moroso' ? 'text-rose-400' : 'text-emerald-400'}>{progressPct}%</span>
                                   </div>
                                   <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
@@ -3421,7 +3446,7 @@ export default function CrediFluxApp() {
                                   ${pendingAmount.toFixed(2)}
                                 </span>
                                 <div className="text-xs text-slate-400">
-                                  {pendingAmount > 0 ? `${loan.stats?.pendingCount || 0} cuota(s)` : 'Cancelado'}
+                                  {pendingAmount > 0 ? `${fmtCuotas(remainingRaw)} cuota(s) restantes` : 'Cancelado'}
                                 </div>
                               </td>
                               <td className="py-2.5 px-3 text-center align-middle">
@@ -3446,7 +3471,11 @@ export default function CrediFluxApp() {
                                     onClick={() => {
                                       if (isUserExpired) { notify(SUPPORT_CONTACT_TEXT, 'error'); return; }
                                       const firstUnpaid = (loan.installments || []).find(i => !i.paid);
-                                      setQuickPaySelection(firstUnpaid ? String(firstUnpaid.number) : 'all');
+                                      setQuickPayMode('cuota');
+                                      setQuickPayInstallment(firstUnpaid ? String(firstUnpaid.number) : '');
+                                      setQuickPayAmount(firstUnpaid
+                                        ? Number(firstUnpaid.amount).toFixed(2)
+                                        : pendingBalance(loan.installments).toFixed(2));
                                       setQuickPayModal({ open: true, loan });
                                     }}
                                     title="Registrar abono o pago de cuota"
@@ -3502,7 +3531,7 @@ export default function CrediFluxApp() {
                                       Cronograma Detallado de Cuotas
                                     </h5>
                                     <span className="text-xs text-slate-400">
-                                      {paidCount} de {totalCount} cuotas canceladas • Saldo ${pendingAmount.toFixed(2)}
+                                      {fmtCuotas(coveredRaw)} de {totalCount} cuotas cubiertas • Saldo ${pendingAmount.toFixed(2)}
                                     </span>
                                   </div>
                                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
@@ -7534,121 +7563,230 @@ export default function CrediFluxApp() {
       })()}
       {/* MODAL: ABONO RÁPIDO / PAGO DE CUOTA                            */}
       {/* ============================================================== */}
-      {quickPayModal.open && quickPayModal.loan && (
-        <div role="dialog" aria-modal="true" aria-label="Registrar pago" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className={`w-full max-w-md ${settingsModalCls} border rounded-3xl p-6 shadow-2xl`}>
-            <div className={`flex items-center justify-between pb-4 border-b ${settingsModalBorderCls}`}>
-              <div>
-                <h3 className="font-bold text-base text-slate-200">Registrar Abono o Cuota</h3>
-                <p className="text-xs text-slate-400">Cliente: {quickPayModal.loan.clientName}</p>
+      {quickPayModal.open && quickPayModal.loan && (() => {
+        const loan = quickPayModal.loan;
+        const unpaidInstallments = (loan.installments || []).filter(i => !i.paid);
+        const currentBalance = pendingBalance(loan.installments);
+        const totalCount = Math.max(Number(loan.installmentCount) || 0, (loan.installments || []).length, 1);
+        const selected = unpaidInstallments.find(i => String(i.number) === String(quickPayInstallment)) || unpaidInstallments[0];
+
+        let preview = null;
+        let previewError = '';
+        try {
+          if (quickPayMode === 'cuota') {
+            preview = computeInstallmentPayment({
+              installments: loan.installments || [],
+              installmentNumber: selected?.number,
+              amount: quickPayAmount,
+              paidDate: new Date().toISOString().slice(0, 10)
+            });
+          } else {
+            preview = computeAbono({
+              installments: loan.installments || [],
+              amount: quickPayAmount,
+              paidDate: new Date().toISOString().slice(0, 10)
+            });
+          }
+        } catch (err) {
+          previewError = err?.message || 'Ingresa un monto válido';
+        }
+        const previewProgress = preview
+          ? computeLoanProgress({ ...loan, installments: preview.installments })
+          : null;
+
+        return (
+          <div role="dialog" aria-modal="true" aria-label="Registrar abono o cuota" tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+            <div className={`w-full max-w-lg ${settingsModalCls} border rounded-3xl p-6 shadow-2xl`}>
+              <div className={`flex items-center justify-between pb-4 border-b ${settingsModalBorderCls}`}>
+                <div>
+                  <h3 className="font-bold text-base text-slate-200">Registrar Abono o Cuota</h3>
+                  <p className="text-xs text-slate-400">Cliente: {loan.clientName}</p>
+                </div>
+                <button type="button"
+                  onClick={() => {
+                    setQuickPayModal({ open: false, loan: null });
+                    setQuickPayAmount('');
+                    setQuickPayInstallment('');
+                  }}
+                  className="p-1.5 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <button type="button"
-                onClick={() => { setQuickPayModal({ open: false, loan: null }); setQuickPaySelection(''); }}
-                className="p-1.5 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
 
-            <form onSubmit={handleRegisterPayment} className="space-y-4 mt-4 text-xs">
-              {(() => {
-                const loan = quickPayModal.loan;
-                const unpaidInstallments = (loan.installments || []).filter(i => !i.paid);
-                const pendingTotal = Number(unpaidInstallments.reduce((sum, i) => sum + (Number(i.amount) || 0), 0).toFixed(2));
-                const selectedIsTotal = quickPaySelection === 'all';
-                const selectedInstallment = unpaidInstallments.find(i => String(i.number) === String(quickPaySelection));
-                const amountValue = selectedIsTotal
-                  ? pendingTotal.toFixed(2)
-                  : (Number(selectedInstallment?.amount ?? loan.installmentAmount ?? 0)).toFixed(2);
+              <form onSubmit={handleRegisterPayment} className="space-y-4 mt-4 text-xs">
+                <div className="grid grid-cols-2 gap-2" role="group" aria-label="Tipo de pago">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQuickPayMode('cuota');
+                      setQuickPayAmount(selected ? Number(selected.amount).toFixed(2) : '');
+                    }}
+                    className={`py-2 rounded-xl border font-bold transition-colors ${quickPayMode === 'cuota' ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300' : `border-slate-700 text-slate-400 hover:text-slate-200 ${settingsFieldTheme}`}`}
+                  >
+                    Pago de Cuota
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQuickPayMode('abono')}
+                    className={`py-2 rounded-xl border font-bold transition-colors ${quickPayMode === 'abono' ? 'border-amber-500/50 bg-amber-500/15 text-amber-300' : `border-slate-700 text-slate-400 hover:text-slate-200 ${settingsFieldTheme}`}`}
+                  >
+                    Abono
+                  </button>
+                </div>
 
-                return (
-                  <>
-                    <div>
-                      <label className="block text-slate-300 font-semibold mb-1">Cuota a Cancelar</label>
-                      <select
-                        name="installmentNumber"
-                        value={quickPaySelection || (unpaidInstallments[0] ? String(unpaidInstallments[0].number) : 'all')}
-                        onChange={(e) => setQuickPaySelection(e.target.value)}
-                        className={`w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`}
-                      >
-                        <option value="all">Pago Total (saldar financiamiento) — ${pendingTotal.toFixed(2)}</option>
-                        {unpaidInstallments.map(inst => (
-                          <option key={inst.number} value={inst.number}>
-                            Cuota #{inst.number} - ${Number(inst.amount).toFixed(2)} (Vence: {inst.dueDate})
-                          </option>
-                        ))}
-                      </select>
-                      {selectedIsTotal && (
-                        <p className="mt-1.5 text-xs text-amber-400/90">
-                          Se liquidarán {unpaidInstallments.length} cuota(s) pendiente(s) en una sola transacción.
-                        </p>
-                      )}
-                    </div>
+                <div>
+                  <label htmlFor="quickpay-installment" className="block text-slate-300 font-semibold mb-1">
+                    Pago de cuota nro
+                  </label>
+                  <select
+                    id="quickpay-installment"
+                    value={selected ? String(selected.number) : ''}
+                    onChange={(e) => {
+                      setQuickPayInstallment(e.target.value);
+                      const next = unpaidInstallments.find(i => String(i.number) === e.target.value);
+                      if (next) setQuickPayAmount(Number(next.amount).toFixed(2));
+                    }}
+                    disabled={unpaidInstallments.length === 0}
+                    className={`w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`}
+                  >
+                    {unpaidInstallments.length === 0 && <option value="">No hay cuotas pendientes</option>}
+                    {unpaidInstallments.map(inst => (
+                      <option key={inst.number} value={inst.number}>
+                        Cuota #{inst.number} — ${Number(inst.amount).toFixed(2)} (Vence: {inst.dueDate})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1.5 text-slate-400">
+                    Preseleccionamos la cuota actual; puedes cambiarla si el pago corresponde a otra.
+                  </p>
+                </div>
 
-                    <div>
-                      <label className="block text-slate-300 font-semibold mb-1">Monto del Pago ($)</label>
-                      <input
-                        type="number"
-                        step="any"
-                        name="amount"
-                        key={`amount-${quickPaySelection}-${amountValue}`}
-                        defaultValue={amountValue}
-                        required
-                        readOnly={selectedIsTotal}
-                        className={`w-full px-3 py-2 rounded-xl border font-bold text-emerald-400 ${settingsFieldTheme} ${selectedIsTotal ? 'opacity-90 cursor-not-allowed' : ''}`}
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-slate-300 font-semibold mb-1">Método de Pago</label>
-                        <select
-                          name="method"
-                          defaultValue="Pago Móvil"
-                          className={`w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`}
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label htmlFor="quickpay-amount" className="block text-slate-300 font-semibold">
+                      {quickPayMode === 'cuota' ? 'Monto de la cuota ($)' : 'Abono ($)'}
+                    </label>
+                    {quickPayMode === 'abono' && (
+                      <div className="flex gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setQuickPayAmount(selected ? Number(selected.amount).toFixed(2) : currentBalance.toFixed(2))}
+                          className="px-2 py-0.5 rounded-lg border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 font-semibold"
                         >
-                          <option value="Pago Móvil">Pago Móvil</option>
-                          <option value="Zelle">Zelle</option>
-                          <option value="Efectivo USD">Efectivo USD</option>
-                          <option value="Transferencia">Transferencia Bancaria</option>
-                          <option value="Binance USDT">Binance USDT</option>
-                        </select>
+                          Cuota actual
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setQuickPayAmount(currentBalance.toFixed(2))}
+                          className="px-2 py-0.5 rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 font-semibold"
+                        >
+                          Liquidar saldo
+                        </button>
                       </div>
+                    )}
+                  </div>
+                  <input
+                    id="quickpay-amount"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max={currentBalance.toFixed(2)}
+                    value={quickPayAmount}
+                    onChange={(e) => setQuickPayAmount(e.target.value)}
+                    readOnly={quickPayMode === 'cuota'}
+                    placeholder="0.00"
+                    required
+                    className={`w-full px-3 py-2 rounded-xl border font-bold ${quickPayMode === 'cuota' ? 'text-slate-300' : 'text-emerald-400'} ${settingsFieldTheme}`}
+                  />
+                </div>
 
-                      <div>
-                        <label className="block text-slate-300 font-semibold mb-1">Nº Referencia</label>
-                        <input
-                          type="text"
-                          name="reference"
-                          placeholder="Ej. REF-881920"
-                          className={`w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`}
-                        />
-                      </div>
-                    </div>
-                  </>
-                );
-              })()}
+                <section className={`rounded-2xl border px-3 py-2.5 space-y-1.5 ${settingsModalBorderCls}`}>
+                  <p className="text-xs font-bold uppercase tracking-wide text-emerald-400/80 mb-1">Resumen en tiempo real</p>
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span>Cuotas totales (pactadas)</span>
+                    <span className="font-semibold tabular-nums">{totalCount}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span>Saldo pendiente actual</span>
+                    <span className="font-semibold tabular-nums">${currentBalance.toFixed(2)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span>Monto a aplicar</span>
+                    <span className="font-semibold tabular-nums text-emerald-400">${(preview?.appliedAmount || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span>Cuotas liquidadas ahora</span>
+                    <span className="font-semibold tabular-nums">{preview?.settledInstallments || 0}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span>Cuotas restantes</span>
+                    <span className="font-semibold tabular-nums">{preview?.remainingInstallments ?? unpaidInstallments.length}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span>Nuevo saldo pendiente</span>
+                    <span className="font-bold tabular-nums text-amber-400">${(preview?.newBalance ?? currentBalance).toFixed(2)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span>Nuevo valor estimado por cuota</span>
+                    <span className="font-semibold tabular-nums">
+                      {preview && !preview.settled ? `$${preview.installmentAmount.toFixed(2)}` : '—'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span>Progreso de pago</span>
+                    <span className="font-bold tabular-nums text-emerald-400">{previewProgress?.progressPercent || 0}%</span>
+                  </div>
+                  <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500"
+                      style={{ width: `${previewProgress?.progressPercent || 0}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-slate-400">
+                    <span>Cuotas cubiertas (incluye abonos)</span>
+                    <span className="tabular-nums">{previewProgress?.coveredInstallments?.toFixed(2) || '0.00'} / {totalCount}</span>
+                  </div>
+                  {preview?.partialInstallment && (
+                    <p className="pt-1 text-amber-400">
+                      Cuota #{preview.partialInstallment.number} queda parcialmente abonada: ${preview.partialInstallment.remaining.toFixed(2)} pendientes.
+                    </p>
+                  )}
+                  {preview?.settled && (
+                    <p className="pt-1 text-emerald-400 font-semibold">
+                      El financiamiento queda liquidado.
+                    </p>
+                  )}
+                  {previewError && <p className="pt-1 text-rose-400 font-semibold">{previewError}</p>}
+                </section>
 
-              <div className="pt-2 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => { setQuickPayModal({ open: false, loan: null }); setQuickPaySelection(''); }}
-                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold"
-                >
-                  Confirmar Cobro
-                </button>
-              </div>
-            </form>
+                <div className="pt-2 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    disabled={quickPaySaving}
+                    onClick={() => {
+                      setQuickPayModal({ open: false, loan: null });
+                      setQuickPayAmount('');
+                      setQuickPayInstallment('');
+                    }}
+                    className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={quickPaySaving || !preview}
+                    className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-bold inline-flex items-center gap-2"
+                  >
+                    {quickPaySaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                    {quickPaySaving ? 'Registrando…' : quickPayMode === 'cuota' ? 'Confirmar Cuota' : 'Confirmar Abono'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
-
+        );
+      })()}
       {/* ============================================================== */}
       {/* MODAL: REGISTRAR / EDITAR PRODUCTO DEL CATÁLOGO               */}
       {/* ============================================================== */}

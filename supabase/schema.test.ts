@@ -63,8 +63,22 @@ describe('M-008: supabase/schema.sql — RLS, políticas y bucket de comprobante
     expect(sql).toContain('grant execute on function public.update_loan_plan to authenticated, service_role')
   })
 
+  it('incluye la RPC atómica que descuenta pagos y abonos del cronograma', () => {
+    expect(sql).toContain('create or replace function public.register_loan_abono(')
+    expect(sql).toContain('for update')
+    expect(sql).toContain('insert into public.payments')
+    expect(sql).toContain('supera el saldo pendiente')
+    expect(sql).toContain("'settled', v_after <= 0")
+    expect(sql).toContain("'partial', v_after > 0 and v_take > 0")
+    expect(sql).toContain("'kind', case when p_method = 'Pago de cuota' then 'cuota' else 'abono' end")
+    expect(sql).toContain("'{progress}', v_progress_meta")
+    expect(sql).toContain('grant execute on function public.register_loan_abono to authenticated, service_role')
+  })
+
   it('la RPC no expone parámetros de inventario ni de datos congelados', () => {
-    const rpc = sql.slice(sql.indexOf('create or replace function public.update_loan_plan('))
+    const start = sql.indexOf('create or replace function public.update_loan_plan(')
+    const nextFunction = sql.indexOf('create or replace function public.', start + 1)
+    const rpc = sql.slice(start, nextFunction === -1 ? undefined : nextFunction)
     for (const forbidden of [
       'p_stock_deltas', 'p_client_id', 'p_product_id', 'p_principal', 'p_down_payment',
       'update public.products', 'update public.clients', 'insert into public.payments',

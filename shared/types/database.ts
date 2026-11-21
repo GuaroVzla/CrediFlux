@@ -873,6 +873,39 @@ export type Database = {
         }
         Returns: undefined
       }
+      register_loan_abono: {
+        Args: {
+          p_loan_id: string
+          p_user_id: string
+          p_amount: number
+          p_payment_date: string
+          p_method: string | null
+          p_reference: string | null
+          p_notes: string | null
+          p_amount_bs: number | null
+          p_bcv_rate: number | null
+          p_installments: Json
+        }
+        Returns: {
+          paymentId: string
+          appliedAmount: number
+          currentBalance: number
+          newBalance: number
+          remainingInstallments: number
+          settledInstallments: number
+          partialInstallment: { number: number; remaining: number } | null
+          installmentAmount: number
+          settled: boolean
+          status: string
+          totalAmount: number
+          totalInstallments: number
+          coveredInstallments: number
+          remainingEquivalent: number
+          collectedAmount: number
+          pendingAmount: number
+          progressPercent: number
+        }
+      }
     }
     Enums: {
       [_ in never]: never

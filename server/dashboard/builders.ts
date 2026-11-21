@@ -11,6 +11,7 @@
 
 import { computeLoanStatus, getDefaultMonthlyCapital, scopeRecords } from '@/shared/lib/db.js';
 import { computeClientTrust, getTrustLevelConfig } from '@/modules/trust/service.js';
+import { computeLoanProgress } from '@/modules/loans/progress';
 import {
   DEFAULT_OCR_ENDPOINTS,
   DEFAULT_OCR_MODELS,
@@ -177,13 +178,8 @@ export function buildLoansBody(db: any, user: any) {
 
   const enrichedLoans = visibleLoans.map((loan: any) => {
     const status = computeLoanStatus(loan);
-    const installments = loan.installments || [];
-    const totalInstallments = installments.length;
-    const paidInstallments = installments.filter((i: any) => i.paid);
-    const paidCount = paidInstallments.length;
-    const paidAmount = paidInstallments.reduce((sum: number, i: any) => sum + i.amount, 0);
-    const pendingAmount = installments.filter((i: any) => !i.paid).reduce((sum: number, i: any) => sum + i.amount, 0);
-    const progressPercent = totalInstallments > 0 ? Math.round((paidCount / totalInstallments) * 100) : 0;
+    const progress = computeLoanProgress(loan);
+    const totalInstallments = progress.totalInstallments;
 
     const productCost = costByProductId.get(loan.productId);
     const baseCost = loan.type === 'producto'
@@ -196,11 +192,13 @@ export function buildLoansBody(db: any, user: any) {
       status,
       stats: {
         totalInstallments,
-        paidCount,
-        pendingCount: totalInstallments - paidCount,
-        paidAmount: Number(paidAmount.toFixed(2)),
-        pendingAmount: Number(pendingAmount.toFixed(2)),
-        progressPercent,
+        paidCount: progress.fullyPaidCount,
+        coveredInstallments: progress.coveredInstallments,
+        remainingEquivalent: progress.remainingEquivalent,
+        pendingCount: totalInstallments - progress.fullyPaidCount,
+        paidAmount: progress.collectedAmount,
+        pendingAmount: progress.pendingAmount,
+        progressPercent: progress.progressPercent,
         projectedProfit: Number(projectedProfit.toFixed(2))
       }
     };
