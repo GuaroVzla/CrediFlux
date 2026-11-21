@@ -71,4 +71,14 @@ describe('M-009: page.jsx — invariantes de paginación y sesión', () => {
     expect(loanCreateModalSource).toContain('tabular-nums')
     expect(loanCreateModalSource).toContain('sm:grid-cols-2')
   })
+
+  it('valida tokens de alto contraste en el header y KPIs del Tema Claro', () => {
+    // Header brand contrast
+    expect(source).toContain("themeDark ? 'text-white' : 'text-slate-900'")
+    expect(source).toContain("themeDark ? 'bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent' : 'text-emerald-700'")
+
+    // KPI "Pendiente de morosos" en Modo Claro
+    expect(source).toContain("themeDark ? 'text-rose-300/80' : 'text-rose-900 font-bold'")
+    expect(source).toContain("themeDark ? 'text-rose-400' : 'text-rose-700'")
+  })
 })
