@@ -165,14 +165,70 @@ async function main() {
   const adminId = ownerMap.get(adminLegacy.id);
   const ownerOf = (record) => ownerMap.get(record?.userId) || adminId;
 
-  // --- Configuración (global legada -> admin) ---
+  // --- Configuración: OCR global, preferencias por usuario ---
   const settings = data.settings && typeof data.settings === 'object' ? data.settings : {};
   const settingsForStorage = JSON.parse(JSON.stringify(settings));
+
+  // Ruta relativa: el alias '@/' no existe para Node fuera de Next/Turbopack.
+  // security.js sólo depende de crypto, así que puede importarse directamente.
   try {
-    const { encryptStateSecretsAtRest } = await import('@/server/security/security.js');
+    const { encryptStateSecretsAtRest } = await import('../server/security/security.js');
     encryptStateSecretsAtRest({ settings: settingsForStorage });
   } catch (e) {
-    console.warn('No se pudieron cifrar secretos al importar:', e?.message || e);
+    throw new Error(`No se pudieron cifrar los secretos de configuración: ${e?.message || e}`);
+  }
+
+  const allowedProviders = ['openai', 'gemini', 'ocrspace', 'tesseract'];
+  const ocrKeys = {
+    ...(settingsForStorage.ocrApiKeys && typeof settingsForStorage.ocrApiKeys === 'object'
+      ? settingsForStorage.ocrApiKeys
+      : {}),
+  };
+  // Compatibilidad con stores antiguos que guardaban una sola clave suelta.
+  if (!ocrKeys.openai && !ocrKeys.gemini && settingsForStorage.aiApiKey) {
+    const legacyTarget = allowedProviders.includes(settings.aiProvider) && settings.aiProvider !== 'ocrspace' && settings.aiProvider !== 'tesseract'
+      ? settings.aiProvider
+      : 'openai';
+    ocrKeys[legacyTarget] = settingsForStorage.aiApiKey;
+  }
+  if (!ocrKeys.ocrspace && settingsForStorage.ocrSpaceApiKey) {
+    ocrKeys.ocrspace = settingsForStorage.ocrSpaceApiKey;
+  }
+
+  // Fail-safe: admin_ocr_settings sólo admite secretos cifrados. Si falta
+  // SETTINGS_ENCRYPTION_KEY, encryptSecret deja el texto en claro; detectarlo
+  // aquí evita persistir credenciales sin proteger.
+  const secretsToStore = [
+    ...Object.values(ocrKeys),
+    settingsForStorage.aiApiKey,
+    settingsForStorage.ocrSpaceApiKey,
+  ].map((value) => String(value ?? '').trim()).filter(Boolean);
+  if (secretsToStore.some((value) => !value.startsWith('enc:v1:'))) {
+    throw new Error('Falta SETTINGS_ENCRYPTION_KEY: no se pueden migrar API Keys OCR sin cifrarlas. Configura la clave de cifrado del servidor y vuelve a ejecutar el script.');
+  }
+
+  const providerConfig = settings.providerConfig || {};
+  const confidence = Math.min(1, Math.max(0, num(settings.ocrConfidenceMin, 0.8)));
+
+  await upsertChunks('admin_ocr_settings', [{
+    id: 'global',
+    ai_provider: allowedProviders.includes(settings.aiProvider) ? settings.aiProvider : null,
+    ocr_api_keys: ocrKeys,
+    ocr_endpoints: providerConfig.endpoints || settings.ocrEndpoints || {},
+    ocr_models: providerConfig.models || settings.ocrModels || {},
+    ocr_thresholds: { ...(providerConfig.thresholds || settings.ocrThresholds || {}), ocrConfidenceMin: confidence },
+    ocr_confidence_min: confidence,
+    ai_routing_rules: settings.aiRoutingRules || {},
+    ai_auto_assign_enabled: settings.aiAutoAssignEnabled !== false,
+    updated_by: adminId,
+  }], 'id');
+
+  for (const key of [
+    'aiProvider', 'aiAutoAssignEnabled', 'aiRoutingRules', 'ocrConfidenceMin',
+    'ocrEndpoints', 'ocrModels', 'ocrThresholds', 'providerConfig',
+    'ocrApiKeys', 'aiApiKey', 'ocrSpaceApiKey',
+  ]) {
+    delete settingsForStorage[key];
   }
 
   await upsertChunks('user_settings', [{
@@ -181,12 +237,12 @@ async function main() {
     currency: String(settings.currency || '$'),
     timezone: String(settings.timezone || 'America/Caracas'),
     ecommerce_capital: num(settings.ecommerceCapital, 5000),
-    ai_provider: ['openai', 'gemini', 'ocrspace', 'tesseract'].includes(settings.aiProvider) ? settings.aiProvider : 'ocrspace',
-    ai_auto_assign_enabled: settings.aiAutoAssignEnabled !== false,
-    ai_routing_rules: settings.aiRoutingRules || {},
-    ocr_confidence_min: Math.min(1, Math.max(0, num(settings.ocrConfidenceMin, 0.8))),
-    ocr_api_keys: settingsForStorage.ocrApiKeys || {},
-    provider_config: settings.providerConfig || {},
+    ai_provider: 'ocrspace',
+    ai_auto_assign_enabled: true,
+    ai_routing_rules: {},
+    ocr_confidence_min: 0.8,
+    ocr_api_keys: {},
+    provider_config: {},
     feature_flags: settings.featureFlags || {},
     system_license_key: text(settings.systemLicenseKey || settings.licenseKey),
     data: settingsForStorage,
