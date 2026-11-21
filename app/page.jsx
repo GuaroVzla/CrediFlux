@@ -4737,7 +4737,7 @@ export default function CrediFluxApp() {
                       <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs text-emerald-100 space-y-1">
                         <p className="font-semibold text-emerald-400">✓ Datos extraídos por OCR</p>
                         <p>Monto: <span className="font-semibold">Bs {Number(ocrForm.ocrExtracted.monto || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></p>
-                        <p>Banco origen: <span className="font-semibold">{ocrForm.ocrExtracted.bancoOrigen || 'Desconocido'}</span></p>
+                        <p>Banco emisor: <span className="font-semibold">{ocrForm.ocrExtracted.banco_emisor || ocrForm.ocrExtracted.bancoOrigen || 'Desconocido'}</span></p>
                         <p>Referencia: <span className="font-semibold">{ocrForm.ocrExtracted.referencia || 'N/A'}</span></p>
                       </div>
                     )}

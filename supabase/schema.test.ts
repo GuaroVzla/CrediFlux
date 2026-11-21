@@ -52,6 +52,13 @@ describe('M-008: supabase/schema.sql — RLS, políticas y bucket de comprobante
     expect(sql).not.toMatch(/create policy\s+"[^"]+"\s+on public\.admin_ocr_settings/)
   })
 
+  it('mantiene RLS de patrones por usuario: la lectura global es sólo service_role', () => {
+    expect(sql).toContain("'exchange_rates', 'p2p_transactions', 'receipt_patterns',")
+    expect(sql).toContain("using (user_id = (select auth.uid()))")
+    expect(sql).not.toMatch(/create policy\s+"receipt_patterns_[^"]*admin/)
+    expect(sql).not.toMatch(/create policy\s+"receipt_patterns_select_all/)
+  })
+
   it('configura el bucket privado receipts con políticas sobre storage.objects', () => {
     expect(sql).toMatch(/insert into storage\.buckets[\s\S]*?'receipts'[\s\S]*?false[\s\S]*?on conflict \(id\) do nothing/)
 

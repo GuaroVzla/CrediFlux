@@ -7,11 +7,19 @@ import {
 } from '@/modules/ecommerce/service';
 import { parseVisualSignature } from '@/shared/lib/visual-signature.js';
 import { OcrNotConfiguredError, resolveOcrRuntimeConfig } from '@/server/ocr/global-config';
+import { resolveGlobalOcrPatterns, type GlobalOcrPatternDto } from '@/server/ocr/global-patterns';
 
 // El OCR local (Tesseract.js) y las llamadas a proveedores externos pueden tardar;
 // 300 s es el máximo de Hobby. Límite de payload de Vercel: 4.5 MB.
 export const maxDuration = 300;
 const MAX_RECEIPT_BYTES = 4 * 1024 * 1024; // 4 MB (margen bajo el límite de Vercel)
+
+/** Expone el banco emisor con el nombre esperado por la UI sin quitar `bancoOrigen`. */
+function withBancoEmisor(ocr: any) {
+  if (!ocr) return ocr;
+  const bancoEmisor = ocr?.data?.bancoOrigen || 'Desconocido';
+  return { ...ocr, data: { ...(ocr.data || {}), banco_emisor: bancoEmisor } };
+}
 
 export async function GET(request: Request) {
   try {
@@ -66,9 +74,8 @@ export async function POST(request: Request) {
 
     let receiptUrl: string | null = null;
     let ocrResult = null;
-
-    // Patrones activos registrados por el Admin para validación cruzada.
-    const registeredPatterns = (db.receiptPatterns || []).filter((p: any) => p && p.isActive !== false);
+    let patternResult: Awaited<ReturnType<typeof resolveGlobalOcrPatterns>> | null = null;
+    let registeredPatterns: GlobalOcrPatternDto[] = [];
 
     // If a file was uploaded, run OCR with pattern cross-validation
     if (file && typeof file === 'object' && file.size > 0) {
@@ -123,6 +130,21 @@ export async function POST(request: Request) {
         throw error;
       }
 
+      // Los patrones se leen en servidor desde los perfiles admin (service_role).
+      // El estado `db.receiptPatterns` está limitado por RLS y NO es suficiente
+      // para usuarios finales; usarlo daría lugar a un matching distinto por rol.
+      patternResult = await resolveGlobalOcrPatterns(db.receiptPatterns);
+      registeredPatterns = patternResult.patterns.filter((pattern) => pattern.isActive !== false);
+
+      console.info('[ocr-patterns] carga', {
+        role: currentUser.role || 'user',
+        source: patternResult.source,
+        adminProfiles: patternResult.adminProfiles,
+        loaded: registeredPatterns.length,
+        patternIds: registeredPatterns.map((pattern) => pattern.id),
+        reason: patternResult.reason || null,
+      });
+
       ocrResult = await parseReceiptWithAI({
         imageBuffer: buffer,
         mimeType: file.type || 'image/png',
@@ -139,6 +161,17 @@ export async function POST(request: Request) {
 
     // Extract fields from OCR (en registro manual no hay comprobante ni OCR)
     const ocrData = ocrResult?.data || {};
+
+    if (patternResult) {
+      console.info('[ocr-patterns] matching', {
+        role: currentUser.role || 'user',
+        source: patternResult.source,
+        patternsLoaded: registeredPatterns.length,
+        bankMatchSource: ocrData.bankMatchSource || null,
+        bancoEmisor: ocrData.bancoOrigen || null,
+        visualSimilarity: ocrData.visualSimilarity ?? null,
+      });
+    }
 
     // Monto en Bs exacto adaptado a bancos VE (2 decimales)
     const amountBs = isManual
@@ -177,16 +210,17 @@ export async function POST(request: Request) {
         error: ocrResult?.error ||
           'No se pudo identificar el monto del comprobante. Sube una foto más nítida, configura el lector OCR en Ajustes o regístralo manualmente.',
         code: 'OCR_EXTRACTION_FAILED',
-        ocr: ocrResult // incluye provider, data y rawOcrText cuando existan
+        ocr: withBancoEmisor(ocrResult) // incluye provider, data y rawOcrText cuando existan
       }, { status: 422 });
     }
 
     // Monto en USD: estrictamente 2 decimales (misma lógica para OCR y registro manual)
     const amountUSD = bcvRate > 0 ? Number((amountBs / bcvRate).toFixed(2)) : 0;
 
-    const bankOrigin = isManual
+    const bancoEmisor = isManual
       ? (manualBankOrigin || 'Desconocido')
       : (ocrData.bancoOrigen || 'Desconocido');
+    const bankOrigin = bancoEmisor;
     const bankDestination = isManual ? 'Desconocido' : (ocrData.bancoDestino || 'Desconocido');
     const finalRef = manualRef || ocrData.referencia || ('REF-' + Date.now().toString().slice(-6));
     const finalDate = manualDate || ocrData.fecha || new Date().toISOString().split('T')[0];
@@ -231,7 +265,8 @@ export async function POST(request: Request) {
       success: true,
       message: 'Transacción y comprobante procesados exitosamente',
       transaction: responseTransaction,
-      ocr: ocrResult,
+      banco_emisor: bancoEmisor,
+      ocr: withBancoEmisor(ocrResult),
       persistence: persistenceInfo(),
     });
   } catch (error) {
