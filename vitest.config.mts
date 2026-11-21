@@ -11,15 +11,15 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: [
-      'app/**/*.test.{ts,js}',
-      'components/**/*.test.{ts,js}',
-      'hooks/**/*.test.{ts,js}',
-      'modules/**/*.test.{ts,js}',
-      'server/**/*.test.{ts,js}',
-      'shared/**/*.test.{ts,js}',
-      'prisma/**/*.test.{ts,js}',
-      'supabase/**/*.test.{ts,js}',
-      'scripts/**/*.test.{ts,js}',
+      'app/**/*.test.{ts,tsx,js}',
+      'components/**/*.test.{ts,tsx,js}',
+      'hooks/**/*.test.{ts,tsx,js}',
+      'modules/**/*.test.{ts,tsx,js}',
+      'server/**/*.test.{ts,tsx,js}',
+      'shared/**/*.test.{ts,tsx,js}',
+      'prisma/**/*.test.{ts,tsx,js}',
+      'supabase/**/*.test.{ts,tsx,js}',
+      'scripts/**/*.test.{ts,tsx,js}',
     ],
     globals: true
   }

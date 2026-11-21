@@ -15,6 +15,8 @@ import { getTrustLevelConfig, computeClientTrust } from '@/modules/trust/service
 import useDebouncedValue from '@/hooks/useDebouncedValue.js';
 import usePaginationController from '@/hooks/usePaginationController.js';
 import PaginationControls from '@/components/ui/PaginationControls.jsx';
+import LoanEditModal from '@/components/loans/LoanEditModal';
+import LoanCreateModal from '@/components/loans/LoanCreateModal';
 import { checkIsExpired, calculateLicenseProgress } from '@/modules/license/service.js';
 import { getProductMargin, getAutoSalePrice } from '@/modules/products/pricing.js';
 import { fmtUsd, fmtBs } from '@/shared/lib/format.js';
@@ -7123,29 +7125,8 @@ export default function CrediFluxApp() {
         const perInstallment = remainingInstallments > 0 ? remainingAmount / remainingInstallments : 0;
         const totalBelowPaid = isEdit && totalAPagar + 0.01 < paidAmount;
         const clientName = clients.find(c => String(c.id) === String(draft.clientId))?.name || draft.clientName || '—';
-        const inputCls = `w-full px-3 py-2 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${settingsFieldTheme}`;
-        const readOnlyCls = 'w-full px-3 py-2 rounded-xl border border-slate-700/60 bg-slate-900/40 text-slate-300 text-xs font-semibold tabular-nums cursor-not-allowed opacity-90';
-        const labelCls = 'block text-slate-300 font-semibold mb-1 text-xs';
 
-        return (
-        <div role="dialog" aria-modal="true" aria-label={isEdit ? 'Editar condiciones de pago' : 'Nuevo financiamiento'} tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className={`w-full max-w-5xl ${settingsModalCls} border rounded-3xl p-4 sm:p-5 shadow-2xl max-h-[94vh] overflow-y-auto`}>
-            <div className={`flex items-center justify-between pb-3 border-b ${settingsModalBorderCls}`}>
-              <div>
-                <h3 className="font-bold text-base text-slate-200">{isEdit ? 'Editar Condiciones de Pago' : 'Nuevo Financiamiento o Préstamo'}</h3>
-                <p className="text-xs text-slate-400">
-                  {isEdit
-                    ? 'Sólo cambian interés, cuotas, frecuencia e inicio. Los abonos y el histórico se conservan.'
-                    : 'Captura compacta con cálculos automáticos y resumen financiero.'}
-                </p>
-              </div>
-              <button type="button" onClick={() => setLoanModal({ open: false, data: null })} className="p-1.5 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-white" title="Cerrar">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form
-              onSubmit={async (e) => {
+        const handleSubmit = async (e) => {
                 e.preventDefault();
                 if (isUserExpired) { notify(SUPPORT_CONTACT_TEXT, 'error'); return; }
                 if (!isEdit) {
@@ -7201,364 +7182,60 @@ export default function CrediFluxApp() {
                 } finally {
                   setLoanSaving(false);
                 }
-              }}
-              className="mt-4 space-y-3"
-            >
-              {isEdit ? (
-                <section className="rounded-2xl border border-slate-700/60 bg-slate-800/50 p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400">Datos congelados</h4>
-                    <span className="inline-flex items-center gap-1 text-xs text-amber-400/90"><Lock className="w-3.5 h-3.5" /> Solo lectura</span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <div>
-                      <span className={labelCls}>Cliente</span>
-                      <div className={readOnlyCls}>{clientName}</div>
-                    </div>
-                    <div>
-                      <span className={labelCls}>Productos / modalidad</span>
-                      <div className={readOnlyCls}>
-                        {draft.type === 'producto'
-                          ? pricedItems.map(item => `${item.product?.name || item.productId} ×${item.quantity}`).join(', ') || '—'
-                          : 'Dinero / efectivo'}
-                      </div>
-                    </div>
-                    <div>
-                      <span className={labelCls}>Monto base original</span>
-                      <div className={readOnlyCls}>${base.toFixed(2)}</div>
-                    </div>
-                  </div>
-                  <p className="mt-2 text-xs text-slate-400">
-                    Productos, inventario, cliente, monto base y enganche no se modifican. Los pagos registrados se conservan íntegros.
-                  </p>
-                </section>
-              ) : (
-                <>
-                  {/* Datos principales (sólo alta) */}
-                  <section className="rounded-2xl border border-slate-700/60 bg-slate-800/50 p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400">1. Datos principales</h4>
-                      <span className="text-xs text-slate-400">Cliente y producto</span>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div>
-                        <label className={labelCls}>Cliente *</label>
-                        <select value={draft.clientId || ''} onChange={(e) => setDraft({ clientId: e.target.value })} required className={inputCls}>
-                          <option value="">-- Elige un cliente --</option>
-                          {clients.map(c => (
-                            <option key={c.id} value={c.id}>{c.name} ({c.dni})</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className={labelCls}>Modalidad</label>
-                        <select
-                          value={draft.type || 'producto'}
-                          onChange={(e) => setDraft({ type: e.target.value, productId: '', items: [], interestRateUnlocked: false })}
-                          className={inputCls}
-                        >
-                          <option value="producto">Equipo / producto</option>
-                          <option value="dinero">Dinero / efectivo</option>
-                        </select>
-                      </div>
-                    </div>
-                    {draft.type === 'producto' && (
-                      <div className="mt-3 rounded-xl border border-slate-700/60 bg-slate-900/30 p-2.5">
-                        <div className="flex items-center justify-between gap-2 mb-2">
-                          <span className="text-xs font-bold uppercase tracking-wide text-slate-400">Productos financiados ({productItems.length})</span>
-                          <button
-                            type="button"
-                            onClick={() => setItems([...productItems, { productId: '', quantity: 1 }])}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-500/40 text-emerald-400 text-xs font-bold hover:bg-emerald-500/10"
-                          >
-                            <Plus className="w-3.5 h-3.5" /> Agregar producto
-                          </button>
-                        </div>
-                        {pricedItems.length === 0 ? (
-                          <p className="text-xs text-slate-400">Agrega al menos un producto del catálogo para calcular el monto base.</p>
-                        ) : (
-                          <div className="space-y-2">
-                            {pricedItems.map((item, index) => (
-                              <div key={`${item.productId || 'nuevo'}-${index}`} className="grid grid-cols-[1fr_72px_88px_36px] gap-2 items-center">
-                                <select
-                                  value={item.productId || ''}
-                                  onChange={(e) => {
-                                    const next = [...productItems];
-                                    next[index] = { ...next[index], productId: e.target.value };
-                                    setItems(next);
-                                  }}
-                                  className={inputCls}
-                                  aria-label={`Producto ${index + 1}`}
-                                >
-                                  <option value="">-- Producto --</option>
-                                  {availableProducts.map(p => (
-                                    <option key={p.id} value={p.id}>{p.name} — stock {Number(p.stock) || 0}</option>
-                                  ))}
-                                </select>
-                                <input
-                                  type="number"
-                                  min="1"
-                                  max="999"
-                                  value={item.quantity}
-                                  onChange={(e) => {
-                                    const next = [...productItems];
-                                    next[index] = { ...next[index], quantity: Math.max(1, parseInt(e.target.value, 10) || 1) };
-                                    setItems(next);
-                                  }}
-                                  className={inputCls}
-                                  title="Cantidad"
-                                  aria-label={`Cantidad del producto ${index + 1}`}
-                                />
-                                <div className="text-xs text-right text-slate-300 font-semibold tabular-nums">${item.subtotal.toFixed(2)}</div>
-                                <button
-                                  type="button"
-                                  onClick={() => setItems(productItems.filter((_, i) => i !== index))}
-                                  className="p-2 min-h-[36px] min-w-[36px] inline-flex items-center justify-center rounded-lg text-rose-400 hover:bg-rose-500/10"
-                                  title="Quitar producto"
-                                  aria-label="Quitar producto"
-                                >
-                                  <X className="w-4 h-4" />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </section>
 
-                  <section className="rounded-2xl border border-slate-700/60 bg-slate-800/50 p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400">2. Cálculos y montos</h4>
-                      <span className="text-xs text-slate-400">Base, ganancia e inicial</span>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div>
-                        <label className={labelCls}>Monto Base / Precio ($) *</label>
-                        <input
-                          type="number"
-                          step="any"
-                          min="0"
-                          value={draft.principal === '' ? '' : draft.principal}
-                          onChange={(e) => setDraft({ principal: e.target.value === '' ? '' : Number(e.target.value) })}
-                          required
-                          className={`${inputCls} font-bold`}
-                          placeholder="Ej. 700"
-                        />
-                      </div>
-                      <div>
-                        <label className={labelCls}>Inicial / Enganche ($)</label>
-                        <input
-                          type="number"
-                          step="any"
-                          min="0"
-                          value={draft.downPayment ?? 0}
-                          onChange={(e) => setDraft({ downPayment: e.target.value === '' ? 0 : Number(e.target.value) })}
-                          className={inputCls}
-                        />
-                      </div>
-                      <div>
-                        <label className={labelCls}>Notas / condiciones</label>
-                        <input
-                          type="text"
-                          value={draft.notes || ''}
-                          onChange={(e) => setDraft({ notes: e.target.value })}
-                          className={inputCls}
-                        />
-                      </div>
-                    </div>
-                  </section>
-                </>
-              )}
+        };
 
-              {/* Condiciones de pago (siempre editables) + resumen financiero */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <section className="rounded-2xl border border-slate-700/60 bg-slate-800/50 p-3 sm:p-4">
-                  <div className="flex items-start justify-between gap-2 mb-3">
-                    <div>
-                      <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                        {isEdit ? 'Condiciones de pago (editables)' : '3. Condiciones de pago'}
-                      </h4>
-                      <p className="mt-0.5 text-xs text-slate-400">
-                        {isEdit ? 'Únicos campos que se actualizan al guardar.' : 'Define el interés y el calendario de cobros.'}
-                      </p>
-                    </div>
-                    {isEdit && (
-                      <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-400 ring-1 ring-inset ring-emerald-500/30">
-                        4 campos
-                      </span>
-                    )}
-                  </div>
+        if (isEdit) {
+          return (
+            <LoanEditModal
+              draft={draft}
+              onPatch={setDraft}
+              onClose={() => setLoanModal({ open: false, data: null })}
+              onSubmit={handleSubmit}
+              clientName={clientName}
+              pricedItems={pricedItems}
+              base={base}
+              down={down}
+              rate={rate}
+              interestMode={interestMode}
+              interesMonto={interesMonto}
+              paidCount={paidCount}
+              paidAmount={paidAmount}
+              remainingAmount={remainingAmount}
+              installmentCountNum={installmentCountNum}
+              remainingInstallments={remainingInstallments}
+              perInstallment={perInstallment}
+              totalAPagar={totalAPagar}
+              totalBelowPaid={totalBelowPaid}
+              saving={loanSaving}
+              theme={{ modal: settingsModalCls, field: settingsFieldTheme, border: settingsModalBorderCls }}
+            />
+          );
+        }
 
-                  <div className="space-y-3">
-                    {/* Interés */}
-                    <div className="rounded-xl border border-slate-700/50 bg-slate-900/25 p-2.5">
-                      <div className="flex items-center gap-1.5 mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">
-                        <Coins className="w-3.5 h-3.5 text-emerald-400" /> Interés
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-[130px_1fr] gap-2">
-                        <div>
-                          <label className={labelCls}>Modalidad</label>
-                          <select
-                            value={interestMode}
-                            onChange={(e) => setDraft({ interestMode: e.target.value })}
-                            className={inputCls}
-                            title="Modalidad de interés"
-                            aria-label="Modalidad de interés"
-                          >
-                            <option value="percent">Porcentaje</option>
-                            <option value="fixed">Monto fijo</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className={labelCls}>{interestMode === 'fixed' ? 'Monto fijo ($)' : 'Tasa de interés (%)'}</label>
-                          <input
-                            type="number"
-                            step="any"
-                            min="0"
-                            value={interestMode === 'fixed'
-                              ? (draft.interestAmount ?? 0)
-                              : (draft.interestRate === '' ? '' : draft.interestRate)}
-                            onChange={(e) => setDraft(interestMode === 'fixed'
-                              ? { interestAmount: e.target.value === '' ? 0 : Number(e.target.value) }
-                              : { interestRate: e.target.value === '' ? '' : Number(e.target.value) })}
-                            disabled={!isEdit && draft.type === 'producto' && productItems.length > 0 && !draft.interestRateUnlocked && interestMode === 'percent'}
-                            className={`${inputCls} font-bold text-emerald-400`}
-                          />
-                        </div>
-                      </div>
-                      {!isEdit && draft.type === 'producto' && productItems.length > 0 && interestMode === 'percent' && (
-                        <label className="mt-2 inline-flex items-center gap-1.5 text-xs text-slate-300" title="Editar porcentaje excepcionalmente">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(draft.interestRateUnlocked)}
-                            onChange={(e) => setDraft({ interestRateUnlocked: e.target.checked })}
-                            className="accent-emerald-500"
-                          />
-                          Permitir editar la tasa sugerida
-                        </label>
-                      )}
-                    </div>
-
-                    {/* Calendario de cuotas */}
-                    <div className="rounded-xl border border-slate-700/50 bg-slate-900/25 p-2.5">
-                      <div className="flex items-center gap-1.5 mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">
-                        <Calendar className="w-3.5 h-3.5 text-emerald-400" /> Calendario de cuotas
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                        <div>
-                          <label className={labelCls}>Cantidad</label>
-                          <input
-                            type="number"
-                            min={Math.max(1, paidCount)}
-                            max={360}
-                            value={draft.installmentCount ?? 4}
-                            onChange={(e) => setDraft({ installmentCount: e.target.value })}
-                            className={`${inputCls} font-bold`}
-                          />
-                        </div>
-                        <div>
-                          <label className={labelCls}>Frecuencia</label>
-                          <select value={draft.frequency || 'quincenal'} onChange={(e) => setDraft({ frequency: e.target.value })} className={inputCls}>
-                            <option value="semanal">Semanal</option>
-                            <option value="quincenal">Quincenal</option>
-                            <option value="mensual">Mensual</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className={labelCls}>Inicio / próximo cobro</label>
-                          <input
-                            type="date"
-                            value={draft.startDate || new Date().toISOString().split('T')[0]}
-                            onChange={(e) => setDraft({ startDate: e.target.value })}
-                            className={inputCls}
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {isEdit && (paidCount > 0 || totalBelowPaid) && (
-                      <div className={`rounded-xl border px-3 py-2 text-xs ${
-                        totalBelowPaid
-                          ? 'border-rose-500/40 bg-rose-500/10 text-rose-300'
-                          : 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300/90'
-                      }`}>
-                        <div className="flex items-start gap-2">
-                          {totalBelowPaid
-                            ? <AlertCircle className="mt-0.5 w-3.5 h-3.5 shrink-0" />
-                            : <CheckCircle className="mt-0.5 w-3.5 h-3.5 shrink-0" />}
-                          <p>
-                            {totalBelowPaid
-                              ? 'El nuevo total es menor a lo ya abonado. Ajusta el interés para continuar.'
-                              : `${paidCount} cuota(s) pagadas ($${paidAmount.toFixed(2)}) y sus comprobantes se conservan. El saldo se distribuye entre ${remainingInstallments} cuota(s) pendiente(s).`}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </section>
-
-                {/* Resumen financiero en tiempo real */}
-                <section className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-3 sm:p-4 flex flex-col justify-between">
-                  <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wide text-emerald-400/80 mb-2">Resumen financiero</h4>
-                    <div className="space-y-1.5 text-xs">
-                      <div className="flex items-center justify-between text-slate-300">
-                        <span>Monto Base Original <span className="text-slate-500">(solo lectura)</span></span>
-                        <span className="font-semibold tabular-nums">${base.toFixed(2)}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-slate-300">
-                        <span>Nuevos Intereses Calculados {interestMode === 'fixed' ? '(fijo)' : `(${rate || 0}%)`}</span>
-                        <span className="font-semibold text-teal-400 tabular-nums">${interesMonto.toFixed(2)}</span>
-                      </div>
-                      {isEdit && down > 0 && (
-                        <div className="flex items-center justify-between text-slate-300">
-                          <span>Enganche original</span>
-                          <span className="font-semibold text-amber-400 tabular-nums">− ${down.toFixed(2)}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div className={`mt-3 pt-3 border-t space-y-1.5 ${totalBelowPaid ? 'border-rose-500/40' : 'border-emerald-500/20'}`}>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold uppercase tracking-wide text-emerald-400/80">Nuevo Total del Financiamiento</span>
-                      <span className="text-lg font-extrabold text-slate-200 tabular-nums leading-none">${totalAPagar.toFixed(2)}</span>
-                    </div>
-                    {isEdit && (
-                      <div className="flex items-center justify-between rounded-lg bg-emerald-500/10 px-2 py-1.5">
-                        <span className="text-xs text-slate-300">Total Abonado / Pagado <span className="text-emerald-400">(inmutable)</span></span>
-                        <span className="text-sm font-bold text-emerald-400 tabular-nums">− ${paidAmount.toFixed(2)}</span>
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between rounded-lg bg-amber-500/10 px-2 py-1.5">
-                      <span className="text-xs text-slate-300">Saldo Pendiente Real</span>
-                      <span className="text-base font-extrabold text-amber-400 tabular-nums">${remainingAmount.toFixed(2)}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs text-slate-300">
-                      <span>Nuevo Valor por Cuota</span>
-                      <span className="font-semibold text-slate-200 tabular-nums">
-                        ${perInstallment.toFixed(2)} × {remainingInstallments}
-                      </span>
-                    </div>
-                  </div>
-                </section>
-              </div>
-
-              <div className="pt-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <p className="text-xs text-slate-400">
-                  {isEdit ? 'Al guardar se recalculan sólo las cuotas pendientes y se actualiza la tabla automáticamente.' : 'Obligatorios: cliente, monto base y producto (si aplica).'}
-                </p>
-                <div className="flex items-center gap-2 justify-end">
-                  <button type="button" disabled={loanSaving} onClick={() => setLoanModal({ open: false, data: null })} className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold text-xs disabled:opacity-50">Cancelar</button>
-                  <button type="submit" disabled={loanSaving} className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 font-bold text-xs inline-flex items-center gap-2">
-                    {loanSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                    {loanSaving ? 'Guardando…' : (isEdit ? 'Guardar condiciones' : 'Generar Contrato')}
-                  </button>
-                </div>
-              </div>
-            </form>
-          </div>
-        </div>
+        return (
+          <LoanCreateModal
+            draft={draft}
+            onPatch={setDraft}
+            onItemsChange={setItems}
+            onClose={() => setLoanModal({ open: false, data: null })}
+            onSubmit={handleSubmit}
+            clients={clients}
+            availableProducts={availableProducts}
+            pricedItems={pricedItems}
+            base={base}
+            down={down}
+            rate={rate}
+            interestMode={interestMode}
+            interesMonto={interesMonto}
+            totalAPagar={totalAPagar}
+            remainingAmount={remainingAmount}
+            installmentCountNum={installmentCountNum}
+            remainingInstallments={remainingInstallments}
+            perInstallment={perInstallment}
+            saving={loanSaving}
+            theme={{ modal: settingsModalCls, field: settingsFieldTheme, border: settingsModalBorderCls }}
+          />
         );
       })()}
       {/* MODAL: ABONO RÁPIDO / PAGO DE CUOTA                            */}

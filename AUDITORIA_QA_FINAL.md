@@ -3,8 +3,8 @@
 - **Fecha:** 2026-11-20
 - **Rama:** `main` (alineada con `origin/main` antes de los cambios)
 - **Alcance:** UI (`app/page.jsx`), 21 rutas API, autenticación/Supabase, cálculos contables, filtros/tablas, compilación y pruebas.
-- **Exclusiones:** ejecución contra Supabase hosted, pruebas de carga, Lighthouse/axe en navegador. No se leyó `.env.local` ni `supabase/.temp/*`.
-- **Entorno:** Next.js 16.4.6 (Turbopack), React 19.3.1, TypeScript, Vitest 5.1.1.
+- **Exclusiones:** ejecución contra Supabase hosted, flujo E2E autenticado, pruebas de carga, Lighthouse/axe en navegador. No se leyó `.env.local` ni `supabase/.temp/*`.
+- **Entorno:** Next.js 16.4.6 (Turbopack), React 19.3.1, TypeScript, Vitest 5.1.1, Playwright, Testing Library/jsdom.
 
 ## Estado: APROBADO PARA DESPLIEGUE (P0 cerrado)
 
@@ -54,7 +54,34 @@ El bloque P0 quedó resuelto y verificado. Quedan riesgos P1/P2 documentados que
 | Gate | Comando | Resultado |
 |------|---------|-----------|
 | Tipado | `npx tsc --noEmit` | ✅ 0 errores |
-| Tests | `npm test` | ✅ 10 archivos, 74/74 |
-| Build | `npm run build` | ✅ Compilado sin errores (17 páginas, 21 rutas) |
-| Whitespace | `git diff --check` | ✅ Limpio |
+| Tests unitarios/integración | `npm test` | ✅ 24 archivos, 153/153 |
+| Tests E2E smoke | `npm run test:e2e` | ✅ 1 archivo, 2/2 (Chromium + `next start`) |
+| Build | `npm run build` | ✅ Compilado sin errores |
+| Whitespace | `git diff --check` | ✅ Sin errores (sólo aviso LF→CRLF en `app/page.jsx`) |
 | Lint | — | No configurado (sin script ESLint/Biome) |
+
+## Ampliación de cobertura (2026-11-20)
+
+Se ejecutó el skill `multi-module-testing` y se aplicaron sus próximos pasos:
+
+| Paso | Acción | Resultado |
+|------|--------|-----------|
+| P1 | Specs nuevos para `api-clients`, `api-products`, `api-capital` y `api-dashboard` | ✅ 24 tests nuevos, mocks locales, sin BD/API de producción |
+| P2 | Playwright + smoke público (`landing` y `/api/health`) | ✅ 2 tests E2E en Chromium contra `next start` local |
+| P3 | Testing Library/jsdom para `LoanCreateModal`, `LoanEditModal`, `usePaginationController` y `useDebouncedValue` | ✅ 16 tests nuevos |
+| P4 | CI con gate E2E opcional (`vars.RUN_E2E` o `workflow_dispatch`) | ✅ `.github/workflows/ci.yml` actualizado |
+| P5 | Consolidación en esta auditoría | ✅ 153/153 unitarios + 2/2 E2E |
+
+### Módulos que pasaron de `SKIP` a `PASS`
+
+- `api-clients`: alta/edición, validación de campos obligatorios, borrado con archivado de financiamientos y 401.
+- `api-products`: cálculo por margen y por precio manual, validación de nombre, borrado y 401.
+- `api-capital`: aporte USD, validación de tasa VES, retiro sobre capital neto, tipos inválidos y borrado.
+- `api-dashboard`: respuesta de los siete bloques, firma de URLs en un lote, modo dinámico y 401.
+- `componentes UI`: render, callbacks, estado `saving`, bloqueo de tasa sugerida y envío de formularios.
+- `hooks`: paginación con clamp/reset y debounce con timers falsos.
+
+### Pendiente
+
+- E2E autenticado (login → crear financiamiento → abono → cronograma) requiere un entorno de test con datos semilla y credenciales aisladas; no se ejecuta contra producción.
+- La skill `web-qa-final-audit` no está disponible en esta sesión; esta auditoría sirve como registro consolidado.

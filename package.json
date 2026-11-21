@@ -23,7 +23,9 @@
     "stress:run": "node scripts/seed-stress-controlled.mjs --run",
     "stress:cleanup": "node scripts/seed-stress-controlled.mjs --cleanup",
     "stress:repair": "node scripts/seed-stress-controlled.mjs --repair",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium"
   },
   "keywords": [],
   "author": "",
@@ -46,9 +48,13 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@testing-library/jest-dom": "^8.0.0",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^26.6.6",
     "@types/react": "19.3.0",
     "autoprefixer": "^10.6.2",
+    "jsdom": "^31.0.1",
     "postcss": "^8.5.32",
     "prisma": "^6.6.0",
     "tailwindcss": "^3.4.19",

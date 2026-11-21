@@ -50,6 +50,11 @@ pnpm-debug.log*
 .env.staging
 
 # 7. Residuos de Pruebas, Código Muerto y Backups
+# artefactos de Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
 # reportes y backups de pruebas de estrés (pueden contener hashes)
 /reports/
 # La CLI de Supabase guarda aquí URLs de conexión con credenciales.

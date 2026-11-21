@@ -184,3 +184,32 @@ Verified:
 - `.agents/skills/multi-module-testing/DISCOVERY_REPORT.md` - reporte actualizado
 
 **Próximo paso habilitado:** Continuar con Phase 2 sub-fase para los módulos restantes, o integrar resultados al reporte QA final con estado `APROBADO PARA PRODUCCIÓN`.
+
+---
+
+## 7. Re-ejecución 2026-11-20 (estado actual)
+
+Este archivo conserva el descubrimiento histórico; las cifras vigentes son las de esta sección.
+
+| Métrica | Valor actual |
+|---------|--------------|
+| Archivos de test | 24 |
+| Tests Vitest | 153/153 |
+| Tests E2E Playwright | 2/2 |
+| Módulos con spec propio | 20 |
+| Typecheck | OK |
+| Build | OK |
+
+### Módulos cubiertos después de aplicar los próximos pasos
+
+- `api-clients`, `api-products`, `api-capital`, `api-dashboard` → nuevos specs de route con mocks.
+- `components/loans/LoanCreateModal`, `components/loans/LoanEditModal` → tests de render y callbacks con Testing Library/jsdom.
+- `hooks/usePaginationController`, `hooks/useDebouncedValue` → tests de paginación y timers.
+- `e2e/smoke.spec.ts` → landing + `/api/health` contra `next start` local.
+
+### Sigue pendiente
+
+- E2E autenticado con datos semilla aislados.
+- Specs para rutas administrativas, Binance/P2P/exchange-rates, receipt-patterns, health, services de rates/uploads, Supabase runtime y scripts (excluidos por guardrail de escritura en producción).
+
+El registro consolidado está en `AUDITORIA_QA_FINAL.md`.

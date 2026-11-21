@@ -3,13 +3,19 @@ import { fileURLToPath } from 'node:url'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 const pagePath = fileURLToPath(new URL('./page.jsx', import.meta.url))
+const loanEditModalPath = fileURLToPath(new URL('../components/loans/LoanEditModal.tsx', import.meta.url))
+const loanCreateModalPath = fileURLToPath(new URL('../components/loans/LoanCreateModal.tsx', import.meta.url))
 const paginationHookPath = fileURLToPath(new URL('../hooks/usePaginationController.js', import.meta.url))
 let source = ''
+let loanEditModalSource = ''
+let loanCreateModalSource = ''
 let paginationSource = ''
 
 describe('M-009: page.jsx — invariantes de paginación y sesión', () => {
   beforeAll(() => {
     source = fs.readFileSync(pagePath, 'utf8')
+    loanEditModalSource = fs.readFileSync(loanEditModalPath, 'utf8')
+    loanCreateModalSource = fs.readFileSync(loanCreateModalPath, 'utf8')
     paginationSource = fs.readFileSync(paginationHookPath, 'utf8')
   })
 
@@ -37,16 +43,32 @@ describe('M-009: page.jsx — invariantes de paginación y sesión', () => {
 
   it('expone la edición restringida a condiciones de pago con resumen contable', () => {
     expect(source).toContain('aria-label="Editar financiamiento"')
-    expect(source).toContain('bg-emerald-500/10 text-emerald-300 ring-1 ring-inset ring-emerald-500/30')
-    expect(source).toContain("isEdit ? 'Editar Condiciones de Pago' : 'Nuevo Financiamiento o Préstamo'")
     expect(source).toContain("method: isEdit ? 'PATCH' : 'POST'")
     expect(source).toContain('const payload = isEdit ? condiciones : {')
-    expect(source).toContain('Datos congelados')
-    expect(source).toContain('Monto Base Original')
-    expect(source).toContain('Total Abonado / Pagado')
-    expect(source).toContain('Saldo Pendiente Real')
-    expect(source).toContain('Nuevo Valor por Cuota')
+    expect(source).toContain('<LoanEditModal')
     expect(source).toContain('fetchAllData();')
     expect(source).not.toContain('manualInstallmentAmount')
+
+    expect(loanEditModalSource).toContain('max-w-3xl')
+    expect(loanEditModalSource).toContain('Datos de referencia')
+    expect(loanEditModalSource).toContain('Condiciones editables')
+    expect(loanEditModalSource).toContain('Base original')
+    expect(loanEditModalSource).toContain('Abonado')
+    expect(loanEditModalSource).toContain('Saldo pendiente')
+    expect(loanEditModalSource).toContain('Nuevo valor por cuota')
+    expect(loanEditModalSource).toContain('Guardar cambios')
+    expect(loanEditModalSource).toContain('tabular-nums')
+  })
+
+  it('usa el mismo layout compacto para el registro de nuevo financiamiento', () => {
+    expect(source).toContain('<LoanCreateModal')
+    expect(loanCreateModalSource).toContain('max-w-3xl')
+    expect(loanCreateModalSource).toContain('Datos principales')
+    expect(loanCreateModalSource).toContain('Cálculos y montos')
+    expect(loanCreateModalSource).toContain('Condiciones de pago')
+    expect(loanCreateModalSource).toContain('Resumen financiero')
+    expect(loanCreateModalSource).toContain('Generar Contrato')
+    expect(loanCreateModalSource).toContain('tabular-nums')
+    expect(loanCreateModalSource).toContain('sm:grid-cols-2')
   })
 })

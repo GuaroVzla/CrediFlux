@@ -1,3 +1,8 @@
+---
+name: Multi Module Testing
+description: Ejecutar batería completa de pruebas por módulos en proyectos Next.js/TypeScript cuando se pida probar todos los módulos, correr batería completa, auditar cobertura o ejecutar pruebas E2E/unitarias/integración en múltiples carpetas.
+---
+
 # multi-module-testing
 
 ## Description
